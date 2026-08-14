@@ -16,6 +16,15 @@ Gives the state ladder (specifically which state means *finished* on this projec
 check commands, the commit pattern, and the ticket language. If it reports `MISSING`, run
 `/yt-init` first and stop.
 
+Then reconcile the board before trusting any state you are about to read:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/yt-sync.sh"
+```
+
+Dry run — it reports drift and changes nothing. A ticket sitting in the review state with a merged
+PR simply means nobody has run this since the merge, not that the work is unfinished.
+
 ## 1. Get the issue ID
 
 If `$ARGUMENTS` carries one, use it. Otherwise infer it from the branch name — branches created
@@ -71,7 +80,17 @@ means the ticket is not done — surface it rather than closing over it.
 Draft a summary comment **in the configured ticket language**: what changed, which files, how it
 was verified. Show it to the user and ask whether to post it.
 
-**Only on explicit confirmation:**
+**Only on explicit confirmation**, post the summary and let the reconciler move the state — it
+derives the target from the merged PR rather than from your reading of the ladder:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/yt-update.sh" <ISSUE-ID> comment "<summary>"
+"${CLAUDE_PLUGIN_ROOT}/scripts/yt-sync.sh" --apply
+```
+
+If the PR is not merged yet there is nothing for the reconciler to act on, and the ticket
+correctly stays where it is. Apply the transition by hand only when the project genuinely has no
+PR for this work:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/yt-update.sh" <ISSUE-ID> "State <configured states.done>" "<summary>"

@@ -4,54 +4,115 @@
   "projectId": "0-4",
   "tokenOpRef": "op://Private/sreq5zgjtnji4w4b5rbwqscb6m/credential",
   "language": "French",
-
   "states": {
     "start": "In Progress",
     "review": "In Review",
     "done": "Staging",
     "ladder": [
-      "Submitted", "Open", "In Progress", "In Review", "Staging",
-      "Ready For Production", "Live on Production"
+      "Submitted",
+      "Open",
+      "In Progress",
+      "In Review",
+      "Staging",
+      "Ready For Production",
+      "Live on Production"
     ]
   },
-
-  "branch": { "pattern": "<ID>-<slug>", "base": "main" },
-
+  "branch": {
+    "pattern": "<ID>-<slug>",
+    "base": "main"
+  },
   "commit": {
     "pattern": "type(scope): description (<ID>)",
     "position": "suffix",
     "noTicketEscape": "chore(no-ticket)",
-    "types": ["feat", "fix", "docs", "style", "refactor", "test", "chore", "perf", "ci", "revert", "build"]
+    "types": [
+      "feat",
+      "fix",
+      "docs",
+      "style",
+      "refactor",
+      "test",
+      "chore",
+      "perf",
+      "ci",
+      "revert",
+      "build"
+    ]
   },
-
-  "issueTypes": ["Bug", "Feature", "Task", "Epic", "Improvement"],
-  "priorities": ["Show-stopper", "Critical", "Major", "Normal", "Minor"],
+  "issueTypes": [
+    "Bug",
+    "Feature",
+    "Task",
+    "Epic",
+    "Improvement"
+  ],
+  "priorities": [
+    "Show-stopper",
+    "Critical",
+    "Major",
+    "Normal",
+    "Minor"
+  ],
   "defaultPriority": "Normal",
   "reviewer": "juherpin",
-
   "repos": [
     {
       "path": "frontend",
       "when": "UI, pages, forms, translations, Storybook, React",
-      "checks": ["pnpm test:ci", "pnpm lint", "pnpm type-check"],
-      "env": { "ASDF_NODEJS_VERSION": "22.22.0" },
-      "remotes": ["origin", "upstream"],
-      "scopes": ["setup", "config", "deps", "feature", "bug", "docs", "style", "refactor", "test", "build", "ci", "release", "other", "components"]
+      "checks": [
+        "pnpm test:ci",
+        "pnpm lint",
+        "pnpm type-check"
+      ],
+      "env": {
+        "ASDF_NODEJS_VERSION": "22.22.0"
+      },
+      "remotes": [
+        "origin",
+        "upstream"
+      ],
+      "scopes": [
+        "setup",
+        "config",
+        "deps",
+        "feature",
+        "bug",
+        "docs",
+        "style",
+        "refactor",
+        "test",
+        "build",
+        "ci",
+        "release",
+        "other",
+        "components"
+      ],
+      "github": "memobank/marketing-website-frontend"
     },
     {
       "path": "backend",
       "when": "content types, Strapi APIs, plugins, populate config, admin behaviour",
-      "checks": ["yarn test"],
-      "remotes": ["origin"],
-      "scopes": ["api", "config", "ci"]
+      "checks": [
+        "yarn test"
+      ],
+      "remotes": [
+        "origin"
+      ],
+      "scopes": [
+        "api",
+        "config",
+        "ci"
+      ],
+      "github": "memobank/marketing-website-cms"
     }
   ],
-
   "notes": [
     "frontend/ and backend/ are separate git repos; worktrees/ holds other branches' checkouts — never cite a path under it.",
     "pnpm in frontend/, yarn in backend/, npm in neither.",
     "`pnpm test` is bare vitest (watch mode) — use `pnpm test:ci`.",
     "RMB has no Fixed state; closing means Staging.",
-    "The backend's commitizen hook is interactive."
+    "The backend's commitizen hook is interactive.",
+    "Branches push to the opkod-france fork AND memobank, but PRs are opened on memobank — hence repos[].github."
   ]
 }

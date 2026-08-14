@@ -20,6 +20,15 @@ here** — do not carry conventions over from another project.
 
 If it reports `MISSING`, run `/yt-init` first and stop.
 
+Then reconcile the board before trusting any state you are about to read:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/yt-sync.sh"
+```
+
+Dry run — it reports drift and changes nothing. A ticket sitting in the review state with a merged
+PR simply means nobody has run this since the merge, not that the work is unfinished.
+
 ## 1. Fetch the issue
 
 ```bash
@@ -106,9 +115,16 @@ Rules:
 - Use the repo's configured package manager, and only that one.
 - Commit in small, reviewable batches rather than one large commit at the end.
 
-When you open a PR, move the ticket to the configured **review** state in the same breath — it is
-part of opening the PR, not a separate decision — and post the link, **in the configured ticket
-language**:
+When you open a PR, reconcile the ticket in the same breath — it is part of opening the PR, not a
+separate decision. The reconciler reads the open PR and moves the ticket to the configured
+**review** state itself:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/yt-sync.sh" --apply
+```
+
+It matches PRs to issues through the branch name, so a branch named per the configured pattern is
+what makes this work. If it reports no drift, say so and post the link by hand instead:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/yt-update.sh" $ARGUMENTS "State <configured states.review>" "<PR opened: url>"
@@ -129,7 +145,8 @@ Do all three, in order:
 3. **Ask the user** whether to close the ticket. Only on their confirmation:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-update.sh" $ARGUMENTS "State <configured states.done>" "<summary>"
+"${CLAUDE_PLUGIN_ROOT}/scripts/yt-update.sh" $ARGUMENTS comment "<summary>"
+"${CLAUDE_PLUGIN_ROOT}/scripts/yt-sync.sh" --apply
 ```
 
 Never run the closing transition unprompted, and never claim a criterion is met when it is not.

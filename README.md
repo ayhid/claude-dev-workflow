@@ -12,6 +12,9 @@ project, ticket language, repo layout, state ladder and commit convention all co
 | `/bug`     | Investigates the likely code path, checks for duplicates, drafts the issue in the project's language, files it on approval. **Never fixes.** |
 | `/done`    | Re-reads the ticket, verifies each criterion with evidence, runs the checks, closes on confirmation. |
 
+`scripts/yt-sync.sh` reconciles the board against GitHub: open PR → review state, merged PR →
+done state. See [Keeping states honest](#keeping-states-honest).
+
 A `PreToolUse` hook blocks any `git commit -m` whose subject does not match the configured
 convention, with a per-project escape hatch for genuinely ticketless work.
 
@@ -90,7 +93,8 @@ Only `baseUrl` and `project` are required — everything else has a working defa
       "checks": ["pnpm test:ci", "pnpm lint"],
       "env": { "ASDF_NODEJS_VERSION": "22.22.0" },
       "remotes": ["origin", "upstream"],
-      "scopes": ["feature", "bug", "components"]
+      "scopes": ["feature", "bug", "components"],
+      "github": "acme/frontend"
     }
   ],
   "notes": ["Anything a future session must know that the code does not say."]
@@ -152,6 +156,9 @@ scripts/yt-update.sh ABC-22 "State Done" @/tmp/c.md # …with a comment (literal
 scripts/yt-update.sh ABC-22 comment "note"          # comment only
 scripts/yt-create.sh --dup-check "slug 500 router"  # open issues matching keywords
 scripts/yt-create.sh "Summary" @/tmp/body.md Bug Major   # prints the new ID on stdout
+scripts/yt-sync.sh                                  # dry run: report state drift
+scripts/yt-sync.sh --apply --since 14d              # apply it, over a 14-day window
+scripts/yt-sync.sh --deep                           # also read commit subjects
 ```
 
 Two behaviours worth knowing, both learned the hard way against the real API:
@@ -160,6 +167,36 @@ Two behaviours worth knowing, both learned the hard way against the real API:
   the state back afterwards and prints what it actually found — trust that line, not the exit code.
 - In a command query, only values *containing a space* may be braced. `Type {Bug} Priority {X}`
   parses as the single value `{Bug} Priority` and 400s.
+
+## Keeping states honest
+
+Transitions rot. A PR merges on a Friday, nobody is in a session, and the ticket sits in review
+until someone notices. The usual fix is a webhook that fires on merge — but an event that fires
+while the runner is down is simply lost, and the ticket is wrong forever.
+
+`yt-sync.sh` reconciles instead of reacting. It asks *given the PRs that exist right now, where
+should each ticket be?* and advances whatever has fallen behind:
+
+| Evidence | Target |
+| --- | --- |
+| an open PR references the issue | `states.review` |
+| a merged PR references the issue | `states.done` |
+
+It only moves tickets **forward** along `states.ladder`, and leaves anything off the ladder alone —
+a ticket parked in `Blocked` or `Won't Fix` was put there on purpose. Running it twice is a no-op,
+so it is safe from a hook, a cron, or the top of `/task`. Missing a week costs latency, nothing else.
+
+It matches PRs to issues through the **branch name and PR title**. `--deep` additionally reads each
+unmatched PR's commit subjects, which is where a `type(scope): description (ABC-1)` convention puts
+the ID — slower, one extra API call per PR, but it finds work whose branch was named freehand.
+
+Coverage is bounded by the convention, not the tool: a PR that names no issue anywhere is invisible
+to it. If a run reports far fewer issues than you expect, that is the finding — the branch naming
+has drifted, and the commit hook is what pulls it back.
+
+Requires the [GitHub CLI](https://cli.github.com), authenticated. The repo is taken from
+`repos[].github` when set, otherwise from the `upstream` then `origin` remote — set it explicitly
+when branches live on a fork but PRs are opened against the parent.
 
 ## What the skills refuse to do
 
