@@ -11,7 +11,7 @@ argument-hint: [ISSUE-ID]
 ## 0. Load the project's workflow config
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-config.sh"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" config
 ```
 
 This prints the instance, project, ticket language, state ladder, branch and commit patterns,
@@ -23,7 +23,7 @@ If it reports `MISSING`, run `/yt-init` first and stop.
 Then reconcile the board before trusting any state you are about to read:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-sync.sh"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" sync
 ```
 
 Dry run — it reports drift and changes nothing. A ticket sitting in the review state with a merged
@@ -32,7 +32,7 @@ PR simply means nobody has run this since the merge, not that the work is unfini
 ## 1. Fetch the issue
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-fetch.sh" $ARGUMENTS
+node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" fetch $ARGUMENTS
 ```
 
 If the script exits non-zero, report its message and stop — do not guess at the ticket contents.
@@ -74,7 +74,7 @@ Give a short plan: files to touch, approach, risks, how each acceptance criterio
 ## 5. Move the ticket to the configured start state
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-update.sh" $ARGUMENTS "State <configured states.start>"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" update $ARGUMENTS "State <configured states.start>"
 ```
 
 The script prints the state it reads back afterwards. Confirm that line reports the state you
@@ -122,14 +122,14 @@ separate decision. The reconciler reads the open PR and moves the ticket to the 
 **review** state itself:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-sync.sh" --apply
+node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" sync --apply
 ```
 
 It matches PRs to issues through the branch name, so a branch named per the configured pattern is
 what makes this work. If it reports no drift, say so and post the link by hand instead:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-update.sh" $ARGUMENTS "State <configured states.review>" "<PR opened: url>"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" update $ARGUMENTS "State <configured states.review>" "<PR opened: url>"
 ```
 
 Request the configured reviewer, and push to every remote listed for that repo. Verify the PR body
@@ -147,8 +147,8 @@ Do all three, in order:
 3. **Ask the user** whether to close the ticket. Only on their confirmation:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-update.sh" $ARGUMENTS comment "<summary>"
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-sync.sh" --apply
+node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" update $ARGUMENTS comment "<summary>"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" sync --apply
 ```
 
 Never run the closing transition unprompted, and never claim a criterion is met when it is not.

@@ -9,7 +9,7 @@ argument-hint: "[optional ISSUE-ID]"
 ## 0. Load the project's workflow config
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-config.sh"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" config
 ```
 
 Gives the state ladder (specifically which state means *finished* on this project), the per-repo
@@ -19,7 +19,7 @@ check commands, the commit pattern, and the ticket language. If it reports `MISS
 Then reconcile the board before trusting any state you are about to read:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-sync.sh"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" sync
 ```
 
 Dry run — it reports drift and changes nothing. A ticket sitting in the review state with a merged
@@ -43,7 +43,7 @@ back to the most recent ticket you happen to have seen.
 ## 2. Re-read the ticket
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-fetch.sh" <ISSUE-ID>
+node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" fetch <ISSUE-ID>
 ```
 
 Re-read rather than trusting earlier context: comments may have been added while you worked,
@@ -111,8 +111,8 @@ was verified. Show it to the user and ask whether to post it.
 derives the target from the merged PR rather than from your reading of the ladder:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-update.sh" <ISSUE-ID> comment "<summary>"
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-sync.sh" --apply
+node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" update <ISSUE-ID> comment "<summary>"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" sync --apply
 ```
 
 If the PR is not merged yet there is nothing for the reconciler to act on, and the ticket
@@ -120,13 +120,12 @@ correctly stays where it is. Apply the transition by hand only when the project 
 PR for this work:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-update.sh" <ISSUE-ID> "State <configured states.done>" "<summary>"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" update <ISSUE-ID> "State <configured states.done>" "<summary>"
 ```
 
 Confirm the read-back line reports that state. If it reports anything else, the command did not
 apply — report that rather than assuming success. Use only state names from the configured
-ladder, and **brace a state name only when it contains a space** — `State {In Review}` is correct,
-`State {Staging}` is rejected outright. Braces mark where a multi-word value ends; they are not
-quoting. Prefer `yt-sync.sh`, which handles this for you; a state YouTrack does not recognise fails, sometimes silently.
+ladder, and observe the brace rule (see `/task` §5). Prefer `yt.mjs sync`, which applies it for
+you; a state YouTrack does not recognise fails, sometimes silently.
 
 Pushing the branch and opening a PR are separate actions; ask before doing either.

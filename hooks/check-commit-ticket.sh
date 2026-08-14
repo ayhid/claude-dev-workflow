@@ -11,6 +11,20 @@
 set -uo pipefail
 
 input=$(cat)
+
+# Without jq this hook cannot parse its own payload, and enforcement silently
+# disappears — the worst failure mode for a guard. Blocking every Bash call
+# would be worse still, so allow, but say so, and only when a commit is
+# actually in flight: a crude match on the raw payload is enough to tell.
+if ! command -v jq >/dev/null 2>&1; then
+  case "$input" in
+    *"git commit"*)
+      echo "check-commit-ticket: jq is not installed, so the commit-message convention is NOT being enforced. Install jq to restore it." >&2
+      ;;
+  esac
+  exit 0
+fi
+
 cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // ""' 2>/dev/null) || exit 0
 [ -n "$cmd" ] || exit 0
 

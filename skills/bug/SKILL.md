@@ -14,7 +14,7 @@ edit a file, never switch branches — the session may be mid-task on another ti
 ## 0. Load the project's workflow config
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-config.sh"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" config
 ```
 
 Gives the project key, the **language the issue must be written in**, the valid issue types and
@@ -54,14 +54,14 @@ Skip anything already known. If the description was thorough, ask nothing and sa
 Pick 2–3 distinctive keywords from the symptom — not generic words like "error" or "page":
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-create.sh" --dup-check "<keywords>"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" create --dup-check "<keywords>"
 ```
 
 If plausible matches come back, show them and ask whether to comment on the existing issue
 instead. On that choice, comment and stop — do not also create a new issue:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-update.sh" <EXISTING-ID> "comment" "<what we just observed>"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" update <EXISTING-ID> "comment" "<what we just observed>"
 ```
 
 ## 5. Draft the issue
@@ -99,7 +99,7 @@ Write the description to a scratch file first — multiline markdown does not su
 round-trip cleanly — then pass it with `@`:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-create.sh" "<summary>" @<scratch>/bug-body.md Bug <Priority>
+node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" create "<summary>" @<scratch>/bug-body.md Bug <Priority>
 ```
 
 Type and Priority must come from the configured lists. The script prints only the issue ID on

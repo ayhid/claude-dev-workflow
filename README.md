@@ -12,7 +12,7 @@ project, ticket language, repo layout, state ladder and commit convention all co
 | `/bug`     | Investigates the likely code path, checks for duplicates, drafts the issue in the project's language, files it on approval. **Never fixes.** |
 | `/done`    | Re-reads the ticket, verifies each criterion with evidence, runs the checks, closes on confirmation. |
 
-`scripts/yt-sync.sh` reconciles the board against GitHub: open PR → review state, merged PR →
+`yt.mjs sync` reconciles the board against GitHub: open PR → review state, merged PR →
 done state. See [Keeping states honest](#keeping-states-honest).
 
 A `PreToolUse` hook blocks any `git commit -m` whose subject does not match the configured
@@ -58,8 +58,8 @@ Cloned locally, `node bin/install.mjs` is the same thing.
 
 Then run `/yt-init` in each project — the same setup, driven by the model rather than the CLI.
 
-Requirements: Node ≥ 18 for the installer; `bash`, `curl` and `jq` for the skills at runtime.
-The 1Password CLI (`op`) is optional.
+Requirements: Node ≥ 18. `jq` is needed only by the commit hook, and the
+[GitHub CLI](https://cli.github.com) only by `yt.mjs sync`. The 1Password CLI (`op`) is optional.
 
 ## Configuration
 
@@ -132,8 +132,10 @@ Token resolution order:
 1. `$YOUTRACK_TOKEN`
 2. 1Password, via `op read "<tokenOpRef>"`
 
-The token is never written to disk and never appears in `argv` — `curl` reads the `Authorization`
-header from stdin via `-K -`.
+The token is never written to disk and never appears in `argv`: it is passed as an `Authorization`
+header on a `fetch` call, and `op read` is given the 1Password *reference* rather than the secret.
+Subprocesses are spawned with argument arrays, never an interpolated shell string, so nothing
+sensitive can surface in a process listing.
 
 Create a token at *Profile → Account Security → Authentication → New token* with the `YouTrack`
 scope.
@@ -149,21 +151,26 @@ file. Useful for one-off runs against another instance, and for CI.
 They are ordinary CLI tools; the skills just call them.
 
 ```bash
-scripts/yt-config.sh [--json]                       # effective config
-scripts/yt-fetch.sh  ABC-22                         # issue as markdown, comments included
-scripts/yt-update.sh ABC-22 "State In Progress"     # apply a command, read the state back
-scripts/yt-update.sh ABC-22 "State Done" @/tmp/c.md # …with a comment (literal or @file)
-scripts/yt-update.sh ABC-22 comment "note"          # comment only
-scripts/yt-create.sh --dup-check "slug 500 router"  # open issues matching keywords
-scripts/yt-create.sh "Summary" @/tmp/body.md Bug Major   # prints the new ID on stdout
-scripts/yt-sync.sh                                  # dry run: report state drift
-scripts/yt-sync.sh --apply --since 14d              # apply it, over a 14-day window
-scripts/yt-sync.sh --deep                           # also read commit subjects
+node scripts/yt.mjs config [--json]                      # effective config
+node scripts/yt.mjs fetch  ABC-22                        # issue as markdown, comments included
+node scripts/yt.mjs update ABC-22 "State In Progress"    # apply a command, read the state back
+node scripts/yt.mjs update ABC-22 "State Done" @/tmp/c.md # …with a comment (literal or @file)
+node scripts/yt.mjs update ABC-22 comment "note"         # comment only
+node scripts/yt.mjs create --dup-check "slug 500 router" # open issues matching keywords
+node scripts/yt.mjs create "Summary" @/tmp/body.md Bug Major   # prints the new ID on stdout
+node scripts/yt.mjs sync                                 # dry run: report state drift
+node scripts/yt.mjs sync --apply --since 14d             # apply it, over a 14-day window
+node scripts/yt.mjs sync --deep                          # also read commit subjects
 ```
+
+`config`, `fetch`, `update` and `create` are plain HTTP and depend on nothing beyond Node, so they
+work in a freshly cloned plugin. `sync` drives the GitHub CLI through
+[zx](https://github.com/google/zx) — the one dependency — and installs it on first use if the
+plugin was installed without one.
 
 Two behaviours worth knowing, both learned the hard way against the real API:
 
-- The commands API returns **200 for commands it did not apply**. `yt-update.sh` always reads
+- The commands API returns **200 for commands it did not apply**. `yt.mjs update` always reads
   the state back afterwards and prints what it actually found — trust that line, not the exit code.
 - In a command query, only values *containing a space* may be braced — braces mark where a
   multi-word value ends, they are not general quoting. Both directions bite: `Type {Bug} Priority
@@ -176,7 +183,7 @@ Transitions rot. A PR merges on a Friday, nobody is in a session, and the ticket
 until someone notices. The usual fix is a webhook that fires on merge — but an event that fires
 while the runner is down is simply lost, and the ticket is wrong forever.
 
-`yt-sync.sh` reconciles instead of reacting. It asks *given the PRs that exist right now, where
+`yt.mjs sync` reconciles instead of reacting. It asks *given the PRs that exist right now, where
 should each ticket be?* and advances whatever has fallen behind:
 
 | Evidence | Target |
@@ -207,8 +214,8 @@ freely against any instance. The **write paths cannot be verified without writin
 dry run that looks perfect proves nothing about them — `yt-sync --apply` shipped with a command
 the API rejects, and the dry run had reported the correct plan every time.
 
-So: after changing anything that writes, run it once against a real issue. `yt-create.sh` on a
-throwaway issue you then close, `yt-update.sh`/`yt-sync.sh --apply` on a ticket that genuinely
+So: after changing anything that writes, run it once against a real issue. `yt.mjs create` on a
+throwaway issue you then close, `yt.mjs update` / `yt.mjs sync --apply` on a ticket that genuinely
 needs moving. Then re-run to confirm the operation is idempotent.
 
 Never swallow stderr from a write. The first `--apply` failure printed only `update failed`,

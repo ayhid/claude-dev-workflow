@@ -12,6 +12,7 @@
  */
 import { execFileSync, execFile } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -19,7 +20,7 @@ import { promisify } from 'node:util';
 import * as p from '@clack/prompts';
 import c from 'picocolors';
 
-import { listProjects, projectFieldValues, whoami } from './lib/youtrack.mjs';
+import { listProjects, projectFieldValues, whoami } from '../lib/youtrack.mjs';
 import { baseBranch, commitIdPosition, describeRepo, findRepos } from './lib/detect.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -98,6 +99,38 @@ const has = (bin) => {
     return false;
   }
 };
+
+/**
+ * Install the runtime dependencies into the *installed* plugin directory.
+ *
+ * Claude Code clones a plugin and never runs `npm install`, so `scripts/` would
+ * start with no `node_modules`. The install lands in the version-scoped cache
+ * directory Claude Code recorded — not PLUGIN_ROOT, which under npx is a cache
+ * npm may prune. An upgrade creates a new such directory, empty again; that
+ * case is handled at runtime by scripts/bootstrap.mjs.
+ */
+async function installPluginDeps() {
+  const registry = join(
+    process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'),
+    'plugins',
+    'installed_plugins.json',
+  );
+  if (!existsSync(registry)) return;
+
+  let installPath;
+  try {
+    const data = JSON.parse(readFileSync(registry, 'utf8'));
+    const entries = data?.plugins?.['youtrack-workflow@youtrack-workflow-marketplace'] ?? [];
+    installPath = entries.at(-1)?.installPath;
+  } catch {
+    return;
+  }
+  if (!installPath || !existsSync(join(installPath, 'package.json'))) return;
+
+  await execFileAsync('npm', ['install', '--omit=dev', '--no-audit', '--no-fund', '--prefix', installPath], {
+    timeout: 120_000,
+  });
+}
 
 /** Read a secret out of 1Password without it ever touching the terminal. */
 async function opRead(ref) {
@@ -521,6 +554,12 @@ if (claudeAvailable) {
         timeout: 60_000,
       });
       s.stop('Plugin installed.');
+
+      // Claude Code clones the plugin and never runs `npm install`, so the
+      // runtime scripts would have no dependencies. scripts/bootstrap.mjs can
+      // heal that on first use, but doing it here means the first /task does
+      // not pause for an install.
+      await installPluginDeps();
     } catch (err) {
       s.stop(c.yellow('Could not install automatically.'));
       p.log.warn((err.stderr || err.message || '').trim().slice(0, 400));

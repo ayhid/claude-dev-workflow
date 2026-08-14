@@ -11,6 +11,7 @@ set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 HOOK="$ROOT/hooks/check-commit-ticket.sh"
+BASH_BIN="${BASH:-$(command -v bash)}"
 
 command -v jq >/dev/null 2>&1 || { echo "tests: jq is required" >&2; exit 1; }
 [ -x "$HOOK" ] || [ -f "$HOOK" ] || { echo "tests: no hook at $HOOK" >&2; exit 1; }
@@ -97,6 +98,41 @@ run_case 'rejects a type outside the list'      2 'git commit -m "perf(api): thi
 
 # --- malformed config must not crash the hook ---------------------------------
 run_case 'tolerates invalid json config'        0 'git commit -m "feat(api): thing (ABC-1)"' '{not json'
+
+# --- without jq the hook cannot enforce, and must say so ----------------------
+# It allows (blocking every Bash call would be far worse) but must not vanish
+# silently, and must stay quiet for commands that are not commits.
+without_jq() {
+  local desc="$1" want_warn="$2" cmd="$3"
+  local dir="$TMP/nojq-$((pass + fail))" stub="$TMP/nojq-bin"
+  mkdir -p "$dir" "$stub"
+  # A PATH with the ordinary tools but no jq. Emptying PATH instead would take
+  # `cat` with it and the hook would die at 127 before reaching the check.
+  local real
+  for tool in cat grep sed head tr dirname mktemp; do
+    real=$(command -v "$tool") && ln -sf "$real" "$stub/$tool"
+  done
+  local payload err code
+  payload=$(jq -n --arg c "$cmd" '{tool_name:"Bash", tool_input:{command:$c}}')
+  # bash by absolute path: the stubbed PATH would not find bash itself.
+  err=$(printf '%s' "$payload" \
+    | PATH="$stub" CLAUDE_PROJECT_DIR="$dir" "$BASH_BIN" "$HOOK" 2>&1 >/dev/null)
+  code=$?
+
+  local got=no
+  case "$err" in *"NOT being enforced"*) got=yes ;; esac
+
+  if [ "$code" = 0 ] && [ "$got" = "$want_warn" ]; then
+    pass=$((pass + 1)); printf '  ok   %s\n' "$desc"
+  else
+    fail=$((fail + 1))
+    printf '  FAIL %s\n       want exit 0 and warn=%s, got exit %s warn=%s\n' \
+      "$desc" "$want_warn" "$code" "$got"
+  fi
+}
+
+without_jq 'no jq: warns that a commit is unchecked' yes 'git commit -m "nope"'
+without_jq 'no jq: stays quiet for other commands'   no  'npm test'
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

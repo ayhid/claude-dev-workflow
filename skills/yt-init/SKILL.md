@@ -16,7 +16,7 @@ API. If the user would rather click through prompts than converse, point them at
 ## 1. Check what already exists
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-config.sh"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" config
 ```
 
 If a config file is already reported, show it and ask whether to amend or replace it. Never
@@ -63,13 +63,13 @@ Once you have the URL, project and token source, prove they work:
 
 ```bash
 YOUTRACK_BASE_URL=<url> YOUTRACK_PROJECT=<key> \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/yt-create.sh" --dup-check "test"
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" create --dup-check "test"
 ```
 
 A `no open issues matched` line or a list of issues both mean success. An auth or project error
 means the config is wrong — fix it now rather than writing a file that fails on first use.
 
-To confirm the state names, fetch any real issue from the project with `yt-fetch.sh` and read the
+To confirm the state names, fetch any real issue from the project with `yt.mjs fetch` and read the
 `State` line. Do not invent state names; a `State X` command YouTrack does not recognise returns
 400, or worse, 200 without applying.
 
@@ -140,10 +140,23 @@ Field notes:
   cannot resolve on its own.
 - `notes` is free-form and is shown to the model on every `/task`, `/bug` and `/done`.
 
-## 6. Confirm it loads, and tell them what is next
+## 6. Install the plugin's own dependencies
+
+Claude Code installs a plugin by cloning it and never runs `npm install`, so do it once here:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/yt-config.sh"
+npm install --omit=dev --no-audit --no-fund --prefix "${CLAUDE_PLUGIN_ROOT}"
+```
+
+Only `yt.mjs sync` needs this (it drives the GitHub CLI through zx); `config`, `fetch`, `update`
+and `create` work without it. If the install fails — no network, a read-only directory — say so
+and carry on: `sync` will retry it on first use, and everything else is unaffected. A plugin
+**upgrade** lands in a fresh directory, so this runs again after each one.
+
+## 7. Confirm it loads, and tell them what is next
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" config
 ```
 
 Read the summary back and check it matches what was agreed. Then:
