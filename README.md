@@ -200,6 +200,20 @@ Requires the [GitHub CLI](https://cli.github.com), authenticated. The repo is ta
 `repos[].github` when set, otherwise from the `upstream` then `origin` remote — set it explicitly
 when branches live on a fork but PRs are opened against the parent.
 
+## Verifying changes to this plugin
+
+The read paths (`yt-fetch`, `--dup-check`, `yt-config`, a `yt-sync` dry run) can be exercised
+freely against any instance. The **write paths cannot be verified without writing once**, and a
+dry run that looks perfect proves nothing about them — `yt-sync --apply` shipped with a command
+the API rejects, and the dry run had reported the correct plan every time.
+
+So: after changing anything that writes, run it once against a real issue. `yt-create.sh` on a
+throwaway issue you then close, `yt-update.sh`/`yt-sync.sh --apply` on a ticket that genuinely
+needs moving. Then re-run to confirm the operation is idempotent.
+
+Never swallow stderr from a write. The first `--apply` failure printed only `update failed`,
+which is worthless — the parser error underneath named the problem exactly.
+
 ## What the skills refuse to do
 
 These are deliberate, and worth preserving in any fork:

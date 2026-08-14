@@ -54,6 +54,18 @@ and the state may have moved underneath you.
 Walk the checklist one criterion at a time. For each, state **met** or **not met** and cite
 concrete evidence — a file and line, a passing test, or command output.
 
+**When a criterion is about deployed behaviour, a merged PR is not evidence.** Tickets often close
+on "fixed *and* verified in the environment". Merging proves the code landed, not that the running
+system changed. Verify the artifact that is actually serving:
+
+- fetch the deployed asset and confirm it carries the fix (a distinguishing symbol from the diff
+  survives minification more often than you would expect);
+- exercise the real thing — load the page, call the endpoint — and compare against the numbers in
+  the ticket's reproduction steps.
+
+Quote the before-and-after. "The cycle that repeated indefinitely now fires once" is evidence;
+"deployed" is not.
+
 If any criterion is unmet, say so plainly and stop. Do not close a ticket whose criteria are
 not satisfied; report what is missing and let the user decide.
 
@@ -63,7 +75,22 @@ Run the checks configured for the repo the work landed in, with its configured `
 If none are configured, find the project's own test and lint entry points and say which you ran
 — and watch for watch-mode targets that never exit.
 
-Report failures with their output. A failing suite blocks closing the ticket.
+Report failures with their output. A failing suite blocks closing the ticket — **unless the
+failures are pre-existing**, and you have shown that rather than assumed it.
+
+To tell the two apart, compare what fails against what the branch changed:
+
+```bash
+git -C <repo> show --name-only --format= <commit>   # what this work touched
+```
+
+A failure in a file or module the branch never touched is pre-existing. Say so explicitly, name
+the module, and cite the commit's file list as the evidence. Then run the suite that *does* cover
+the change on its own and report that result separately — "39 suites green in the plugin under
+test, 3 unrelated failures elsewhere" is an honest close-out; "tests pass" is not.
+
+Never wave a failure away without doing this comparison. If the failing files overlap the change
+at all, treat it as caused by the work and stop.
 
 ## 5. Confirm the diff is committed
 
@@ -98,6 +125,8 @@ PR for this work:
 
 Confirm the read-back line reports that state. If it reports anything else, the command did not
 apply — report that rather than assuming success. Use only state names from the configured
-ladder; a state YouTrack does not recognise fails, sometimes silently.
+ladder, and **brace a state name only when it contains a space** — `State {In Review}` is correct,
+`State {Staging}` is rejected outright. Braces mark where a multi-word value ends; they are not
+quoting. Prefer `yt-sync.sh`, which handles this for you; a state YouTrack does not recognise fails, sometimes silently.
 
 Pushing the branch and opening a PR are separate actions; ask before doing either.

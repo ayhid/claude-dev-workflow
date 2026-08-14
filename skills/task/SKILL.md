@@ -79,7 +79,9 @@ Give a short plan: files to touch, approach, risks, how each acceptance criterio
 
 The script prints the state it reads back afterwards. Confirm that line reports the state you
 asked for — YouTrack can return 200 for a command it did not apply, so the read-back is the
-actual check. Use only state names from the configured ladder.
+actual check. Use only state names from the configured ladder, and **brace a state name only when
+it contains a space** — `State {In Review}` is correct, `State {Staging}` is rejected outright with
+`expected: {Staging}`. Braces mark where a multi-word value ends; they are not quoting.
 
 ## 6. Create the branch
 
