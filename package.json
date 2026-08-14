@@ -1,7 +1,7 @@
 {
   "name": "youtrack-workflow",
-  "version": "1.0.0",
-  "description": "Interactive installer for the youtrack-workflow Claude Code plugin — /task, /bug, /done against YouTrack.",
+  "version": "1.1.0",
+  "description": "Interactive installer for the youtrack-workflow Claude Code plugin \u2014 /task, /bug, /done against YouTrack.",
   "type": "module",
   "bin": {
     "youtrack-workflow": "./bin/install.mjs"
@@ -22,7 +22,13 @@
     "@clack/prompts": "^0.11.0",
     "picocolors": "^1.1.1"
   },
-  "keywords": ["claude-code", "claude-code-plugin", "youtrack", "workflow", "issue-tracker"],
+  "keywords": [
+    "claude-code",
+    "claude-code-plugin",
+    "youtrack",
+    "workflow",
+    "issue-tracker"
+  ],
   "author": "Ayoub Hidri <ayoub@opkod.io>",
   "license": "MIT",
   "repository": {
