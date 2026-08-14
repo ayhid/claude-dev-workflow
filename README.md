@@ -165,8 +165,10 @@ Two behaviours worth knowing, both learned the hard way against the real API:
 
 - The commands API returns **200 for commands it did not apply**. `yt-update.sh` always reads
   the state back afterwards and prints what it actually found — trust that line, not the exit code.
-- In a command query, only values *containing a space* may be braced. `Type {Bug} Priority {X}`
-  parses as the single value `{Bug} Priority` and 400s.
+- In a command query, only values *containing a space* may be braced — braces mark where a
+  multi-word value ends, they are not general quoting. Both directions bite: `Type {Bug} Priority
+  {X}` parses as the single value `{Bug} Priority` and 400s, and `State {Staging}` is rejected
+  outright with `expected: {Staging}`. Brace `{In Review}`, never `{Staging}`.
 
 ## Keeping states honest
 
