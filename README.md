@@ -221,6 +221,10 @@ needs moving. Then re-run to confirm the operation is idempotent.
 Never swallow stderr from a write. The first `--apply` failure printed only `update failed`,
 which is worthless — the parser error underneath named the problem exactly.
 
+`npm test` covers the rest: the hook's exit codes across 30 message shapes, the config merge, the
+brace rule, and the reconciler's forward-only and off-ladder rules. The full release procedure is
+the repo-local `/release` skill in `.claude/skills/`.
+
 ## What the skills refuse to do
 
 These are deliberate, and worth preserving in any fork:
