@@ -1,0 +1,14 @@
+{
+  "name": "youtrack-workflow-marketplace",
+  "owner": {
+    "name": "Ayoub Hidri",
+    "email": "ayoub@opkod.io"
+  },
+  "plugins": [
+    {
+      "name": "youtrack-workflow",
+      "source": "./",
+      "description": "Ticket-driven development against YouTrack: /task, /bug, /done, /yt-init."
+    }
+  ]
+}

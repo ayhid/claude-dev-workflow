@@ -1,0 +1,32 @@
+{
+  "baseUrl": "https://acme.youtrack.cloud",
+  "project": "ABC",
+  "tokenOpRef": "op://Private/youtrack/credential",
+  "language": "English",
+
+  "states": {
+    "start": "In Progress",
+    "review": "In Review",
+    "done": "Done",
+    "ladder": ["Open", "In Progress", "In Review", "Done"]
+  },
+
+  "branch": { "pattern": "<ID>-<slug>", "base": "main" },
+
+  "commit": {
+    "pattern": "type(scope): description (<ID>)",
+    "position": "suffix",
+    "noTicketEscape": "chore(no-ticket)",
+    "types": ["feat", "fix", "docs", "style", "refactor", "test", "chore", "perf", "ci", "build"]
+  },
+
+  "defaultPriority": "Normal",
+  "reviewer": "octocat",
+
+  "repos": [
+    {
+      "path": ".",
+      "checks": ["npm test", "npm run lint"]
+    }
+  ]
+}

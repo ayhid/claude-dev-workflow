@@ -1,0 +1,10 @@
+{
+  "name": "youtrack-workflow",
+  "description": "Ticket-driven development against YouTrack: /task to start an issue, /bug to file one, /done to close one out. Project-agnostic — instance, project, language, repo layout, state ladder and commit convention all come from a per-project .youtrack.json.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Ayoub Hidri",
+    "email": "ayoub@opkod.io"
+  },
+  "keywords": ["youtrack", "issue-tracker", "workflow", "tickets"]
+}
