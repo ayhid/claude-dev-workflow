@@ -1,3 +1,6 @@
 node_modules/
 .DS_Store
-package-lock.json
+
+# package-lock.json is deliberately committed: `main` is the distribution
+# channel for both install paths, so CI must resolve the same dependency tree
+# users get, and `npm ci` needs the lockfile to exist.

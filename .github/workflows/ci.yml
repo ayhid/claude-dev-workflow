@@ -1,0 +1,86 @@
+name: ci
+
+# `main` is a distribution channel — `npx github:ayhid/claude-youtrack-workflow`
+# and `/plugin marketplace add` both install straight from it — so a broken
+# commit ships the moment it lands. Everything here is offline and secretless.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor declared in package.json engines, and current.
+        node: ['18', '22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - run: npm run lint
+      - run: npm run test:unit
+      - run: npm run test:hook
+
+  # The skills invoke the plugin by path, so a rename or a bad manifest breaks
+  # every consumer without any script failing. Check the wiring itself.
+  manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Plugin manifests are valid JSON
+        run: |
+          for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json hooks/hooks.json; do
+            node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" \
+              && echo "ok   $f" || exit 1
+          done
+
+      - name: Example configs are valid JSON
+        run: |
+          for f in examples/*.json; do
+            node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" \
+              && echo "ok   $f" || exit 1
+          done
+
+      - name: Every skill has name and description frontmatter
+        run: |
+          status=0
+          for f in skills/*/SKILL.md; do
+            head -10 "$f" | grep -q '^name:'        || { echo "FAIL $f: no name:"; status=1; }
+            head -10 "$f" | grep -q '^description:' || { echo "FAIL $f: no description:"; status=1; }
+            [ "$status" -eq 0 ] && echo "ok   $f"
+          done
+          exit "$status"
+
+      - name: Paths referenced by hooks.json exist
+        run: |
+          node -e "
+            const fs = require('fs');
+            const m = JSON.parse(fs.readFileSync('hooks/hooks.json', 'utf8'));
+            const cmds = Object.values(m.hooks).flat().flatMap(e => e.hooks).map(h => h.command);
+            let bad = 0;
+            for (const c of cmds) {
+              const p = c.match(/\\\$\{CLAUDE_PLUGIN_ROOT\}\/([^\"' ]+)/)?.[1];
+              if (!p) continue;
+              if (fs.existsSync(p)) console.log('ok   ' + p);
+              else { console.error('FAIL missing: ' + p); bad = 1; }
+            }
+            process.exit(bad);
+          "

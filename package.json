@@ -6,6 +6,12 @@
   "bin": {
     "youtrack-workflow": "./bin/install.mjs"
   },
+  "scripts": {
+    "lint": "bash tests/lint.sh",
+    "test:unit": "node --test tests/*.test.mjs",
+    "test:hook": "bash tests/hook.test.sh",
+    "test": "npm run lint && npm run test:unit && npm run test:hook"
+  },
   "files": [
     "bin",
     "skills",
