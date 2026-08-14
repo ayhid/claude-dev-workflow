@@ -20,7 +20,7 @@ convention, with a per-project escape hatch for genuinely ticketless work.
 From the project you want to set up:
 
 ```bash
-npx youtrack-workflow
+npx github:ayhid/claude-youtrack-workflow
 ```
 
 An interactive wizard ([`@clack/prompts`](https://github.com/bombshell-dev/clack)) that:
@@ -38,16 +38,18 @@ An interactive wizard ([`@clack/prompts`](https://github.com/bombshell-dev/clack
 
 It works offline too — if the API is unreachable it says so and falls back to typed answers.
 
+```bash
+npx github:ayhid/claude-youtrack-workflow --dir ../other-project   # target somewhere else
+npx github:ayhid/claude-youtrack-workflow --print                  # show it, write nothing
+npx github:ayhid/claude-youtrack-workflow --force                  # skip the confirm step
 ```
-npx youtrack-workflow --dir ../other-project   # target somewhere else
-npx youtrack-workflow --print                  # show the config, write nothing
-npx youtrack-workflow --force                  # overwrite without the confirm step
-```
+
+Cloned locally, `node bin/install.mjs` is the same thing.
 
 ### Manual install
 
 ```bash
-/plugin marketplace add <this repo's URL or local path>
+/plugin marketplace add ayhid/claude-youtrack-workflow
 /plugin install youtrack-workflow@youtrack-workflow-marketplace
 ```
 

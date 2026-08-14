@@ -22,7 +22,15 @@
     "@clack/prompts": "^0.11.0",
     "picocolors": "^1.1.1"
   },
-  "keywords": ["claude-code", "claude-code-plugin", "youtrack", "workflow"],
+  "keywords": ["claude-code", "claude-code-plugin", "youtrack", "workflow", "issue-tracker"],
   "author": "Ayoub Hidri <ayoub@opkod.io>",
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ayhid/claude-youtrack-workflow.git"
+  },
+  "homepage": "https://github.com/ayhid/claude-youtrack-workflow#readme",
+  "bugs": {
+    "url": "https://github.com/ayhid/claude-youtrack-workflow/issues"
+  }
 }
