@@ -1,4 +1,5 @@
 {
+  "description": "Blocks any `git commit` with an inline -m whose subject is not a conventional commit referencing a YouTrack issue. Reads .youtrack.json for the allowed types, the ID position and the escape hatch; disabled per-project with commit.enforce=false.",
   "hooks": {
     "PreToolUse": [
       {
@@ -6,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/check-commit-ticket.sh\""
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/check-commit-ticket.sh\""
           }
         ]
       }
