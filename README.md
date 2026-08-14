@@ -17,18 +17,44 @@ convention, with a per-project escape hatch for genuinely ticketless work.
 
 ## Install
 
+From the project you want to set up:
+
+```bash
+npx youtrack-workflow
+```
+
+An interactive wizard ([`@clack/prompts`](https://github.com/bombshell-dev/clack)) that:
+
+1. asks for the instance URL and where the token comes from — `$YOUTRACK_TOKEN` or a 1Password
+   reference — and **verifies it before writing anything**;
+2. lists the projects the token can see, so you pick one rather than typing a key;
+3. reads that project's **real State / Type / Priority values** from the API, so the config can
+   never name a state that does not exist;
+4. scans the working tree for repos, package managers, test and lint scripts, commitlint types
+   and scopes, runtime pins and git remotes, and shows them for confirmation;
+5. infers whether issue IDs go at the prefix or suffix of a commit subject from the last 50
+   commits;
+6. writes `.youtrack.json` and offers to register the plugin with Claude Code.
+
+It works offline too — if the API is unreachable it says so and falls back to typed answers.
+
+```
+npx youtrack-workflow --dir ../other-project   # target somewhere else
+npx youtrack-workflow --print                  # show the config, write nothing
+npx youtrack-workflow --force                  # overwrite without the confirm step
+```
+
+### Manual install
+
 ```bash
 /plugin marketplace add <this repo's URL or local path>
 /plugin install youtrack-workflow@youtrack-workflow-marketplace
 ```
 
-Then, in each project you want it in:
+Then run `/yt-init` in each project — the same setup, driven by the model rather than the CLI.
 
-```
-/yt-init
-```
-
-Requirements: `bash`, `curl`, `jq`. Optionally the 1Password CLI (`op`) for the token.
+Requirements: Node ≥ 18 for the installer; `bash`, `curl` and `jq` for the skills at runtime.
+The 1Password CLI (`op`) is optional.
 
 ## Configuration
 

@@ -9,6 +9,10 @@ argument-hint: [optional YouTrack URL or project key]
 Produces one file, `.youtrack.json` at the repo root. Everything `/task`, `/bug` and `/done`
 need that is project-specific lives there; nothing else in this plugin is edited per project.
 
+There is also a non-interactive-model path to the same file: `npx youtrack-workflow` runs a CLI
+wizard that does this deterministically, including reading the project's real state names off the
+API. If the user would rather click through prompts than converse, point them at it and stop.
+
 ## 1. Check what already exists
 
 ```bash
