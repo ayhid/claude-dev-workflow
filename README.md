@@ -1,16 +1,18 @@
 # youtrack-workflow
 
-A Claude Code plugin for ticket-driven development against [YouTrack](https://www.jetbrains.com/youtrack/).
-Four skills wrap the whole loop, and nothing in the plugin is project-specific — instance,
-project, ticket language, repo layout, state ladder and commit convention all come from one
-`.youtrack.json` per project.
+Ticket-driven development against [YouTrack](https://www.jetbrains.com/youtrack/), as four Claude
+Code skills. It installs **per project** — nothing is registered globally, so the skills exist
+only in repos that actually use YouTrack.
 
-| Skill      | What it does |
-| ---------- | ------------ |
-| `/yt-init` | Probes the repo, asks what it cannot infer, verifies the credentials, writes `.youtrack.json`. |
-| `/task ID` | Fetches the issue, agrees acceptance criteria, plans, moves it to *in progress*, branches, implements with ticket-referencing commits. |
-| `/bug`     | Investigates the likely code path, checks for duplicates, drafts the issue in the project's language, files it on approval. **Never fixes.** |
-| `/done`    | Re-reads the ticket, verifies each criterion with evidence, runs the checks, closes on confirmation. |
+| Skill         | What it does |
+| ------------- | ------------ |
+| `/yt-init`    | Probes the repo, asks what it cannot infer, verifies the credentials, writes `.youtrack.json`. |
+| `/yt-task ID` | Fetches the issue, agrees acceptance criteria, plans, moves it to *in progress*, branches, implements with ticket-referencing commits. |
+| `/yt-bug`     | Investigates the likely code path, checks for duplicates, drafts the issue in the project's language, files it on approval. **Never fixes.** |
+| `/yt-done`    | Re-reads the ticket, verifies each criterion with evidence, runs the checks, closes on confirmation. |
+
+Nothing installed is project-specific — instance, project, ticket language, repo layout, state
+ladder and commit convention all come from one `.youtrack.json` per project.
 
 `yt.mjs sync` reconciles the board against GitHub: open PR → review state, merged PR →
 done state. See [Keeping states honest](#keeping-states-honest).
@@ -37,29 +39,44 @@ An interactive wizard ([`@clack/prompts`](https://github.com/bombshell-dev/clack
    and scopes, runtime pins and git remotes, and shows them for confirmation;
 5. infers whether issue IDs go at the prefix or suffix of a commit subject from the last 50
    commits;
-6. writes `.youtrack.json` and offers to register the plugin with Claude Code.
+6. writes `.youtrack.json` and installs the workflow into the project.
 
 It works offline too — if the API is unreachable it says so and falls back to typed answers.
 
 ```bash
 npx github:ayhid/claude-youtrack-workflow --dir ../other-project   # target somewhere else
-npx github:ayhid/claude-youtrack-workflow --print                  # show it, write nothing
-npx github:ayhid/claude-youtrack-workflow --force                  # skip the confirm step
+npx github:ayhid/claude-youtrack-workflow --print                  # show the config, write nothing
+npx github:ayhid/claude-youtrack-workflow --force                  # overwrite files you have edited
 ```
 
 Cloned locally, `node bin/install.mjs` is the same thing.
 
-### Manual install
+### What lands in the project
 
-```bash
-/plugin marketplace add ayhid/claude-youtrack-workflow
-/plugin install youtrack-workflow@youtrack-workflow-marketplace
+```
+your-project/
+  .youtrack.json                  # your config — edit this
+  _youtrack/                      # installer-managed runtime; commit it, do not edit
+    scripts/  lib/  hooks/
+    _config/manifest.json         # version + a sha256 per installed file
+  .claude/
+    skills/yt-task, yt-bug, yt-done, yt-init
+    settings.json                 # the commit hook, merged in alongside your own
 ```
 
-Then run `/yt-init` in each project — the same setup, driven by the model rather than the CLI.
+**Re-run the installer to update.** It compares each file against the hash recorded at install
+time: untouched files are replaced, files you have edited are reported and left alone, and files
+a newer version no longer ships are removed. `--force` overrides that. Your `.claude/settings.json`
+is merged, never overwritten — hooks you added yourself survive, and the entry is not duplicated
+on a re-run.
 
-Requirements: Node ≥ 18. `jq` is needed only by the commit hook, and the
+`_youtrack/` is meant to be committed: it is how your teammates get the same workflow without
+installing anything.
+
+Requirements: Node ≥ 22. `jq` is needed only by the commit hook, and the
 [GitHub CLI](https://cli.github.com) only by `yt.mjs sync`. The 1Password CLI (`op`) is optional.
+**The installed runtime has no dependencies of its own** — there is no `node_modules` under
+`_youtrack/`, so it works in a Python, Rust or Go project just as well.
 
 ## Configuration
 
@@ -115,8 +132,8 @@ Notable fields:
   projects that do not use conventional commits.
 - **`commit.types` / `scopes`** — copy these from the project's own commitlint config; both the
   hook and the model read them.
-- **`repos`** — omit for a single-repo project. With entries, `when` is how `/task` routes a
-  ticket to a repo, `checks` is what `/done` runs there, `env` is prepended to every command in
+- **`repos`** — omit for a single-repo project. With entries, `when` is how `/yt-task` routes a
+  ticket to a repo, `checks` is what `/yt-done` runs there, `env` is prepended to every command in
   that repo, and `remotes` lists everywhere branches are pushed.
 
 `.youtrack.json` holds no secret — `tokenOpRef` is a 1Password *reference* — so it is meant to
@@ -151,22 +168,21 @@ file. Useful for one-off runs against another instance, and for CI.
 They are ordinary CLI tools; the skills just call them.
 
 ```bash
-node scripts/yt.mjs config [--json]                      # effective config
-node scripts/yt.mjs fetch  ABC-22                        # issue as markdown, comments included
-node scripts/yt.mjs update ABC-22 "State In Progress"    # apply a command, read the state back
-node scripts/yt.mjs update ABC-22 "State Done" @/tmp/c.md # …with a comment (literal or @file)
-node scripts/yt.mjs update ABC-22 comment "note"         # comment only
-node scripts/yt.mjs create --dup-check "slug 500 router" # open issues matching keywords
-node scripts/yt.mjs create "Summary" @/tmp/body.md Bug Major   # prints the new ID on stdout
-node scripts/yt.mjs sync                                 # dry run: report state drift
-node scripts/yt.mjs sync --apply --since 14d             # apply it, over a 14-day window
-node scripts/yt.mjs sync --deep                          # also read commit subjects
+node _youtrack/scripts/yt.mjs config [--json]                      # effective config
+node _youtrack/scripts/yt.mjs fetch  ABC-22                        # issue as markdown, comments included
+node _youtrack/scripts/yt.mjs update ABC-22 "State In Progress"    # apply a command, read the state back
+node _youtrack/scripts/yt.mjs update ABC-22 "State Done" @/tmp/c.md # …with a comment (literal or @file)
+node _youtrack/scripts/yt.mjs update ABC-22 comment "note"         # comment only
+node _youtrack/scripts/yt.mjs create --dup-check "slug 500 router" # open issues matching keywords
+node _youtrack/scripts/yt.mjs create "Summary" @/tmp/body.md Bug Major   # prints the new ID on stdout
+node _youtrack/scripts/yt.mjs sync                                 # dry run: report state drift
+node _youtrack/scripts/yt.mjs sync --apply --since 14d             # apply it, over a 14-day window
+node _youtrack/scripts/yt.mjs sync --deep                          # also read commit subjects
 ```
 
-`config`, `fetch`, `update` and `create` are plain HTTP and depend on nothing beyond Node, so they
-work in a freshly cloned plugin. `sync` drives the GitHub CLI through
-[zx](https://github.com/google/zx) — the one dependency — and installs it on first use if the
-plugin was installed without one.
+`config`, `fetch`, `update` and `create` are plain HTTP. `sync` additionally drives `git` and the
+GitHub CLI. None of them depend on anything outside Node's standard library, which is what lets
+`_youtrack/` sit in a project of any language with nothing to install.
 
 Two behaviours worth knowing, both learned the hard way against the real API:
 
@@ -193,7 +209,7 @@ should each ticket be?* and advances whatever has fallen behind:
 
 It only moves tickets **forward** along `states.ladder`, and leaves anything off the ladder alone —
 a ticket parked in `Blocked` or `Won't Fix` was put there on purpose. Running it twice is a no-op,
-so it is safe from a hook, a cron, or the top of `/task`. Missing a week costs latency, nothing else.
+so it is safe from a hook, a cron, or the top of `/yt-task`. Missing a week costs latency, nothing else.
 
 It matches PRs to issues through the **branch name and PR title**. `--deep` additionally reads each
 unmatched PR's commit subjects, which is where a `type(scope): description (ABC-1)` convention puts
@@ -207,7 +223,7 @@ Requires the [GitHub CLI](https://cli.github.com), authenticated. The repo is ta
 `repos[].github` when set, otherwise from the `upstream` then `origin` remote — set it explicitly
 when branches live on a fork but PRs are opened against the parent.
 
-## Verifying changes to this plugin
+## Verifying changes to this repo
 
 The read paths (`yt-fetch`, `--dup-check`, `yt-config`, a `yt-sync` dry run) can be exercised
 freely against any instance. The **write paths cannot be verified without writing once**, and a
@@ -229,9 +245,9 @@ the repo-local `/release` skill in `.claude/skills/`.
 
 These are deliberate, and worth preserving in any fork:
 
-- `/bug` files and stops. It never starts the fix, edits a file or switches branch — the session
+- `/yt-bug` files and stops. It never starts the fix, edits a file or switches branch — the session
   may be mid-task on something else.
-- `/task` does not touch a file before the plan is approved, and does not close a ticket unasked.
-- `/done` refuses to close a ticket whose acceptance criteria are unmet or whose suite fails, and
+- `/yt-task` does not touch a file before the plan is approved, and does not close a ticket unasked.
+- `/yt-done` refuses to close a ticket whose acceptance criteria are unmet or whose suite fails, and
   reports the gap instead.
 - Nothing bypasses git hooks. No `--no-verify`, no `HUSKY=0`.

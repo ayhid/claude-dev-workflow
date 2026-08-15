@@ -17,12 +17,11 @@
  *   merged PR referencing the issue  -> states.done
  *
  * The decision rules live in lib/sync.mjs and are unit-tested; this file is the
- * I/O around them. zx is used here because this is the one command that drives
- * external tools (gh, git) rather than plain HTTP.
+ * I/O around them. It is the one command that drives external tools (gh, git)
+ * rather than plain HTTP.
  */
-import { $ } from 'zx';
-
 import { ladderOf, rankOf } from '../../lib/config.mjs';
+import { has, sh, shJson } from '../../lib/sh.mjs';
 import {
   byIssueNumber,
   cutoffFrom,
@@ -35,15 +34,6 @@ import {
 } from '../../lib/sync.mjs';
 import { applyCommand, commandFor, getState } from '../../lib/youtrack.mjs';
 import { context, UserError } from './common.mjs';
-
-$.verbose = false;
-// zx throws on a non-zero exit by default; several probes below are allowed to
-// fail, and each handles its own failure explicitly.
-$.nothrow = true;
-// zx streams child stderr by default. Probing for a remote that is not there is
-// normal here, and `fatal: not a git repository` leaking to the terminal reads
-// like a real error. Capture it instead and report only what the caller needs.
-$.quiet = true;
 
 function parseArgs(argv) {
   const opts = { apply: false, deep: false, since: '30d', repo: '', limit: 100 };
@@ -61,10 +51,10 @@ function parseArgs(argv) {
 }
 
 async function requireGh() {
-  if ((await $`command -v gh`).exitCode !== 0) {
+  if (!(await has('gh'))) {
     throw new UserError('the GitHub CLI (gh) is required — see https://cli.github.com');
   }
-  if ((await $`gh auth status`).exitCode !== 0) {
+  if (!(await sh('gh', ['auth', 'status'])).ok) {
     throw new UserError('gh is not authenticated — run: gh auth login');
   }
 }
@@ -74,10 +64,13 @@ async function slugFor(config, repoPath, dir) {
   const explicit = config.repos?.find((r) => r.path === repoPath)?.github;
   if (explicit) return explicit;
 
+  // A missing remote is normal, not an error: probe quietly and move on. The
+  // stderr is captured rather than streamed, so `fatal: not a git repository`
+  // never reaches the terminal looking like a real failure.
   for (const remote of ['upstream', 'origin']) {
-    const res = await $`git -C ${dir} remote get-url ${remote}`;
-    if (res.exitCode === 0) {
-      const slug = slugFromRemoteUrl(res.stdout.trim());
+    const res = await sh('git', ['-C', dir, 'remote', 'get-url', remote]);
+    if (res.ok) {
+      const slug = slugFromRemoteUrl(res.stdout);
       if (slug) return slug;
     }
   }
@@ -86,20 +79,19 @@ async function slugFor(config, repoPath, dir) {
 
 /** PRs in one state, newer than the cutoff, as issue-ID observations. */
 async function observePrs({ slug, prState, cutoff, project, rank, state, deep, limit }) {
-  const res =
-    await $`gh pr list -R ${slug} --state ${prState} --limit ${limit} --json number,headRefName,title,url,mergedAt,createdAt`;
-  if (res.exitCode !== 0) {
-    process.stderr.write(`  could not list ${prState} PRs for ${slug}: ${res.stderr.trim()}\n`);
+  const res = await shJson('gh', [
+    'pr', 'list',
+    '-R', slug,
+    '--state', prState,
+    '--limit', String(limit),
+    '--json', 'number,headRefName,title,url,mergedAt,createdAt',
+  ]);
+  if (!res.ok) {
+    process.stderr.write(`  could not list ${prState} PRs for ${slug}: ${res.error}\n`);
     return [];
   }
 
-  let prs;
-  try {
-    prs = JSON.parse(res.stdout);
-  } catch {
-    return [];
-  }
-
+  const prs = Array.isArray(res.data) ? res.data : [];
   const observations = [];
   for (const pr of prs) {
     if (((pr.mergedAt ?? pr.createdAt) ?? '') < cutoff) continue;
@@ -109,8 +101,13 @@ async function observePrs({ slug, prState, cutoff, project, rank, state, deep, l
     if (ids.length === 0 && deep) {
       // The branch and title said nothing, but the commit convention puts the
       // ID in the subject — one extra call to look there.
-      const commits = await $`gh pr view ${pr.number} -R ${slug} --json commits -q .commits[].messageHeadline`;
-      if (commits.exitCode === 0) ids.push(...extractIssueIds(commits.stdout, project));
+      const commits = await sh('gh', [
+        'pr', 'view', String(pr.number),
+        '-R', slug,
+        '--json', 'commits',
+        '-q', '.commits[].messageHeadline',
+      ]);
+      if (commits.ok) ids.push(...extractIssueIds(commits.stdout, project));
     }
 
     for (const id of new Set(ids)) observations.push({ id, rank, state, url: pr.url });

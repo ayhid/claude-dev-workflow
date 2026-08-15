@@ -1,16 +1,16 @@
 ---
 name: release
-description: Cut a release of the youtrack-workflow plugin — bump both manifests, verify the write paths against a real instance, tag and push. Use when asked to release, cut a version, or ship the plugin.
+description: Cut a release of the youtrack-workflow installer — bump the version, verify a clean install and the write paths against a real instance, tag and push. Use when asked to release, cut a version, or ship.
 argument-hint: "[major|minor|patch, or an explicit version]"
 ---
 
-# Release the plugin
+# Release
 
 Repo-local: this skill is development tooling for this repository and is **not** shipped to users.
 
-`main` is the distribution channel for both install paths — `npx github:ayhid/…` and
-`/plugin marketplace add` — so whatever lands on `main` is live immediately. There is no staging
-step to catch a mistake after the fact.
+`main` is the distribution channel — `npx github:ayhid/claude-youtrack-workflow` installs straight
+from it — so whatever lands on `main` is live immediately. There is no staging step to catch a
+mistake after the fact.
 
 ## 1. Decide the version
 
@@ -18,15 +18,13 @@ step to catch a mistake after the fact.
 `git log $(git describe --tags --abbrev=0)..HEAD --oneline` and propose one, then wait for
 confirmation.
 
-## 2. Bump **both** manifests
+## 2. Bump the version
 
-The version lives in two places and they must agree — a mismatch ships a plugin whose manifest
-lies about what it is, and nothing at runtime notices:
+`package.json` → `.version` is the only place it lives; the installer stamps it into each
+project's `_youtrack/_config/manifest.json` at install time.
 
-- `package.json` → `.version`
-- `.claude-plugin/plugin.json` → `.version`
-
-`tests/version.test.mjs` asserts they match, so `npm test` catches a half-done bump.
+Because installed projects are updated by **re-running the installer**, the version is how a user
+tells what they have. A release that does not bump it leaves them unable to see they are stale.
 
 ## 3. Run the checks
 
@@ -59,23 +57,29 @@ Trust the printed read-back line, not the exit code: the commands API returns 20
 did not apply. Never swallow stderr from a write — the first `--apply` failure printed only
 `update failed`, while the parser error underneath named the problem exactly.
 
-## 5. Verify the zx delivery
+## 5. Verify a real install, and an update over an edited file
 
-The dependency reaches users through `/yt-init` and `bin/install.mjs`, with `scripts/bootstrap.mjs`
-as the fallback. Confirm the fallback still works, because a plugin upgrade lands in a fresh
-directory with no `node_modules`:
+`npm test` covers the installer's plan; only a real install proves the copied tree runs.
 
 ```bash
-rm -rf node_modules
-node scripts/yt.mjs config          # must work — no dependencies
-node scripts/yt.mjs sync            # must install zx itself, then run
-npm install                          # restore
+rm -rf /tmp/rel && mkdir -p /tmp/rel
+node bin/install.mjs --dir /tmp/rel --print   # config path only, writes nothing
 ```
+
+Then a genuine install into `/tmp/rel`, and against it confirm:
+
+- `_youtrack/`, the four `.claude/skills/yt-*`, and the hook in `.claude/settings.json` exist;
+- **no `node_modules` under `_youtrack/`** — the payload must stay dependency-free, or it breaks
+  in every non-Node project;
+- `node _youtrack/scripts/yt.mjs config` runs from the installed copy;
+- editing a payload file by hand and re-running reports it as modified and **leaves it alone**;
+  `--force` overwrites it;
+- a pre-existing unrelated hook in `.claude/settings.json` survives the install.
 
 ## 6. Commit, tag, push
 
-Commits in this repo use the `chore(no-ticket):` escape hatch — the plugin is installed at user
-scope, so its own commit hook applies here.
+Commits in this repo use the `chore(no-ticket):` escape hatch: this repo has no YouTrack project
+of its own.
 
 ```bash
 git commit -am "chore(no-ticket): release <version>"
@@ -91,5 +95,7 @@ Ask before pushing. Pushing is what publishes.
 npm pack --dry-run
 ```
 
-Check the file list covers `bin`, `lib`, `skills`, `scripts`, `hooks`, `examples`,
-`.claude-plugin` — and that `lib/` is present, since both `bin/` and `scripts/` import from it.
+Check the file list covers `bin`, `lib`, `skills`, `scripts`, `hooks` and `examples`. Every one of
+`lib`, `scripts`, `hooks` and `skills` is a directory the installer copies from: if npm does not
+ship one, `npx` installs an incomplete project. `tests/version.test.mjs` asserts this, but read the
+list anyway — it is the last point at which a packaging mistake is cheap.

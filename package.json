@@ -1,7 +1,7 @@
 {
   "name": "youtrack-workflow",
   "version": "1.1.0",
-  "description": "Interactive installer for the youtrack-workflow Claude Code plugin — /task, /bug, /done against YouTrack.",
+  "description": "Per-project installer for the YouTrack ticket workflow — /yt-task, /yt-bug, /yt-done as Claude Code skills.",
   "type": "module",
   "bin": {
     "youtrack-workflow": "./bin/install.mjs"
@@ -19,20 +19,18 @@
     "scripts",
     "hooks",
     "examples",
-    ".claude-plugin",
     "README.md"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "dependencies": {
     "@clack/prompts": "^0.11.0",
-    "picocolors": "^1.1.1",
-    "zx": "^8.8.5"
+    "picocolors": "^1.1.1"
   },
   "keywords": [
     "claude-code",
-    "claude-code-plugin",
+    "claude-code-skill",
     "youtrack",
     "workflow",
     "issue-tracker"

@@ -1,10 +1,10 @@
 ---
-name: bug
-description: Capture a bug as a YouTrack issue — investigate the likely code path, check for duplicates, draft the issue, and file it on approval. Use when the user types /bug or describes something broken mid-session.
+name: yt-bug
+description: Capture a bug as a YouTrack issue — investigate the likely code path, check for duplicates, draft the issue, and file it on approval. Use when the user types /yt-bug or describes something broken mid-session.
 argument-hint: [free-form description of the problem]
 ---
 
-# /bug — file a bug in YouTrack
+# /yt-bug — file a bug in YouTrack
 
 `$ARGUMENTS` is a free-form description. If it is empty, ask what broke and stop.
 
@@ -14,7 +14,7 @@ edit a file, never switch branches — the session may be mid-task on another ti
 ## 0. Load the project's workflow config
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" config
+node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" config
 ```
 
 Gives the project key, the **language the issue must be written in**, the valid issue types and
@@ -54,14 +54,14 @@ Skip anything already known. If the description was thorough, ask nothing and sa
 Pick 2–3 distinctive keywords from the symptom — not generic words like "error" or "page":
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" create --dup-check "<keywords>"
+node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" create --dup-check "<keywords>"
 ```
 
 If plausible matches come back, show them and ask whether to comment on the existing issue
 instead. On that choice, comment and stop — do not also create a new issue:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" update <EXISTING-ID> "comment" "<what we just observed>"
+node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" update <EXISTING-ID> "comment" "<what we just observed>"
 ```
 
 ## 5. Draft the issue
@@ -99,7 +99,7 @@ Write the description to a scratch file first — multiline markdown does not su
 round-trip cleanly — then pass it with `@`:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" create "<summary>" @<scratch>/bug-body.md Bug <Priority>
+node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" create "<summary>" @<scratch>/bug-body.md Bug <Priority>
 ```
 
 Type and Priority must come from the configured lists. The script prints only the issue ID on
@@ -108,8 +108,8 @@ that line reports a failure, say so — the issue exists but its fields need set
 
 Then confirm, verbatim in shape:
 
-> Created ABC-XXX — run `/task ABC-XXX` to start on it, or continue what you were doing.
+> Created ABC-XXX — run `/yt-task ABC-XXX` to start on it, or continue what you were doing.
 
 ## 7. Stop
 
-Do not run `/task` yourself, and do not begin the fix. Filing and fixing are separate decisions.
+Do not run `/yt-task` yourself, and do not begin the fix. Filing and fixing are separate decisions.

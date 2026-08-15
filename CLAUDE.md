@@ -1,31 +1,36 @@
 # claude-youtrack-workflow
 
-A Claude Code plugin for ticket-driven development against YouTrack. This file is for working
-**on** the plugin; `README.md` documents using it.
+Ticket-driven development against YouTrack, installed **per project** as Claude Code skills. This
+file is for working **on** it; `README.md` documents using it.
 
 ## Three surfaces, three sets of constraints
 
 | Surface | Runs | Constraint |
 |---|---|---|
-| `bin/install.mjs`, `bin/lib/*` | once, at install | Node ≥18. May use dependencies freely. |
-| `scripts/*` | on every skill invocation | Node. Deps must survive both install paths (see below). |
+| `bin/*` | once, at install, from the npx checkout | Node ≥22. May use dependencies freely. |
+| `lib/*`, `scripts/*` | on every skill invocation, from the installed copy | **Zero dependencies** — node: builtins only. |
 | `hooks/check-commit-ticket.sh` | **on every Bash tool call** | Bash + jq only. Latency-critical — keep the fast-bail first. |
+
+The zero-dependency rule for `lib/` and `scripts/` is load-bearing, not an aesthetic: the payload
+is copied into the user's project as plain source with no `node_modules`, so it has to work in a
+Python or Rust repo. Anything you `import` there must come from `node:`.
 
 The hook stays bash on purpose: `PreToolUse` with `matcher: "Bash"` fires on every command, so its
 non-commit exit path must cost ~3ms, not a ~50ms Node boot.
 
-## Distribution: two paths, and neither runs `npm install`
+## Distribution: one path
 
-- `npx github:ayhid/claude-youtrack-workflow` — npm installs deps.
-- `/plugin marketplace add` — **Claude Code clones the repo and never runs `npm install`.**
-  Verified: an installed plugin at `~/.claude/plugins/cache/<market>/<plugin>/<version>/` has no
-  `node_modules`, and an upgrade lands in a *new* version-scoped directory, empty again.
+`npx github:ayhid/claude-youtrack-workflow` copies `lib/`, `scripts/` and `hooks/` into the
+project's `_youtrack/`, the skills into `.claude/skills/yt-*`, and merges the commit hook into
+`.claude/settings.json`. Nothing is installed globally; there is no plugin manifest.
 
-Anything under `scripts/` must therefore resolve its dependencies itself. That is what
-`scripts/bootstrap.mjs` is for — keep `scripts/yt.mjs` dependency-free at its top level so it can
-report a missing dependency instead of dying with `ERR_MODULE_NOT_FOUND`.
+`bin/lib/payload.mjs` owns that, and records a sha256 per file in
+`_youtrack/_config/manifest.json`. That manifest is what makes a re-run an *update*: unchanged
+files are replaced, files the user edited are reported and left alone, files no longer shipped are
+removed. Never overwrite a user's edit silently, and never overwrite `.claude/settings.json`
+wholesale — merge into it, since users have their own hooks there.
 
-`main` is the distribution channel for both paths. A broken commit ships immediately.
+`main` is the distribution channel. A broken commit ships immediately.
 
 ## YouTrack API invariants — learned the hard way, do not regress
 
@@ -48,10 +53,16 @@ report a missing dependency instead of dying with `ERR_MODULE_NOT_FOUND`.
 
 ## Layout
 
-- `skills/`, `hooks/`, `scripts/`, `.claude-plugin/` — **shipped** to users.
-- `.claude/`, `tests/`, `.github/` — repo-local development only. Never rely on these at runtime.
+- `lib/`, `scripts/`, `hooks/`, `skills/` — **copied into user projects.** Adding a file here
+  ships it; `bin/lib/payload.mjs` picks these up wholesale, so nothing repo-specific may live in
+  them.
+- `bin/` — the installer. Runs from the npx checkout only, never from a user's project.
+- `.claude/`, `tests/`, `.github/` — repo-local development only. Never referenced at runtime.
 - Enforcement belongs in `hooks/`; repeatable procedure belongs in a skill; only always-true
   conventions belong in this file.
+
+Skill names are namespaced `yt-*`. They live in a flat namespace next to every other skill the
+user has installed, and `task` / `bug` / `done` are far too generic to claim.
 
 ## Checks
 

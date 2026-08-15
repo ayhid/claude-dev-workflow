@@ -1,17 +1,17 @@
 ---
-name: task
-description: Start work on a YouTrack issue — fetch it, agree acceptance criteria, plan, move it to the in-progress state, branch, and implement with ticket-referencing commits. Use when the user starts work on a ticket or types /task.
+name: yt-task
+description: Start work on a YouTrack issue — fetch it, agree acceptance criteria, plan, move it to the in-progress state, branch, and implement with ticket-referencing commits. Use when the user starts work on a ticket or types /yt-task.
 argument-hint: [ISSUE-ID]
 ---
 
-# /task — start work from a YouTrack issue
+# /yt-task — start work from a YouTrack issue
 
 `$ARGUMENTS` is the issue ID, e.g. `ABC-398`. If it is empty, ask for one and stop.
 
 ## 0. Load the project's workflow config
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" config
+node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" config
 ```
 
 This prints the instance, project, ticket language, state ladder, branch and commit patterns,
@@ -23,7 +23,7 @@ If it reports `MISSING`, run `/yt-init` first and stop.
 Then reconcile the board before trusting any state you are about to read:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" sync
+node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" sync
 ```
 
 Dry run — it reports drift and changes nothing. A ticket sitting in the review state with a merged
@@ -32,7 +32,7 @@ PR simply means nobody has run this since the merge, not that the work is unfini
 ## 1. Fetch the issue
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" fetch $ARGUMENTS
+node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" fetch $ARGUMENTS
 ```
 
 If the script exits non-zero, report its message and stop — do not guess at the ticket contents.
@@ -74,7 +74,7 @@ Give a short plan: files to touch, approach, risks, how each acceptance criterio
 ## 5. Move the ticket to the configured start state
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" update $ARGUMENTS "State <configured states.start>"
+node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" update $ARGUMENTS "State <configured states.start>"
 ```
 
 The script prints the state it reads back afterwards. Confirm that line reports the state you
@@ -107,7 +107,7 @@ type(scope): description ($ARGUMENTS)
 ```
 
 Where the ID sits matters: with `position: suffix`, a bare `$ARGUMENTS: description` prefix is
-rejected. The plugin's PreToolUse hook blocks a non-conforming inline `-m` before it reaches git.
+rejected. The PreToolUse hook installed in .claude/settings.json blocks a non-conforming inline `-m` before it reaches git.
 
 Rules:
 
@@ -122,14 +122,14 @@ separate decision. The reconciler reads the open PR and moves the ticket to the 
 **review** state itself:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" sync --apply
+node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" sync --apply
 ```
 
 It matches PRs to issues through the branch name, so a branch named per the configured pattern is
 what makes this work. If it reports no drift, say so and post the link by hand instead:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" update $ARGUMENTS "State <configured states.review>" "<PR opened: url>"
+node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" update $ARGUMENTS "State <configured states.review>" "<PR opened: url>"
 ```
 
 Request the configured reviewer, and push to every remote listed for that repo. Verify the PR body
@@ -147,10 +147,10 @@ Do all three, in order:
 3. **Ask the user** whether to close the ticket. Only on their confirmation:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" update $ARGUMENTS comment "<summary>"
-node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" sync --apply
+node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" update $ARGUMENTS comment "<summary>"
+node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" sync --apply
 ```
 
 Never run the closing transition unprompted, and never claim a criterion is met when it is not.
-`/done` does this same close-out and re-verifies from scratch — prefer it when the work spanned
+`/yt-done` does this same close-out and re-verifies from scratch — prefer it when the work spanned
 more than one session.

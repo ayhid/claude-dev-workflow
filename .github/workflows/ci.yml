@@ -1,8 +1,8 @@
 name: ci
 
-# `main` is a distribution channel — `npx github:ayhid/claude-youtrack-workflow`
-# and `/plugin marketplace add` both install straight from it — so a broken
-# commit ships the moment it lands. Everything here is offline and secretless.
+# `main` is the distribution channel — `npx github:ayhid/claude-youtrack-workflow` installs
+# straight from it — so a broken commit ships the moment it lands. Everything
+# here is offline and secretless.
 
 on:
   push:
@@ -13,17 +13,13 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # The floor declared in package.json engines, and current.
-        node: ['18', '22']
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          # The floor declared in package.json engines.
+          node-version: '22'
 
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
@@ -35,9 +31,10 @@ jobs:
       - run: npm run test:unit
       - run: npm run test:hook
 
-  # The skills invoke the plugin by path, so a rename or a bad manifest breaks
-  # every consumer without any script failing. Check the wiring itself.
-  manifest:
+  # A unit test can assert the installer's plan; only a real install proves the
+  # copied tree actually runs. The payload has no dependencies, so this needs
+  # no install step of its own — which is itself the thing being verified.
+  install:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,42 +42,83 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Plugin manifests are valid JSON
+      - name: Install into a scratch project
         run: |
-          for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json hooks/hooks.json; do
-            node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" \
-              && echo "ok   $f" || exit 1
-          done
+          mkdir -p /tmp/scratch
+          node -e "
+            const { installPayload } = await import('./bin/lib/payload.mjs');
+            const r = installPayload({
+              sourceRoot: process.cwd(),
+              projectDir: '/tmp/scratch',
+              version: '0.0.0-ci',
+            });
+            console.log('written', r.written.length, 'hook', r.hookAdded);
+            if (!r.hookAdded || r.written.length === 0) process.exit(1);
+          " --input-type=module
 
-      - name: Example configs are valid JSON
+      - name: The expected tree exists
         run: |
-          for f in examples/*.json; do
-            node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" \
-              && echo "ok   $f" || exit 1
+          set -e
+          for f in \
+            _youtrack/scripts/yt.mjs \
+            _youtrack/lib/config.mjs \
+            _youtrack/hooks/check-commit-ticket.sh \
+            _youtrack/_config/manifest.json \
+            .claude/settings.json \
+            .claude/skills/yt-task/SKILL.md \
+            .claude/skills/yt-bug/SKILL.md \
+            .claude/skills/yt-done/SKILL.md \
+            .claude/skills/yt-init/SKILL.md
+          do
+            test -f "/tmp/scratch/$f" && echo "ok   $f" || { echo "FAIL missing $f"; exit 1; }
           done
+          test -x /tmp/scratch/_youtrack/hooks/check-commit-ticket.sh \
+            || { echo "FAIL hook is not executable"; exit 1; }
+          test ! -d /tmp/scratch/_youtrack/node_modules \
+            || { echo "FAIL payload must have no node_modules"; exit 1; }
 
-      - name: Every skill has name and description frontmatter
+      - name: The installed runtime runs with no dependencies
         run: |
-          status=0
-          for f in skills/*/SKILL.md; do
-            head -10 "$f" | grep -q '^name:'        || { echo "FAIL $f: no name:"; status=1; }
-            head -10 "$f" | grep -q '^description:' || { echo "FAIL $f: no description:"; status=1; }
-            [ "$status" -eq 0 ] && echo "ok   $f"
-          done
-          exit "$status"
+          cd /tmp/scratch
+          echo '{"baseUrl":"https://example.invalid","project":"ABC"}' > .youtrack.json
+          node _youtrack/scripts/yt.mjs config | tee out.txt
+          grep -q "project:     ABC" out.txt
 
-      - name: Paths referenced by hooks.json exist
+      - name: The installed hook still enforces
+        run: |
+          cd /tmp/scratch
+          printf '{"tool_input":{"command":"git commit -m \"no ticket\""}}' \
+            | CLAUDE_PROJECT_DIR="$PWD" bash _youtrack/hooks/check-commit-ticket.sh \
+            && { echo "FAIL bad commit was allowed"; exit 1; } \
+            || echo "ok   bad commit blocked"
+
+      - name: Re-running is idempotent
         run: |
           node -e "
-            const fs = require('fs');
-            const m = JSON.parse(fs.readFileSync('hooks/hooks.json', 'utf8'));
-            const cmds = Object.values(m.hooks).flat().flatMap(e => e.hooks).map(h => h.command);
-            let bad = 0;
-            for (const c of cmds) {
-              const p = c.match(/\\\$\{CLAUDE_PLUGIN_ROOT\}\/([^\"' ]+)/)?.[1];
-              if (!p) continue;
-              if (fs.existsSync(p)) console.log('ok   ' + p);
-              else { console.error('FAIL missing: ' + p); bad = 1; }
+            const { installPayload, readManifest } = await import('./bin/lib/payload.mjs');
+            const before = readManifest('/tmp/scratch');
+            const r = installPayload({
+              sourceRoot: process.cwd(),
+              projectDir: '/tmp/scratch',
+              version: '0.0.0-ci',
+            });
+            if (r.hookAdded) { console.error('FAIL duplicate hook entry'); process.exit(1); }
+            if (r.skipped.length) { console.error('FAIL unexpected skips', r.skipped); process.exit(1); }
+            const after = readManifest('/tmp/scratch');
+            if (after.installation.installDate !== before.installation.installDate) {
+              console.error('FAIL install date was not preserved'); process.exit(1);
             }
-            process.exit(bad);
-          "
+            console.log('ok   idempotent');
+          " --input-type=module
+
+      - name: Skill frontmatter is well-formed
+        run: |
+          rc=0
+          for f in skills/*/SKILL.md; do
+            dir=$(basename "$(dirname "$f")")
+            name=$(grep -m1 '^name:' "$f" | sed 's/^name:[[:space:]]*//')
+            grep -q '^description:' "$f" || { echo "FAIL $f: no description:"; rc=1; }
+            [ "$name" = "$dir" ] || { echo "FAIL $f: name '$name' != directory '$dir'"; rc=1; }
+            [ "$rc" -eq 0 ] && echo "ok   $f"
+          done
+          exit "$rc"

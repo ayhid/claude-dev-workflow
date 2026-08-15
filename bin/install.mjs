@@ -12,7 +12,6 @@
  */
 import { execFileSync, execFile } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -22,42 +21,20 @@ import c from 'picocolors';
 
 import { listProjects, projectFieldValues, whoami } from '../lib/youtrack.mjs';
 import { baseBranch, commitIdPosition, describeRepo, findRepos } from './lib/detect.mjs';
+import { PAYLOAD_DIR, installPayload, readManifest } from './lib/payload.mjs';
 
 const execFileAsync = promisify(execFile);
-const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+/** The distribution we copy out of — this checkout, or the npx cache. */
+const SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-/**
- * Where Claude Code should be pointed at for the marketplace.
- *
- * Under `npx`, PLUGIN_ROOT sits in a cache directory npm is free to delete, so
- * a marketplace registered from there breaks on the next cache prune. Fall back
- * to the canonical repo whenever this copy looks ephemeral.
- */
-const repoUrl = (() => {
+/** The version recorded in the installed manifest. */
+const VERSION = (() => {
   try {
-    const pkg = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'package.json'), 'utf8'));
-    const url = typeof pkg.repository === 'string' ? pkg.repository : pkg.repository?.url;
-    if (url) return url.replace(/^git\+/, '').replace(/\.git$/, '');
+    return JSON.parse(readFileSync(join(SOURCE_ROOT, 'package.json'), 'utf8')).version ?? '0.0.0';
   } catch {
-    /* fall through */
-  }
-  try {
-    return execFileSync('git', ['remote', 'get-url', 'origin'], {
-      cwd: PLUGIN_ROOT,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-      .trim()
-      .replace(/\.git$/, '');
-  } catch {
-    return null;
+    return '0.0.0';
   }
 })();
-
-const isEphemeral = /[/\\](_npx|node_modules)[/\\]/.test(PLUGIN_ROOT);
-// A local checkout is the better source when there is one — it is what the user
-// can edit. Only reach for the remote when this copy will not survive.
-const MARKETPLACE_SOURCE = isEphemeral && repoUrl ? repoUrl : PLUGIN_ROOT;
 
 // --- argv --------------------------------------------------------------------
 const argv = process.argv.slice(2);
@@ -71,9 +48,15 @@ if (flag('--help') || flag('-h')) {
   console.log(`
 ${c.bold('youtrack-workflow')} — set up the YouTrack ticket workflow for a project
 
+Installs into the project itself: the runtime under ${c.cyan(PAYLOAD_DIR + '/')}, the four
+skills under ${c.cyan('.claude/skills/yt-*')}, and the commit hook into
+${c.cyan('.claude/settings.json')}. Nothing is installed globally.
+
+Re-run it to update. Files you have edited are reported and left alone.
+
   --dir <path>   target project directory (default: cwd)
   --print        print the resulting config instead of writing it
-  --force        overwrite an existing .youtrack.json without asking
+  --force        overwrite an existing .youtrack.json, and any edited payload file
   --help         this message
 `);
   process.exit(0);
@@ -99,38 +82,6 @@ const has = (bin) => {
     return false;
   }
 };
-
-/**
- * Install the runtime dependencies into the *installed* plugin directory.
- *
- * Claude Code clones a plugin and never runs `npm install`, so `scripts/` would
- * start with no `node_modules`. The install lands in the version-scoped cache
- * directory Claude Code recorded — not PLUGIN_ROOT, which under npx is a cache
- * npm may prune. An upgrade creates a new such directory, empty again; that
- * case is handled at runtime by scripts/bootstrap.mjs.
- */
-async function installPluginDeps() {
-  const registry = join(
-    process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'),
-    'plugins',
-    'installed_plugins.json',
-  );
-  if (!existsSync(registry)) return;
-
-  let installPath;
-  try {
-    const data = JSON.parse(readFileSync(registry, 'utf8'));
-    const entries = data?.plugins?.['youtrack-workflow@youtrack-workflow-marketplace'] ?? [];
-    installPath = entries.at(-1)?.installPath;
-  } catch {
-    return;
-  }
-  if (!installPath || !existsSync(join(installPath, 'package.json'))) return;
-
-  await execFileAsync('npm', ['install', '--omit=dev', '--no-audit', '--no-fund', '--prefix', installPath], {
-    timeout: 120_000,
-  });
-}
 
 /** Read a secret out of 1Password without it ever touching the terminal. */
 async function opRead(ref) {
@@ -535,54 +486,63 @@ if (write) {
   p.log.warn('Skipped — no config written.');
 }
 
-// --- 11. register the plugin with Claude Code --------------------------------
-const claudeAvailable = has('claude');
-if (claudeAvailable) {
-  const install = bail(
-    await p.confirm({
-      message: 'Register the youtrack-workflow plugin with Claude Code now?',
-      initialValue: true,
-    }),
-  );
+// --- 11. install the workflow into the project -------------------------------
+// Everything lands inside the project: nothing is registered globally, so the
+// skill names are only claimed where they were actually installed.
+const existingManifest = readManifest(targetDir);
+const verb = existingManifest ? 'Update' : 'Install';
 
-  if (install) {
-    const s = p.spinner();
-    s.start('Adding the marketplace and installing');
-    try {
-      await execFileAsync('claude', ['plugin', 'marketplace', 'add', MARKETPLACE_SOURCE], { timeout: 60_000 });
-      await execFileAsync('claude', ['plugin', 'install', 'youtrack-workflow@youtrack-workflow-marketplace'], {
-        timeout: 60_000,
-      });
-      s.stop('Plugin installed.');
+const doInstall = bail(
+  await p.confirm({
+    message: existingManifest
+      ? `${verb} the workflow files in this project (currently ${existingManifest.installation?.version ?? 'unknown'})?`
+      : `Install the workflow into ${c.cyan(PAYLOAD_DIR + '/')} and ${c.cyan('.claude/skills/')}?`,
+    initialValue: true,
+  }),
+);
 
-      // Claude Code clones the plugin and never runs `npm install`, so the
-      // runtime scripts would have no dependencies. scripts/bootstrap.mjs can
-      // heal that on first use, but doing it here means the first /task does
-      // not pause for an install.
-      await installPluginDeps();
-    } catch (err) {
-      s.stop(c.yellow('Could not install automatically.'));
-      p.log.warn((err.stderr || err.message || '').trim().slice(0, 400));
+if (doInstall) {
+  const s = p.spinner();
+  s.start(`${verb === 'Update' ? 'Updating' : 'Installing'} the workflow files`);
+  try {
+    const result = installPayload({
+      sourceRoot: SOURCE_ROOT,
+      projectDir: targetDir,
+      version: VERSION,
+      force: flag('--force'),
+    });
+    s.stop(`${result.written.length} file(s) written to ${targetDir}`);
+
+    if (result.hookAdded) p.log.success('Commit hook added to .claude/settings.json');
+    else p.log.info('Commit hook already registered in .claude/settings.json');
+
+    if (result.removed.length) {
+      p.log.info(`Removed ${result.removed.length} file(s) no longer shipped.`);
+    }
+
+    // The reason the manifest exists: never overwrite someone's edit silently.
+    if (result.skipped.length) {
+      p.log.warn(`Kept ${result.skipped.length} file(s) you have edited:`);
       p.note(
-        [`/plugin marketplace add ${MARKETPLACE_SOURCE}`, '/plugin install youtrack-workflow@youtrack-workflow-marketplace'].join(
-          '\n',
-        ),
-        'Run these in Claude Code instead',
+        `${result.skipped.slice(0, 10).join('\n')}${result.skipped.length > 10 ? '\n…' : ''}`,
+        'Left untouched — re-run with --force to overwrite',
       );
     }
+
+    p.log.info(`${PAYLOAD_DIR}/ is installer-managed. Commit it, and re-run this to update.`);
+  } catch (err) {
+    s.stop(c.yellow('Could not install the workflow files.'));
+    p.log.warn((err.message || '').trim().slice(0, 400));
   }
 } else {
-  p.note(
-    [`/plugin marketplace add ${MARKETPLACE_SOURCE}`, '/plugin install youtrack-workflow@youtrack-workflow-marketplace'].join('\n'),
-    'Then, in Claude Code',
-  );
+  p.log.warn('Skipped — the skills and runtime were not installed.');
 }
 
 // --- done --------------------------------------------------------------------
 const nextSteps = [
-  `${c.cyan('/task ABC-123')}   start work on an issue`,
-  `${c.cyan('/bug it broke')}   file one without losing your place`,
-  `${c.cyan('/done')}           verify and close out`,
+  `${c.cyan('/yt-task ABC-123')}   start work on an issue`,
+  `${c.cyan('/yt-bug it broke')}   file one without losing your place`,
+  `${c.cyan('/yt-done')}           verify and close out`,
 ];
 if (!tokenOpRef) {
   nextSteps.push('', c.dim('Remember to export $YOUTRACK_TOKEN in the shell Claude Code runs in.'));

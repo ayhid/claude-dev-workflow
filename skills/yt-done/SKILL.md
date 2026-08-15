@@ -1,15 +1,15 @@
 ---
-name: done
-description: Finish work on the current branch's YouTrack issue — verify acceptance criteria, run the project's checks, and on confirmation move the ticket to the configured done state with a summary comment. Use when the user says they are done or types /done.
+name: yt-done
+description: Finish work on the current branch's YouTrack issue — verify acceptance criteria, run the project's checks, and on confirmation move the ticket to the configured done state with a summary comment. Use when the user says they are done or types /yt-done.
 argument-hint: "[optional ISSUE-ID]"
 ---
 
-# /done — close out the current branch's issue
+# /yt-done — close out the current branch's issue
 
 ## 0. Load the project's workflow config
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" config
+node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" config
 ```
 
 Gives the state ladder (specifically which state means *finished* on this project), the per-repo
@@ -19,7 +19,7 @@ check commands, the commit pattern, and the ticket language. If it reports `MISS
 Then reconcile the board before trusting any state you are about to read:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" sync
+node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" sync
 ```
 
 Dry run — it reports drift and changes nothing. A ticket sitting in the review state with a merged
@@ -28,7 +28,7 @@ PR simply means nobody has run this since the merge, not that the work is unfini
 ## 1. Get the issue ID
 
 If `$ARGUMENTS` carries one, use it. Otherwise infer it from the branch name — branches created
-by `/task` follow the configured pattern, `<ISSUE-ID>-<slug>` by default:
+by `/yt-task` follow the configured pattern, `<ISSUE-ID>-<slug>` by default:
 
 ```bash
 git -C <repo> branch --show-current
@@ -43,7 +43,7 @@ back to the most recent ticket you happen to have seen.
 ## 2. Re-read the ticket
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" fetch <ISSUE-ID>
+node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" fetch <ISSUE-ID>
 ```
 
 Re-read rather than trusting earlier context: comments may have been added while you worked,
@@ -111,8 +111,8 @@ was verified. Show it to the user and ask whether to post it.
 derives the target from the merged PR rather than from your reading of the ladder:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" update <ISSUE-ID> comment "<summary>"
-node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" sync --apply
+node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" update <ISSUE-ID> comment "<summary>"
+node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" sync --apply
 ```
 
 If the PR is not merged yet there is nothing for the reconciler to act on, and the ticket
@@ -120,12 +120,12 @@ correctly stays where it is. Apply the transition by hand only when the project 
 PR for this work:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/yt.mjs" update <ISSUE-ID> "State <configured states.done>" "<summary>"
+node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" update <ISSUE-ID> "State <configured states.done>" "<summary>"
 ```
 
 Confirm the read-back line reports that state. If it reports anything else, the command did not
 apply — report that rather than assuming success. Use only state names from the configured
-ladder, and observe the brace rule (see `/task` §5). Prefer `yt.mjs sync`, which applies it for
+ladder, and observe the brace rule (see `/yt-task` §5). Prefer `yt.mjs sync`, which applies it for
 you; a state YouTrack does not recognise fails, sometimes silently.
 
 Pushing the branch and opening a PR are separate actions; ask before doing either.

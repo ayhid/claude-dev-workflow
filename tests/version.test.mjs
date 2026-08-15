@@ -1,7 +1,9 @@
 /**
- * The version lives in two manifests and is bumped by hand at release time.
- * A mismatch ships a plugin whose manifest lies about what it is, which is
- * invisible until someone reads it — so assert they agree.
+ * Packaging invariants.
+ *
+ * `files` is an allowlist: a new directory that the installer copies from but
+ * that npm does not ship produces an install that silently writes nothing. That
+ * is the failure this file exists to catch.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -9,27 +11,54 @@ import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const read = (p) => JSON.parse(readFileSync(join(ROOT, p), 'utf8'));
+import { planFiles } from '../bin/lib/payload.mjs';
 
-test('package.json and plugin.json declare the same version', () => {
-  const pkg = read('package.json');
-  const plugin = read('.claude-plugin/plugin.json');
-  assert.equal(
-    plugin.version,
-    pkg.version,
-    `.claude-plugin/plugin.json is ${plugin.version} but package.json is ${pkg.version} — bump both`,
-  );
-});
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
 
 test('the version is a plain semver triple', () => {
-  const { version } = read('package.json');
-  assert.match(version, /^\d+\.\d+\.\d+$/, `unexpected version format: ${version}`);
+  assert.match(pkg.version, /^\d+\.\d+\.\d+$/, `unexpected version format: ${pkg.version}`);
 });
 
 test('every shipped path in package.json files exists', () => {
-  const { files } = read('package.json');
-  for (const f of files) {
+  for (const f of pkg.files) {
     assert.ok(existsSync(join(ROOT, f)), `package.json "files" lists ${f}, which does not exist`);
   }
+});
+
+test('everything the installer copies is in package.json files', () => {
+  // The installer reads from lib/, scripts/, hooks/ and skills/. If npm does
+  // not ship one of them, `npx` installs an incomplete project.
+  const shipped = new Set(pkg.files);
+  const sourceDirs = new Set(
+    [...planFiles(ROOT).values()].map((abs) => abs.slice(ROOT.length + 1).split('/')[0]),
+  );
+
+  for (const dir of sourceDirs) {
+    assert.ok(shipped.has(dir), `the installer copies from ${dir}/, but package.json files omits it`);
+  }
+});
+
+test('the installer itself is shipped', () => {
+  assert.ok(pkg.files.includes('bin'));
+  assert.equal(pkg.bin['youtrack-workflow'], './bin/install.mjs');
+  assert.ok(existsSync(join(ROOT, 'bin', 'install.mjs')));
+});
+
+test('the runtime payload declares no dependencies', () => {
+  // lib/ and scripts/ are copied into projects with no node_modules. Anything
+  // they import must come from node:.
+  const offenders = [];
+  for (const abs of planFiles(ROOT).values()) {
+    if (!abs.endsWith('.mjs')) continue;
+    const rel = abs.slice(ROOT.length + 1);
+    if (!rel.startsWith('lib/') && !rel.startsWith('scripts/')) continue;
+
+    for (const m of readFileSync(abs, 'utf8').matchAll(/^\s*import\s[^'"]*['"]([^'"]+)['"]/gm)) {
+      const spec = m[1];
+      const isLocal = spec.startsWith('.') || spec.startsWith('/');
+      if (!isLocal && !spec.startsWith('node:')) offenders.push(`${rel} imports ${spec}`);
+    }
+  }
+  assert.deepEqual(offenders, [], 'the installed payload must import only node: builtins');
 });

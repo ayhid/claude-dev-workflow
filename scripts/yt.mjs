@@ -10,12 +10,11 @@
  *   yt.mjs create "Summary" @/tmp/body.md Bug Major
  *   yt.mjs sync [--apply] [--since 14d] [--deep] reconcile states against GitHub
  *
- * This file must stay dependency-free at its top level: it is the entry point
- * that has to be able to report a missing dependency. Commands are imported
- * lazily so only the one being run pays for what it needs.
+ * Nothing here depends on anything outside node: builtins. The installed copy
+ * under `_youtrack/` has no `node_modules` and must run in any project — a Rust
+ * or Python one included. Commands are imported lazily so a run only parses
+ * what it needs.
  */
-import { ensureDeps } from './bootstrap.mjs';
-
 const USAGE = `usage: yt.mjs <command> [args]
 
   config [--json]                       print the effective workflow config
@@ -28,17 +27,12 @@ const USAGE = `usage: yt.mjs <command> [args]
 Config comes from .youtrack.json (or .claude/youtrack.json), then the
 environment. Run /yt-init to create one.`;
 
-/**
- * Commands are plain HTTP unless noted. `sync` drives the GitHub CLI, so it is
- * the only one that needs zx — the rest keep working in a freshly cloned plugin
- * that has no node_modules at all.
- */
 const COMMANDS = {
-  config: { load: () => import('./cmd/config.mjs'), deps: [] },
-  fetch: { load: () => import('./cmd/fetch.mjs'), deps: [] },
-  update: { load: () => import('./cmd/update.mjs'), deps: [] },
-  create: { load: () => import('./cmd/create.mjs'), deps: [] },
-  sync: { load: () => import('./cmd/sync.mjs'), deps: ['zx'] },
+  config: () => import('./cmd/config.mjs'),
+  fetch: () => import('./cmd/fetch.mjs'),
+  update: () => import('./cmd/update.mjs'),
+  create: () => import('./cmd/create.mjs'),
+  sync: () => import('./cmd/sync.mjs'),
 };
 
 const [name, ...args] = process.argv.slice(2);
@@ -48,15 +42,14 @@ if (!name || name === '-h' || name === '--help') {
   process.exit(name ? 0 : 1);
 }
 
-const entry = COMMANDS[name];
-if (!entry) {
+const load = COMMANDS[name];
+if (!load) {
   process.stderr.write(`yt: unknown command '${name}'\n\n${USAGE}\n`);
   process.exit(1);
 }
 
 try {
-  if (entry.deps.length) await ensureDeps(entry.deps);
-  const mod = await entry.load();
+  const mod = await load();
   const code = await mod.run(args);
   process.exit(code ?? 0);
 } catch (err) {

@@ -33,7 +33,7 @@ done
 
 if command -v shellcheck >/dev/null 2>&1; then
   note "shellcheck (${#sh_files[@]} files)"
-  # SC1091: sourced files are resolved at runtime from $CLAUDE_PLUGIN_ROOT.
+  # SC1091: sourced paths are resolved at runtime, not from this checkout.
   shellcheck --external-sources --exclude=SC1091 "${sh_files[@]}" || status=1
 else
   note "shellcheck: not installed, skipped"
