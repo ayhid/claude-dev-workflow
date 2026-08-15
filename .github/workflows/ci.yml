@@ -1,6 +1,6 @@
 name: ci
 
-# `main` is the distribution channel — `npx github:ayhid/claude-youtrack-workflow` installs
+# `main` is the distribution channel — `npx github:ayhid/claude-dev-workflow` installs
 # straight from it — so a broken commit ships the moment it lands. Everything
 # here is offline and secretless.
 

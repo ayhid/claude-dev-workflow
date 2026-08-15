@@ -1,8 +1,8 @@
-# youtrack-workflow
+# dev-workflow
 
-Ticket-driven development against [YouTrack](https://www.jetbrains.com/youtrack/), as four Claude
-Code skills. It installs **per project** — nothing is registered globally, so the skills exist
-only in repos that actually use YouTrack.
+Ticket-driven development against your issue tracker — [YouTrack](https://www.jetbrains.com/youtrack/)
+or [GitHub Issues](#using-github-issues-instead) — as four Claude Code skills. It installs **per
+project** — nothing is registered globally, so the skills exist only in repos that use a tracker.
 
 | Skill         | What it does |
 | ------------- | ------------ |
@@ -25,7 +25,7 @@ convention, with a per-project escape hatch for genuinely ticketless work.
 From the project you want to set up:
 
 ```bash
-npx github:ayhid/claude-youtrack-workflow
+npx github:ayhid/claude-dev-workflow
 ```
 
 An interactive wizard ([`@clack/prompts`](https://github.com/bombshell-dev/clack)) that:
@@ -44,9 +44,9 @@ An interactive wizard ([`@clack/prompts`](https://github.com/bombshell-dev/clack
 It works offline too — if the API is unreachable it says so and falls back to typed answers.
 
 ```bash
-npx github:ayhid/claude-youtrack-workflow --dir ../other-project   # target somewhere else
-npx github:ayhid/claude-youtrack-workflow --print                  # show the config, write nothing
-npx github:ayhid/claude-youtrack-workflow --force                  # overwrite files you have edited
+npx github:ayhid/claude-dev-workflow --dir ../other-project   # target somewhere else
+npx github:ayhid/claude-dev-workflow --print                  # show the config, write nothing
+npx github:ayhid/claude-dev-workflow --force                  # overwrite files you have edited
 ```
 
 Cloned locally, `node bin/install.mjs` is the same thing.

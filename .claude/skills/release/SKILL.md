@@ -1,6 +1,6 @@
 ---
 name: release
-description: Cut a release of the youtrack-workflow installer — bump the version, verify a clean install and the write paths against a real instance, tag and push. Use when asked to release, cut a version, or ship.
+description: Cut a release of the dev-workflow installer — bump the version, verify a clean install and the write paths against a real instance, tag and push. Use when asked to release, cut a version, or ship.
 argument-hint: "[major|minor|patch, or an explicit version]"
 ---
 
@@ -8,7 +8,7 @@ argument-hint: "[major|minor|patch, or an explicit version]"
 
 Repo-local: this skill is development tooling for this repository and is **not** shipped to users.
 
-`main` is the distribution channel — `npx github:ayhid/claude-youtrack-workflow` installs straight
+`main` is the distribution channel — `npx github:ayhid/claude-dev-workflow` installs straight
 from it — so whatever lands on `main` is live immediately. There is no staging step to catch a
 mistake after the fact.
 

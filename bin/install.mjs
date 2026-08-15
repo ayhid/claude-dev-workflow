@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Interactive installer for the youtrack-workflow Claude Code plugin.
+ * Interactive installer for the dev-workflow Claude Code skills.
  *
- *   npx youtrack-workflow            # configure the project in the cwd
- *   npx youtrack-workflow --dir ..   # …somewhere else
- *   npx youtrack-workflow --print    # show the config, write nothing
+ *   npx dev-workflow            # configure the project in the cwd
+ *   npx dev-workflow --dir ..   # …somewhere else
+ *   npx dev-workflow --print    # show the config, write nothing
  *
  * Two things happen here: `.dev-workflow.json` is written for the target project,
  * and the plugin itself is registered with Claude Code. Both are optional and

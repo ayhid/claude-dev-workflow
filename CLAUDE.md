@@ -1,7 +1,7 @@
-# claude-youtrack-workflow
+# claude-dev-workflow
 
-Ticket-driven development against YouTrack, installed **per project** as Claude Code skills. This
-file is for working **on** it; `README.md` documents using it.
+Ticket-driven development against an issue tracker — YouTrack or GitHub Issues — installed **per
+project** as Claude Code skills. This file is for working **on** it; `README.md` documents using it.
 
 ## Three surfaces, three sets of constraints
 
@@ -20,7 +20,7 @@ non-commit exit path must cost ~3ms, not a ~50ms Node boot.
 
 ## Distribution: one path
 
-`npx github:ayhid/claude-youtrack-workflow` copies `lib/`, `scripts/` and `hooks/` into the
+`npx github:ayhid/claude-dev-workflow` copies `lib/`, `scripts/` and `hooks/` into the
 project's `_dev-workflow/`, the skills into `.claude/skills/dev-*`, and merges the commit hook into
 `.claude/settings.json`. Nothing is installed globally; there is no plugin manifest.
 

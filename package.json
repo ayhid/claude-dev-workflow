@@ -1,7 +1,7 @@
 {
   "name": "dev-workflow",
   "version": "2.0.0",
-  "description": "Per-project installer for the YouTrack ticket workflow — /dev-task, /dev-bug, /dev-done as Claude Code skills.",
+  "description": "Per-project installer for the ticket-driven dev workflow — /dev-task, /dev-bug, /dev-done as Claude Code skills, against YouTrack or GitHub Issues.",
   "type": "module",
   "bin": {
     "dev-workflow": "./bin/install.mjs"
@@ -32,6 +32,7 @@
     "claude-code",
     "claude-code-skill",
     "youtrack",
+    "github-issues",
     "workflow",
     "issue-tracker"
   ],
@@ -39,10 +40,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ayhid/claude-youtrack-workflow.git"
+    "url": "git+https://github.com/ayhid/claude-dev-workflow.git"
   },
-  "homepage": "https://github.com/ayhid/claude-youtrack-workflow#readme",
+  "homepage": "https://github.com/ayhid/claude-dev-workflow#readme",
   "bugs": {
-    "url": "https://github.com/ayhid/claude-youtrack-workflow/issues"
+    "url": "https://github.com/ayhid/claude-dev-workflow/issues"
   }
 }
