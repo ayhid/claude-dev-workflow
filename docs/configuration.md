@@ -153,14 +153,34 @@ paths, endpoints and error messages always stay verbatim.
 ## `delivery` — how work lands
 
 ```json
-"delivery": { "mode": "pr", "remote": "origin", "push": true, "cleanup": true }
+"delivery": { "mode": "pr", "base": null, "remote": "origin", "push": true, "cleanup": true }
 ```
 
 `pr` opens a pull request and lets `sync` move the ticket to the review state. `direct` rebases onto
-`branch.base`, fast-forwards it, pushes, tears the worktree down and closes the ticket — which is
-what a solo project wants. A rebase conflict aborts and reports; it is never force-resolved.
+the target, fast-forwards it, pushes, tears the worktree down and closes the ticket — which is what
+a solo project wants. A rebase conflict aborts and reports; it is never force-resolved.
 `push: false` lands locally and pushes nothing; `cleanup: false` keeps the worktree and branch after
 landing.
+
+`base` is the branch work is delivered **onto** — the branch `direct` fast-forwards, and the one a
+pull request opens against. `null` means "the same branch it forked from", so leaving it alone keeps
+the behaviour every project already had.
+
+It is a different question from [`branch.base`](#branch--names-worktrees), which is where a
+ticket branch is forked **from**, and the two only need separating when they genuinely differ:
+
+```json
+"branch":   { "base": "main" },
+"delivery": { "mode": "pr", "base": "develop" }
+```
+
+That forks each ticket from `main` and opens its PR against `develop` — gitflow, or a release branch
+that work must land on while a version is being cut. `dev.mjs config` prints the target whenever it
+differs from the fork point, so the two are never silently confused, and `land` refuses a target
+that exists neither locally nor on the remote rather than discovering it after pushing.
+
+In `direct` mode the main checkout is switched to the target to merge and switched back afterwards,
+so a worktree session never leaves the repo root sitting on a branch nobody selected.
 
 ## `repos` — more than one
 
@@ -183,7 +203,8 @@ Omit it entirely for a single-repo project.
 `when` is how `/dev-task` routes a ticket to a repo, `checks` is what `/dev-done` runs there, `env`
 is prepended to every command in that repo, and `remotes` lists everywhere branches are pushed.
 `repos[].delivery` overrides the top-level block, so one repo in a monorepo can push straight to
-`main` while another needs a PR.
+`main` while another needs a PR — or lands on a different branch entirely, since `base` is part of
+that block like every other delivery field.
 
 ## Credentials (YouTrack)
 
@@ -229,7 +250,7 @@ Useful for one-off runs against another instance, and for CI. There is no GitHub
     "types": { "Bug": "fix", "Feature": "feat", "Task": "chore" },
     "fallbackType": "chore"
   },
-  "delivery": { "mode": "pr", "remote": "origin", "push": true, "cleanup": true },
+  "delivery": { "mode": "pr", "base": null, "remote": "origin", "push": true, "cleanup": true },
   "commit": {
     "pattern": "type(scope): description (<ID>)",
     "position": "suffix",

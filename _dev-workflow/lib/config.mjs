@@ -70,17 +70,26 @@ export const DEFAULTS = {
     fallbackType: 'chore',
   },
   /**
-   * How finished work reaches the base branch.
+   * How finished work reaches the branch it is delivered onto.
    *
    * `pr` opens a pull request and lets the reconciler move the ticket to the
-   * review rung. `direct` rebases, fast-forwards the base and pushes — which is
-   * what a solo project wants, and what no amount of PR ceremony improves.
+   * review rung. `direct` rebases, fast-forwards the target and pushes — which
+   * is what a solo project wants, and what no amount of PR ceremony improves.
+   *
+   * `base` is the branch work is delivered **onto**, which is not the same
+   * question as `branch.base` — the branch work is forked **from**. They are
+   * equal in most projects, and `base: null` means exactly that: fall back to
+   * `branch.base` so an existing config keeps behaving as it always did. They
+   * come apart the moment a project forks from `main` but merges into
+   * `develop`, or pins delivery to `release/2.x` while a release is being cut.
+   * One key served both roles until #6, so neither could be said on its own.
    *
    * This is a property of the repository, not of the issue tracker, so it never
    * belongs in a provider capability. `repos[].delivery` overrides it per repo.
    */
   delivery: {
     mode: 'pr',
+    base: null,
     remote: 'origin',
     push: true,
     cleanup: true,
@@ -253,12 +262,21 @@ export function formatConfig(config, file) {
     L.push(`             types: ${types.map(([k, v]) => `${k}→${v}`).join('  ')}`);
   }
   const d = config.delivery ?? {};
+  // The target is the fork point until a project says otherwise, so naming it
+  // unconditionally would print "→ main" for every config that has never heard
+  // of `delivery.base`. It is called out only when the two genuinely differ —
+  // which is the case where reading one and assuming the other loses work.
+  const target = deliveryBase(config, d);
+  const forkedElsewhere = target !== (config.branch.base ?? DEFAULTS.branch.base);
   push(
     'delivery:',
     d.mode === 'direct'
-      ? `direct — rebase, fast-forward ${config.branch.base}, ${d.push === false ? 'no push' : `push to ${d.remote ?? 'origin'}`}`
-      : 'pull request',
+      ? `direct — rebase, fast-forward ${target}, ${d.push === false ? 'no push' : `push to ${d.remote ?? 'origin'}`}`
+      : `pull request${forkedElsewhere ? ` → ${target}` : ''}`,
   );
+  if (forkedElsewhere) {
+    L.push(`             onto: ${target}  (forked from ${config.branch.base})`);
+  }
   // The escape's scope is what means "no issue"; any configured type may wear
   // it. Rendering only the configured literal made that look type-pinned, and a
   // reader would never guess `feat(no-ticket):` is allowed too.
@@ -390,4 +408,21 @@ export function deliveryFor(config, repoPath) {
   const base = config?.delivery ?? {};
   const repo = config?.repos?.find((r) => r.path === repoPath);
   return { ...DEFAULTS.delivery, ...base, ...(repo?.delivery ?? {}) };
+}
+
+/**
+ * The branch finished work is delivered **onto** — the `direct` fast-forward
+ * target, and the `--base` a pull request opens against.
+ *
+ * `delivery.base` when set, `branch.base` otherwise. The fallback is the whole
+ * point: a config written before this key existed resolves to the branch it
+ * always used, so nothing moves under anyone. Pass the result of `deliveryFor`
+ * to get the per-repo override; the argument is required precisely so a caller
+ * cannot read the top-level block and quietly ignore a repo's own setting.
+ *
+ * `land.mjs` and `describe` both need this answer, and computing the fallback
+ * twice is how the two would eventually disagree about where work lands.
+ */
+export function deliveryBase(config, delivery) {
+  return delivery?.base ?? config?.branch?.base ?? DEFAULTS.branch.base;
 }

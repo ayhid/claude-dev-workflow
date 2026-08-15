@@ -1,19 +1,25 @@
 /**
- * Get finished work onto the base branch, the way this project delivers.
+ * Get finished work onto the branch this project delivers onto.
  *
  *   dev.mjs land [ISSUE-ID] [--apply] [--repo PATH]
  *
  * Which of the two things happens is `delivery.mode`, not a judgement call made
  * per session: `pr` opens a pull request and lets the reconciler move the
- * ticket, `direct` rebases, fast-forwards the base and pushes. A solo project
+ * ticket, `direct` rebases, fast-forwards the target and pushes. A solo project
  * configures `direct` once and never argues with a review gate again.
+ *
+ * *Where* it lands is `delivery.base`, falling back to `branch.base` — also
+ * configuration, and for the same reason. Note the two are different questions:
+ * `branch.base` is where a ticket branch is forked from, `delivery.base` where
+ * it is delivered to, and a project can legitimately fork from `main` while
+ * merging into `develop`.
  *
  * Dry run unless `--apply`. The dry run is a courtesy, not a proof — this repo
  * has shipped a write path whose plan was perfect and whose command the API
  * rejected, so `--apply` is the only thing that demonstrates the write works.
  */
 import { issueIdFromBranch } from '../../lib/branch.mjs';
-import { deliveryFor } from '../../lib/config.mjs';
+import { deliveryBase, deliveryFor } from '../../lib/config.mjs';
 import { sh } from '../../lib/sh.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
 import { context, resolveRepo, UserError } from './common.mjs';
@@ -29,6 +35,22 @@ function parseArgs(args) {
     else rest.push(a);
   }
   return { opts, rest };
+}
+
+/**
+ * Why the delivery target could not be found, and which key to go fix.
+ *
+ * Naming the key is the whole value of this message: `delivery.base` and
+ * `branch.base` produce an identical failure, and a reader who is told only
+ * that "develop does not exist" has to guess which one put it there.
+ */
+export function missingTargetError({ base, remote, repoDir, fromDeliveryBase }) {
+  return (
+    `the delivery target "${base}" does not exist in ${repoDir}, as a branch or as ${remote}/${base}.\n` +
+    (fromDeliveryBase
+      ? 'It comes from delivery.base — fix that key, or create the branch.'
+      : 'It comes from branch.base — fix that key, or set delivery.base to the branch work should land on.')
+  );
 }
 
 /** Open the PR and report what actually landed on it, not what was requested. */
@@ -98,13 +120,30 @@ export async function run(args) {
     );
   }
 
-  const base = config.branch?.base ?? 'main';
+  // The branch work is delivered onto, which is `branch.base` unless the project
+  // has said otherwise — resolved before the guard below, or a project whose
+  // target differs from its fork point would be refused while sitting on the
+  // branch it forks from and never asked to land at all.
+  const delivery = deliveryFor(config, repo.path);
+  const base = deliveryBase(config, delivery);
   if (branch === base) throw new UserError(`already on ${base} — there is nothing to land`);
+
+  // A target that does not exist is a config error, and it must surface here
+  // rather than as a git or `gh` failure after the branch has been pushed. The
+  // remote-tracking ref counts: a project delivering onto `develop` need never
+  // have checked it out locally, and for `pr` mode it never will.
+  const remote = delivery.remote ?? 'origin';
+  const targetExists =
+    (await vcs.refExists(repoDir, base)) || (await vcs.refExists(repoDir, `${remote}/${base}`));
+  if (!targetExists) {
+    throw new UserError(
+      missingTargetError({ base, remote, repoDir, fromDeliveryBase: Boolean(delivery.base) }),
+    );
+  }
 
   const issue = await provider.getIssue(id);
   if (!issue.ok) throw new UserError(issue.error);
 
-  const delivery = deliveryFor(config, repo.path);
   const L = [];
   L.push(`issue:    ${id} — ${issue.data.title}`);
   L.push(`repo:     ${repo.path} (${workDir})`);
@@ -119,7 +158,7 @@ export async function run(args) {
       base,
       issue: issue.data,
       reviewer: config.reviewer,
-      remote: delivery.remote ?? 'origin',
+      remote,
       apply: opts.apply,
       L,
     });
@@ -157,7 +196,7 @@ export async function run(args) {
 
   L.push(
     `action:   rebase onto ${base}, fast-forward, ` +
-      (delivery.push === false ? 'no push' : `push to ${delivery.remote ?? 'origin'}`),
+      (delivery.push === false ? 'no push' : `push to ${remote}`),
   );
   if (delivery.cleanup !== false) {
     L.push(
@@ -176,7 +215,7 @@ export async function run(args) {
     workDir,
     branch,
     base,
-    remote: delivery.remote ?? 'origin',
+    remote,
     push: delivery.push !== false,
   });
   if (!landed.ok) throw new UserError(landed.error);

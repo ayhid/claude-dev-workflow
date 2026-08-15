@@ -2,7 +2,7 @@
   "installation": {
     "version": "2.0.0",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-15T18:21:12.527Z"
+    "lastUpdated": "2026-08-15T19:28:28.117Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -22,7 +22,7 @@
     },
     {
       "path": "_dev-workflow/lib/config.mjs",
-      "sha256": "bcfb327b4c20ed142f2af2f6c13a11b99cfd15325927a4b669356e8fdaa3ffc6"
+      "sha256": "a148e7114415e8a61734be208fadc8b04b1287564d15bb3363e9cf2874d98586"
     },
     {
       "path": "_dev-workflow/lib/github.mjs",
@@ -54,7 +54,7 @@
     },
     {
       "path": "_dev-workflow/lib/vcs.mjs",
-      "sha256": "c9dc5765737b4c675302bc39b24ec2bbf45f0289e1f6ba2fee734b5b85dbe539"
+      "sha256": "25a182bbc4e1baac2b1793d9a1981e59878f1b96a7f5440f0d444bfb3f8435e1"
     },
     {
       "path": "_dev-workflow/lib/youtrack.mjs",
@@ -78,7 +78,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/land.mjs",
-      "sha256": "18a123bca9c42c0f1b5576d6117cadddd3c16332595ce3072ba905cbae1cf8bf"
+      "sha256": "363aca1c576ed73221dd8620dea231fd99f09a3c7349c4e6074faef5484a3d28"
     },
     {
       "path": "_dev-workflow/scripts/cmd/start.mjs",

@@ -9,6 +9,8 @@ import {
   CONFIG_FILES,
   DEFAULTS,
   deepMerge,
+  deliveryBase,
+  deliveryFor,
   findConfigFile,
   formatConfig,
   ladderOf,
@@ -225,4 +227,78 @@ test('formatConfig still shows the instance for a youtrack project', () => {
   const out = formatConfig(config, '/x/.dev-workflow.json');
   assert.match(out, /provider:\s+youtrack/);
   assert.match(out, /instance:\s+https:\/\/a\.cloud/);
+});
+
+// --- delivery.base: where work lands, as opposed to where it forked from ------
+//
+// One key served both roles until #6. The fallback is what makes adding the
+// second one safe: every config written before it existed has to resolve to the
+// branch it has always used, or the first `land` after an update delivers work
+// somewhere nobody asked for.
+
+test('the delivery target is branch.base when nothing says otherwise', () => {
+  const config = deepMerge(DEFAULTS, { branch: { base: 'trunk' } });
+  assert.equal(deliveryBase(config, deliveryFor(config, '.')), 'trunk');
+});
+
+test('delivery.base overrides the fork point without moving it', () => {
+  const config = deepMerge(DEFAULTS, {
+    branch: { base: 'main' },
+    delivery: { base: 'develop' },
+  });
+  assert.equal(deliveryBase(config, deliveryFor(config, '.')), 'develop');
+  assert.equal(config.branch.base, 'main', 'the fork point must be left alone');
+});
+
+test('a repo overrides the delivery target of the project it sits in', () => {
+  // The monorepo case deliveryFor already exists for: one package cut against a
+  // release branch while everything else goes to main.
+  const config = deepMerge(DEFAULTS, {
+    delivery: { base: 'develop' },
+    repos: [
+      { path: 'packages/api', delivery: { base: 'release/2.x' } },
+      { path: 'packages/web' },
+    ],
+  });
+  assert.equal(deliveryBase(config, deliveryFor(config, 'packages/api')), 'release/2.x');
+  assert.equal(deliveryBase(config, deliveryFor(config, 'packages/web')), 'develop');
+});
+
+test('an empty delivery block resolves exactly as no block at all', () => {
+  const withBlock = deepMerge(DEFAULTS, { branch: { base: 'trunk' }, delivery: {} });
+  const without = deepMerge(DEFAULTS, { branch: { base: 'trunk' } });
+  assert.equal(
+    deliveryBase(withBlock, deliveryFor(withBlock, '.')),
+    deliveryBase(without, deliveryFor(without, '.')),
+  );
+});
+
+test('formatConfig names the target only when it differs from the fork point', () => {
+  const same = deepMerge(DEFAULTS, { baseUrl: 'https://a.cloud', project: 'ABC' });
+  assert.doesNotMatch(
+    formatConfig(same, null),
+    /onto:/,
+    'printing "→ main" on every project that has never heard of delivery.base is noise',
+  );
+
+  const split = deepMerge(DEFAULTS, {
+    baseUrl: 'https://a.cloud',
+    project: 'ABC',
+    delivery: { base: 'develop' },
+  });
+  const out = formatConfig(split, null);
+  assert.match(out, /delivery:\s+pull request → develop/);
+  assert.match(out, /onto: develop\s+\(forked from main\)/);
+});
+
+test('direct delivery spells out the target, not the fork point', () => {
+  const config = deepMerge(DEFAULTS, {
+    baseUrl: 'https://a.cloud',
+    project: 'ABC',
+    branch: { base: 'main' },
+    delivery: { mode: 'direct', base: 'develop' },
+  });
+  const out = formatConfig(config, null);
+  assert.match(out, /fast-forward develop/);
+  assert.doesNotMatch(out, /fast-forward main/, 'landing on the fork point is the bug being fixed');
 });

@@ -68,8 +68,12 @@ flowchart TD
 
 Each ticket is checked out in its own git worktree by default, so starting one never disturbs
 whatever is already in the tree. Whether finished work goes through a pull request or lands straight
-on the base branch is **configuration, not a decision the model makes** — a solo project sets
+on the target branch is **configuration, not a decision the model makes** — a solo project sets
 `delivery.mode` to `direct` once and is never asked again.
+
+Where it lands is configuration too. `delivery.base` is the branch work is delivered **onto**, and
+`branch.base` the branch it is forked **from**; set the first only when they differ, and a project
+can fork every ticket from `main` while merging into `develop` or a release branch.
 
 ## Install
 
