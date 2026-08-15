@@ -25,7 +25,7 @@ export async function run(args) {
   if (args[0] === '--dup-check') {
     const keywords = args[1];
     if (!keywords) throw new UserError('usage: dev.mjs create --dup-check "<keywords>"');
-    const { provider } = await context({ requireProject: true });
+    const { provider } = await context();
     return dupCheck(provider, keywords);
   }
 
@@ -35,7 +35,7 @@ export async function run(args) {
   }
 
   const description = readArg(rawDescription, 'description file');
-  const { provider } = await context({ requireProject: true });
+  const { provider } = await context();
 
   // Capabilities, not the provider name: a backend without ordered priorities
   // should say so once here rather than have every caller learn which ones have

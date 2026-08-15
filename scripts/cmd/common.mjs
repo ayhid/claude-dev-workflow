@@ -15,22 +15,19 @@ export class UserError extends Error {}
  *
  * This is the seam. It used to hard-require a YouTrack URL and then a resolved
  * token before any command could run, which is why the tool could only ever
- * have one backend: GitHub has neither. Now it validates only what is
- * genuinely universal — that a project is named when the command needs one —
- * and hands off everything backend-specific to the adapter, which knows what
- * *its* credentials look like.
+ * have one backend: GitHub has neither.
  *
- * @param {{requireProject?: boolean}} [opts]
+ * It validates nothing itself now, deliberately. "A project is named" looked
+ * universal, but the key holding the name is not: YouTrack calls it `project`,
+ * GitHub calls it `github.repo`, and a core check spelled against one of them
+ * rejects every config for the other. Each adapter already refuses to build
+ * without the identity *it* needs, and that is the check — one place per
+ * backend, named after the key the user must actually add.
+ *
  * @returns {Promise<{config: object, file: string|null, root: string, provider: object}>}
  */
-export async function context(opts = {}) {
+export async function context() {
   const { config, file, root } = loadConfig();
-
-  if (opts.requireProject && !config.project) {
-    throw new UserError(
-      'no project configured — add "project" to .dev-workflow.json (run /dev-init)',
-    );
-  }
 
   const r = await makeProvider(config);
   if (!r.ok) throw new UserError(r.error);

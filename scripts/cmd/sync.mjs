@@ -119,7 +119,7 @@ export async function run(argv) {
   const opts = parseArgs(argv);
   await requireGh();
 
-  const { config, root, provider } = await context({ requireProject: true });
+  const { config, root, provider } = await context();
   // The ID shape comes from the provider, so a GitHub project scans PR titles
   // for `#123` rather than for a project key that does not exist there.
   const syntax = provider.syntax;
