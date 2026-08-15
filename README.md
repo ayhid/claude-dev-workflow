@@ -12,7 +12,7 @@ project** — nothing is registered globally, so the skills exist only in repos 
 | `/dev-done`    | Re-reads the ticket, verifies each criterion with evidence, runs the checks, then lands the work the way the project delivers — pull request, or straight onto the base branch. |
 
 ```mermaid
-flowchart LR
+flowchart TD
     A["/dev-task ABC-42<br/>or a plain sentence"] --> B["agree acceptance<br/>criteria, then a plan"]
     B --> C["dev.mjs start<br/>worktree or branch"]
     C --> D["ticket → In Progress"]
@@ -263,7 +263,6 @@ should each ticket be?* and advances whatever has fallen behind:
 
 ```mermaid
 stateDiagram-v2
-    direction LR
     state "In Progress" as inprog
     state "In Review" as inreview
     state "Done" as finished
