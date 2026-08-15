@@ -4,7 +4,7 @@
  *
  *   dev.mjs config [--json]                       effective config
  *   dev.mjs fetch  ABC-22                         issue as markdown, comments included
- *   dev.mjs update ABC-22 "State In Progress"     apply a command, read the state back
+ *   dev.mjs update ABC-22 state start              move a rung, read the state back
  *   dev.mjs update ABC-22 comment "note"          comment only
  *   dev.mjs create --dup-check "slug 500 router"  open issues matching keywords
  *   dev.mjs create "Summary" @/tmp/body.md Bug Major
@@ -22,7 +22,9 @@ const USAGE = `usage: dev.mjs <command> [args]
 
   config [--json]                       print the effective workflow config
   fetch  <ISSUE-ID>                     print an issue as markdown
-  update <ISSUE-ID> <COMMAND> [COMMENT] apply a command; COMMAND may be "comment"
+  update <ISSUE-ID> state <start|review|done|"<ladder state>"> [COMMENT|@FILE]
+  update <ISSUE-ID> comment <TEXT|@FILE>
+  update <ISSUE-ID> raw "<command>" [COMMENT|@FILE]   backend-native, where supported
   create <SUMMARY> <DESCRIPTION> [TYPE] [PRIORITY]
   create --dup-check <KEYWORDS>         search open issues
   start  <ISSUE-ID> [--type T] [--mode worktree|branch] [--repo PATH] [--print]

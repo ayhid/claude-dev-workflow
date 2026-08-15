@@ -2,7 +2,7 @@
   "installation": {
     "version": "2.0.0",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-15T17:43:23.038Z"
+    "lastUpdated": "2026-08-15T18:21:12.527Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -98,7 +98,7 @@
     },
     {
       "path": "_dev-workflow/scripts/dev.mjs",
-      "sha256": "538a3254593731576aa1bccf5ed1ab16390370b0aa53a90cefd301ae45a12120"
+      "sha256": "01f83145bab2ac6f8da36ba82e3383d9f7e662894d78e87e943a65384c7dc8df"
     },
     {
       "path": ".claude/skills/dev-bug/SKILL.md",
