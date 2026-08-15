@@ -7,12 +7,18 @@ project** — nothing is registered globally, so the skills exist only in repos 
 | Skill         | What it does |
 | ------------- | ------------ |
 | `/dev-init`    | Probes the repo, asks what it cannot infer, verifies the credentials, writes `.dev-workflow.json`. |
-| `/dev-task ID` | Fetches the issue, agrees acceptance criteria, plans, moves it to *in progress*, branches, implements with ticket-referencing commits. |
+| `/dev-task` | Takes an issue ID **or a plain sentence** — files the issue first when there is none — then agrees acceptance criteria, plans, moves it to *in progress*, checks it out in a worktree, and implements with ticket-referencing commits. |
 | `/dev-bug`     | Investigates the likely code path, checks for duplicates, drafts the issue in the project's language, files it on approval. **Never fixes.** |
-| `/dev-done`    | Re-reads the ticket, verifies each criterion with evidence, runs the checks, closes on confirmation. |
+| `/dev-done`    | Re-reads the ticket, verifies each criterion with evidence, runs the checks, then lands the work the way the project delivers — pull request, or straight onto the base branch. |
 
 Nothing installed is project-specific — instance, project, ticket language, repo layout, state
-ladder and commit convention all come from one `.dev-workflow.json` per project.
+ladder, branch naming, isolation mode and commit convention all come from one `.dev-workflow.json`
+per project.
+
+Each ticket is checked out in its own [git worktree](#configuration) by default, so starting one
+never disturbs whatever is already in the tree. Whether finished work goes through a pull request
+or lands straight on the base branch is configuration, not a decision the model makes — a solo
+project sets `delivery.mode` to `direct` once and is never asked again.
 
 `dev.mjs sync` reconciles the board against GitHub: open PR → review state, merged PR →
 done state. See [Keeping states honest](#keeping-states-honest).
@@ -25,7 +31,7 @@ convention, with a per-project escape hatch for genuinely ticketless work.
 From the project you want to set up:
 
 ```bash
-npx github:ayhid/claude-dev-workflow
+npx claude-dev-workflow@latest
 ```
 
 An interactive wizard ([`@clack/prompts`](https://github.com/bombshell-dev/clack)) that:
@@ -44,12 +50,50 @@ An interactive wizard ([`@clack/prompts`](https://github.com/bombshell-dev/clack
 It works offline too — if the API is unreachable it says so and falls back to typed answers.
 
 ```bash
-npx github:ayhid/claude-dev-workflow --dir ../other-project   # target somewhere else
-npx github:ayhid/claude-dev-workflow --print                  # show the config, write nothing
-npx github:ayhid/claude-dev-workflow --force                  # overwrite files you have edited
+npx claude-dev-workflow@latest --dir ../other-project   # target somewhere else
+npx claude-dev-workflow@latest --print                  # show the config, write nothing
+npx claude-dev-workflow@latest --force                  # overwrite files you have edited
 ```
 
-Cloned locally, `node bin/install.mjs` is the same thing.
+`npx github:ayhid/claude-dev-workflow` installs the same thing straight from `main`, one release
+ahead of npm. It is the slower path — npm resolves a git dependency by installing the repo's dev
+toolchain first — so prefer the registry unless you want unreleased work. Cloned locally,
+`node bin/install.mjs` is the same thing again.
+
+Released versions are listed under [Releases](https://github.com/ayhid/claude-dev-workflow/releases),
+with notes generated from the commit history.
+
+### Updating
+
+```bash
+npx claude-dev-workflow@latest --update           # refresh the files, keep your config
+npx claude-dev-workflow@latest --update --print   # show what would change, write nothing
+npx claude-dev-workflow@latest --update --force   # …and overwrite files you have edited
+```
+
+`--update` skips the wizard entirely: it touches `_dev-workflow/`, `.claude/skills/dev-*` and the
+hook entry in `.claude/settings.json`, and never reads or writes `.dev-workflow.json`. That matters
+for a project on GitHub Issues — the wizard is YouTrack-only and insists on an instance URL such a
+project does not have, so re-running it was never a real option.
+
+From inside an installed project:
+
+```bash
+node _dev-workflow/scripts/dev.mjs version      # installed vs latest, plus files you have edited
+node _dev-workflow/scripts/dev.mjs version --upgrade
+```
+
+`version` is read-only and exits 0 even with no network — it prints `unknown` rather than failing.
+`--upgrade` runs the `npx` line above for you, and refuses if `_dev-workflow/` or `.claude/skills/`
+has uncommitted changes, because an update rewrites those files and you need the diff to be legible.
+
+**Spell it `@latest`.** npx keys its cache on the literal spec string and, on a re-run, only checks
+whether the tree it already cached satisfies the range it recorded — `2.0.0` satisfies the `^2.0.0`
+it wrote — so a bare `npx claude-dev-workflow` keeps re-running whatever version it saw first,
+indefinitely. `latest` is a dist-tag, so it is re-resolved every time. The `github:` form is worse
+still: a git spec carries no version to compare, so the cached clone is reused forever. Bust it by
+changing the spec — `npx github:ayhid/claude-dev-workflow#v2.1.0`, or a commit sha — rather than by
+clearing the cache. (`npx --ignore-existing` was removed in npm 7.)
 
 ### Upgrading from v1
 
@@ -71,9 +115,10 @@ your-project/
     settings.json                 # the commit hook, merged in alongside your own
 ```
 
-**Re-run the installer to update.** It compares each file against the hash recorded at install
-time: untouched files are replaced, files you have edited are reported and left alone, and files
-a newer version no longer ships are removed. `--force` overrides that. Your `.claude/settings.json`
+**`npx claude-dev-workflow@latest --update` updates it.** The installer compares each file against
+the hash recorded at install time: untouched files are replaced, files you have edited are reported
+and left alone, and files a newer version no longer ships are removed. `--force` overrides that.
+Your `.claude/settings.json`
 is merged, never overwritten — hooks you added yourself survive, and the entry is not duplicated
 on a re-run.
 
@@ -104,7 +149,15 @@ Only `baseUrl` and `project` are required — everything else has a working defa
   "tokenOpRef": "op://Private/youtrack/credential",
   "language": "English",
   "states": { "start": "In Progress", "review": "In Review", "done": "Done", "ladder": [] },
-  "branch": { "pattern": "<ID>-<slug>", "base": "main" },
+  "branch": {
+    "pattern": "<type>/<ID>-<slug>",
+    "base": "main",
+    "mode": "worktree",
+    "worktreeDir": ".worktrees",
+    "types": { "Bug": "fix", "Feature": "feat", "Task": "chore" },
+    "fallbackType": "chore"
+  },
+  "delivery": { "mode": "pr", "remote": "origin", "push": true, "cleanup": true },
   "commit": {
     "pattern": "type(scope): description (<ID>)",
     "position": "suffix",
@@ -183,9 +236,32 @@ Notable fields:
   projects that do not use conventional commits.
 - **`commit.types` / `scopes`** — copy these from the project's own commitlint config; both the
   hook and the model read them.
+- **`commit.noTicketEscape`** — the subject prefix that means *this work genuinely has no issue*.
+  The **scope** is what carries that meaning, not the type: with the default `chore(no-ticket)`,
+  any configured type wearing that scope is accepted — `feat(no-ticket):`, `fix(no-ticket)!:` —
+  so ticketless work is not forced to be a `chore`. That matters if you derive releases from commit
+  types, since `chore` is the one type conventional-commits treats as non-releasing.
+- **`branch.pattern`** — `<type>`, `<ID>` and `<slug>`. A token the pattern omits is never
+  rendered, so pinning `"<ID>-<slug>"` keeps the names this tool produced before branch types
+  existed. Keep `<ID>` in it: `/dev-done` and `sync` both read the ticket back out of the branch.
+- **`branch.types`** — issue type → **commit** type, so a branch and the commits on it speak one
+  vocabulary. Every value must be one of `commit.types`; a value outside it, or an issue type with
+  no entry, is an error naming the key to add rather than a silent guess. An issue with no type at
+  all uses `fallbackType`.
+- **`branch.mode`** — `worktree` (default) checks each ticket out in its own directory under
+  `worktreeDir`, so starting a ticket never disturbs work in progress and `/dev-bug` can file
+  against the running tree. `branch` switches this checkout in place and refuses when it is dirty.
+  Add `.worktrees/` to your `.gitignore`: the installer writes only `_dev-workflow/` and
+  `.claude/skills/dev-*`, and will not touch that file for you.
+- **`delivery.mode`** — `pr` opens a pull request and lets `sync` move the ticket to the review
+  state. `direct` rebases onto `branch.base`, fast-forwards it, pushes, tears the worktree down and
+  closes the ticket — which is what a solo project wants. A rebase conflict aborts and reports; it
+  is never force-resolved. `push: false` lands locally and pushes nothing; `cleanup: false` keeps
+  the worktree and branch after landing.
 - **`repos`** — omit for a single-repo project. With entries, `when` is how `/dev-task` routes a
   ticket to a repo, `checks` is what `/dev-done` runs there, `env` is prepended to every command in
-  that repo, and `remotes` lists everywhere branches are pushed.
+  that repo, and `remotes` lists everywhere branches are pushed. `repos[].delivery` overrides the
+  top-level block, so one repo in a monorepo can push straight to `main` while another needs a PR.
 
 `.dev-workflow.json` holds no secret — `tokenOpRef` is a 1Password *reference* — so it is meant to
 be committed.
@@ -226,13 +302,24 @@ node _dev-workflow/scripts/dev.mjs update ABC-22 "State Done" @/tmp/c.md # …wi
 node _dev-workflow/scripts/dev.mjs update ABC-22 comment "note"         # comment only
 node _dev-workflow/scripts/dev.mjs create --dup-check "slug 500 router" # open issues matching keywords
 node _dev-workflow/scripts/dev.mjs create "Summary" @/tmp/body.md Bug Major   # prints the new ID on stdout
+node _dev-workflow/scripts/dev.mjs start  ABC-22                        # branch or worktree, then move to the start state
+node _dev-workflow/scripts/dev.mjs start  ABC-22 --print                # …just show the name and path
+node _dev-workflow/scripts/dev.mjs land                                 # dry run: how this work would reach the base branch
+node _dev-workflow/scripts/dev.mjs land --apply                         # open the PR, or rebase + fast-forward + push
 node _dev-workflow/scripts/dev.mjs sync                                 # dry run: report state drift
 node _dev-workflow/scripts/dev.mjs sync --apply --since 14d             # apply it, over a 14-day window
 node _dev-workflow/scripts/dev.mjs sync --deep                          # also read commit subjects
+node _dev-workflow/scripts/dev.mjs version                              # installed vs latest, and files you have edited
+node _dev-workflow/scripts/dev.mjs version --upgrade                    # run the installer to bring the payload up to date
 ```
 
-`config`, `fetch`, `update` and `create` are plain HTTP. `sync` additionally drives `git` and the
-GitHub CLI. None of them depend on anything outside Node's standard library, which is what lets
+`update` writes to the issue tracker; `version` reports on — and optionally updates — the workflow's
+own files. They are named a word apart on purpose: `upgrade` would have sat one letter from `update`
+in the same command table, and a mistyped verb that rewrites 25 files instead of moving a ticket is
+not a mistake worth making possible.
+
+`config`, `fetch`, `update` and `create` are plain HTTP. `start`, `land` and `sync` additionally
+drive `git` and the GitHub CLI. None of them depend on anything outside Node's standard library, which is what lets
 `_dev-workflow/` sit in a project of any language with nothing to install.
 
 Two behaviours worth knowing, both learned the hard way against the real API:
@@ -301,4 +388,9 @@ These are deliberate, and worth preserving in any fork:
 - `/dev-task` does not touch a file before the plan is approved, and does not close a ticket unasked.
 - `/dev-done` refuses to close a ticket whose acceptance criteria are unmet or whose suite fails, and
   reports the gap instead.
-- Nothing bypasses git hooks. No `--no-verify`, no `HUSKY=0`.
+- Nothing bypasses git hooks. No `--no-verify`, no `HUSKY=0`. `lib/vcs.mjs` refuses to build the
+  argv, so it holds for code added later too.
+- Nothing force-resolves a merge conflict. `-X theirs` and `checkout --theirs` discard one side
+  silently; a rebase conflict aborts, leaves the branch untouched, and says which commits clashed.
+- Nothing writes outside `_dev-workflow/` and `.claude/skills/dev-*`. That includes your
+  `.gitignore`: worktree mode prints the line to add rather than adding it.

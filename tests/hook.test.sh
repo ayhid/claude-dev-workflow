@@ -84,6 +84,17 @@ run_case 'accepts the default escape hatch'     0 'git commit -m "chore(no-ticke
 run_case 'accepts a configured escape hatch'    0 'git commit -m "chore(skip): bump deps"' "$CFG_ESCAPE"
 run_case 'default escape is replaced, not added' 2 'git commit -m "chore(no-ticket): bump deps"' "$CFG_ESCAPE"
 
+# The type in the escape is incidental; the scope is what means "no issue".
+# Pinning it to `chore` made every ticketless commit non-releasing under
+# conventional-commits, which is why any configured type with that scope passes.
+run_case 'escape: any type carries the scope'   0 'git commit -m "feat(no-ticket): add a thing"'
+run_case 'escape: a breaking marker is allowed' 0 'git commit -m "fix(no-ticket)!: drop a thing"'
+run_case 'escape: a different scope is not one' 2 'git commit -m "feat(other): add a thing"'
+run_case 'escape: the scope follows the config' 0 'git commit -m "feat(skip): add a thing"' "$CFG_ESCAPE"
+run_case 'escape: a replaced scope stops working' 2 'git commit -m "feat(no-ticket): add a thing"' "$CFG_ESCAPE"
+# Reuses commit.types rather than a second list: `docs` is not configured here.
+run_case 'escape: the type must be a configured one' 2 'git commit -m "docs(no-ticket): tidy"' "$CFG_TYPES"
+
 # --- commit.position ----------------------------------------------------------
 run_case 'prefix: accepts id then type'         0 'git commit -m "ABC-1 feat(api): add endpoint"' "$CFG_PREFIX"
 run_case 'prefix: accepts id colon then type'   0 'git commit -m "ABC-1: feat(api): add endpoint"' "$CFG_PREFIX"

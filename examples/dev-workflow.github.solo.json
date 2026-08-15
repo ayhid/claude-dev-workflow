@@ -1,0 +1,57 @@
+{
+  "//": "A solo project on GitHub Issues: every ticket gets its own worktree, and finished work is rebased onto main and pushed. No pull requests, because there is nobody to review them.",
+
+  "provider": "github",
+  "github": {
+    "repo": "octocat/side-project",
+    "labels": {
+      "type": { "Bug": "bug", "Feature": "enhancement", "Task": "chore" },
+      "In Progress": "status: in progress",
+      "Done": "status: done"
+    }
+  },
+
+  "language": "English",
+
+  "//states": "The first rung needs no label: it is what an issue carrying none already is. There is no review rung, because nothing goes through review here.",
+  "states": {
+    "ladder": ["Backlog", "In Progress", "Done"],
+    "start": "In Progress",
+    "review": "In Progress",
+    "done": "Done"
+  },
+
+  "//branch": "Type prefixes come from the issue's own label, mapped onto a commit type so the branch and its commits agree. `#42` becomes `42` in the ref: a `#` in a branch name is a comment character in too many files to be worth it.",
+  "branch": {
+    "pattern": "<type>/<ID>-<slug>",
+    "base": "main",
+    "mode": "worktree",
+    "worktreeDir": ".worktrees",
+    "types": { "Bug": "fix", "Feature": "feat", "Task": "chore" },
+    "fallbackType": "chore"
+  },
+
+  "//delivery": "rebase onto main, fast-forward, push, then remove the worktree and delete the branch. A rebase conflict aborts and reports rather than resolving itself.",
+  "delivery": {
+    "mode": "direct",
+    "remote": "origin",
+    "push": true,
+    "cleanup": true
+  },
+
+  "commit": {
+    "pattern": "type(scope): description (<ID>)",
+    "position": "suffix",
+    "noTicketEscape": "chore(no-ticket)",
+    "types": ["feat", "fix", "docs", "refactor", "test", "chore"],
+    "idPattern": "#[0-9]+"
+  },
+
+  "issueTypes": ["Bug", "Feature", "Task"],
+
+  "repos": [{ "path": ".", "checks": ["npm test"] }],
+
+  "notes": [
+    "Add .worktrees/ to .gitignore — the installer writes only _dev-workflow/ and .claude/skills/dev-*, and will not touch it for you."
+  ]
+}

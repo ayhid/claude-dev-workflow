@@ -1,0 +1,53 @@
+{
+  "provider": "github",
+  "github": {
+    "repo": "ayhid/claude-dev-workflow",
+    "labels": {
+      "In Progress": "status: in progress",
+      "In Review": "status: in review",
+      "Done": "status: done"
+    }
+  },
+  "language": "English",
+  "states": {
+    "ladder": ["Backlog", "In Progress", "In Review", "Done"],
+    "start": "In Progress",
+    "review": "In Review",
+    "done": "Done"
+  },
+  "branch": {
+    "pattern": "<ID>-<slug>",
+    "base": "main"
+  },
+  "commit": {
+    "pattern": "type(scope): description (<ID>)",
+    "position": "suffix",
+    "noTicketEscape": "chore(no-ticket)",
+    "types": [
+      "build",
+      "chore",
+      "ci",
+      "docs",
+      "feat",
+      "fix",
+      "perf",
+      "refactor",
+      "revert",
+      "style",
+      "test"
+    ],
+    "enforce": true,
+    "requireType": true
+  },
+  "repos": [
+    {
+      "path": ".",
+      "checks": ["npm test"]
+    }
+  ],
+  "notes": [
+    "This repo is the workflow's own source. The runtime under _dev-workflow/ is an installed copy of lib/, scripts/ and hooks/ — edit the source at the repo root, then re-run the installer to refresh the copy. Never edit _dev-workflow/ directly.",
+    "The commit type is a release decision: semantic-release cuts on every push to main, so feat means a minor and fix a patch. Pick it accordingly.",
+    "Work with no issue behind it still uses the chore(no-ticket) escape; the type in it is incidental, so any conventional type plus (no-ticket) passes."
+  ]
+}

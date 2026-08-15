@@ -1,16 +1,24 @@
 {
-  "name": "dev-workflow",
+  "name": "claude-dev-workflow",
   "version": "2.0.0",
   "description": "Per-project installer for the ticket-driven dev workflow — /dev-task, /dev-bug, /dev-done as Claude Code skills, against YouTrack or GitHub Issues.",
   "type": "module",
   "bin": {
-    "dev-workflow": "./bin/install.mjs"
+    "claude-dev-workflow": "./bin/install.mjs"
   },
   "scripts": {
     "lint": "bash tests/lint.sh",
     "test:unit": "node --test tests/*.test.mjs",
     "test:hook": "bash tests/hook.test.sh",
-    "test": "npm run lint && npm run test:unit && npm run test:hook"
+    "test": "npm run lint && npm run test:unit && npm run test:hook",
+    "commit": "cz",
+    "release": "semantic-release",
+    "prepare": "husky || true"
+  },
+  "config": {
+    "commitizen": {
+      "path": "@commitlint/cz-commitlint"
+    }
   },
   "files": [
     "bin",
@@ -19,8 +27,13 @@
     "scripts",
     "hooks",
     "examples",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "engines": {
     "node": ">=22"
   },
@@ -45,5 +58,16 @@
   "homepage": "https://github.com/ayhid/claude-dev-workflow#readme",
   "bugs": {
     "url": "https://github.com/ayhid/claude-dev-workflow/issues"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.2.2",
+    "@commitlint/config-conventional": "^21.2.2",
+    "@commitlint/cz-commitlint": "^21.2.2",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "commitizen": "^4.3.2",
+    "husky": "^9.1.7",
+    "inquirer": "^9.3.8",
+    "semantic-release": "^25.0.9"
   }
 }

@@ -111,6 +111,7 @@ jobs:
           rc=0
           check "a ticketless commit is blocked" 'git commit -m "no ticket"'            2 || rc=1
           check "the escape hatch is allowed"    'git commit -m "chore(no-ticket): x"'  0 || rc=1
+          check "the hatch carries any type"     'git commit -m "feat(no-ticket): x"'   0 || rc=1
           check "a referencing commit is allowed" 'git commit -m "fix: x (ABC-1)"'      0 || rc=1
           check "a non-commit command is allowed" 'ls -la'                              0 || rc=1
           exit "$rc"
@@ -150,3 +151,42 @@ jobs:
             [ "$rc" -eq 0 ] && echo "ok   $f"
           done
           exit "$rc"
+
+  # Releases are automatic, so this gate is the only thing between a push and a
+  # published version: `needs` means nothing ships over a red tree. What it
+  # cannot prove is a write path against a live tracker — CI has no instance and
+  # no token — which is why the pre-push checklist in the repo-local /release
+  # skill is still run by hand. The version bump lands back on `main` because
+  # that is the distribution channel for the `github:` install path.
+  release:
+    needs: [test, install]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    permissions:
+      contents: write         # push the version bump and the tag
+      issues: write           # release comments on resolved issues
+      pull-requests: write
+      id-token: write         # npm provenance
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # semantic-release derives the next version from the commits since the
+          # last tag; a shallow clone has neither.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npx semantic-release

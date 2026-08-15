@@ -16,10 +16,19 @@ note() { printf '%s\n' "$*"; }
 
 # Portable collection: macOS still ships bash 3.2, which has no `mapfile`.
 sh_files=() js_files=()
+# Husky hooks carry no extension, so the *.sh sweep would skip them and our own
+# commit gate would be the one shell script nothing parses.
+#
+# `.husky/_/` is husky's own vendored runtime, written by `npm install` and
+# ignored by a .gitignore husky puts there itself. It is not in the repo, it is
+# not ours to fix, and linting it means CI fails on a dependency's style — which
+# is exactly what it did, since a bare checkout has no `.husky/_/` and only CI
+# ever saw the file.
 while IFS= read -r f; do sh_files+=("$f"); done < <(
-  find . -name '*.sh' -not -path './node_modules/*' -not -path './.git/*' | sort)
+  { find . -name '*.sh' -not -path './node_modules/*' -not -path './.git/*' -not -path './.husky/_/*'
+    find .husky -maxdepth 1 -type f -not -name '.*' 2>/dev/null; } | sort)
 while IFS= read -r f; do js_files+=("$f"); done < <(
-  find . -name '*.mjs' -not -path './node_modules/*' -not -path './.git/*' | sort)
+  find . -name '*.mjs' -not -path './node_modules/*' -not -path './.git/*' -not -path './.husky/_/*' | sort)
 
 note "bash -n (${#sh_files[@]} files)"
 for f in "${sh_files[@]}"; do

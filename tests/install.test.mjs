@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -341,4 +342,42 @@ test('the installer refuses to plan a write outside its roots', () => {
     () => installPayload({ sourceRoot: fakeDist, projectDir: scratch(), version: '0.0.0' }),
     /refusing to install/,
   );
+});
+
+// --- the non-interactive update path -----------------------------------------
+//
+// One CLI case, deliberately. `tests/` otherwise exercises libraries, but the
+// invariant here is a property of the *process*: `--update` must exit before the
+// first prompt. If it regresses, the installer blocks on a closed stdin forever
+// and no library test can see it — the timeout below is the assertion.
+
+test('--update installs with no prompts, and --print writes nothing', async () => {
+  const dir = scratch();
+
+  const run = (args) =>
+    new Promise((resolve) => {
+      const child = spawn(process.execPath, [join(SOURCE_ROOT, 'bin', 'install.mjs'), ...args], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 30_000,
+      });
+      let out = '';
+      child.stdout.on('data', (d) => (out += d));
+      child.stderr.on('data', (d) => (out += d));
+      child.on('close', (code, signal) => resolve({ code, signal, out }));
+    });
+
+  const dry = await run(['--update', '--print', '--dir', dir]);
+  assert.equal(dry.signal, null, `--update --print did not exit on its own: ${dry.out}`);
+  assert.equal(dry.code, 0, dry.out);
+  assert.equal(readdirSync(dir).length, 0, 'a dry run must write nothing at all');
+
+  const real = await run(['--update', '--dir', dir]);
+  assert.equal(real.signal, null, `--update did not exit on its own: ${real.out}`);
+  assert.equal(real.code, 0, real.out);
+  assert.ok(existsSync(join(dir, MANIFEST_PATH)), 'the manifest is what makes the next run an update');
+  assert.ok(existsSync(join(dir, PAYLOAD_DIR, 'scripts', 'dev.mjs')));
+  assert.ok(existsSync(join(dir, '.claude', 'skills', 'dev-task', 'SKILL.md')));
+
+  // The config is the wizard's business, not the updater's.
+  assert.ok(!existsSync(join(dir, '.dev-workflow.json')), '--update must not touch the config');
 });
