@@ -1,8 +1,8 @@
 /**
  * Print the effective workflow config so a skill can read it in one call.
  *
- *   yt.mjs config          human-readable summary
- *   yt.mjs config --json   merged JSON, defaults filled in
+ *   dev.mjs config          human-readable summary
+ *   dev.mjs config --json   merged JSON, defaults filled in
  *
  * Every field has a default, so this succeeds with no .dev-workflow.json at all —
  * except baseUrl, which has none and is reported as missing rather than fatal.

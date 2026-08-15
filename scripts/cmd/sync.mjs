@@ -1,11 +1,11 @@
 /**
  * Reconcile YouTrack issue states against what GitHub actually shows.
  *
- *   yt.mjs sync                # dry run — report drift, change nothing
- *   yt.mjs sync --apply        # apply the transitions
- *   yt.mjs sync --since 14d    # widen the window (default 30d)
- *   yt.mjs sync --repo frontend
- *   yt.mjs sync --deep         # also read commit subjects (1 extra call per PR)
+ *   dev.mjs sync                # dry run — report drift, change nothing
+ *   dev.mjs sync --apply        # apply the transitions
+ *   dev.mjs sync --since 14d    # widen the window (default 30d)
+ *   dev.mjs sync --repo frontend
+ *   dev.mjs sync --deep         # also read commit subjects (1 extra call per PR)
  *
  * This is a reconciler, not an event handler. It asks "given the PRs that exist
  * right now, where should each ticket be?" and advances anything that has fallen
@@ -31,8 +31,8 @@ import {
   renderComment,
   slugFromRemoteUrl,
   strongestEvidence,
+  UNKNOWN,
 } from '../../lib/sync.mjs';
-import { applyCommand, commandFor, getState } from '../../lib/youtrack.mjs';
 import { context, UserError } from './common.mjs';
 
 function parseArgs(argv) {
@@ -119,7 +119,7 @@ export async function run(argv) {
   const opts = parseArgs(argv);
   await requireGh();
 
-  const { config, root, token } = await context({ requireProject: true });
+  const { config, root, provider } = await context({ requireProject: true });
   const ladder = ladderOf(config);
   const rankReview = rankOf(config, config.states.review);
   const rankDone = rankOf(config, config.states.done);
@@ -190,10 +190,16 @@ export async function run(argv) {
   const row = (a, b, c, d) => `${a.padEnd(12)} ${b.padEnd(16)} ${c.padEnd(16)} ${d}`;
   process.stdout.write(`\n${row('ISSUE', 'CURRENT', 'SHOULD BE', 'WHY')}\n${'-'.repeat(72)}\n`);
 
+  // One batched read rather than one call per issue. On an HTTP backend that
+  // is a nicety; on a CLI-backed one each read is a process spawn *plus* a
+  // round trip, so the loop must not do it per issue.
+  const ids = [...evidence.keys()].sort(byIssueNumber);
+  const states = await provider.getStates(ids);
+
   const planned = [];
-  for (const id of [...evidence.keys()].sort(byIssueNumber)) {
+  for (const id of ids) {
     const { rank: targetRank, state: targetState, url } = evidence.get(id);
-    const current = await getState(config.baseUrl, token, id);
+    const current = states.get(id) ?? UNKNOWN;
     const { action, why } = decide({
       current,
       currentRank: rankOf(config, current),
@@ -226,13 +232,7 @@ export async function run(argv) {
 
   for (const { id, targetState, url } of planned) {
     const comment = renderComment(config.sync?.comment, { url, state: targetState });
-    const result = await applyCommand(
-      config.baseUrl,
-      token,
-      id,
-      commandFor({ State: targetState }),
-      comment,
-    );
+    const result = await provider.setState(id, targetState, comment);
 
     if (!result.ok) {
       // Never swallow this: the first --apply failure printed only "update
@@ -242,7 +242,7 @@ export async function run(argv) {
       continue;
     }
 
-    // applyCommand already reads back, but state the comparison explicitly:
+    // setState already reads back, but state the comparison explicitly:
     // this command's whole value is being trustworthy without someone reading
     // its output line by line.
     if (result.state === targetState) {

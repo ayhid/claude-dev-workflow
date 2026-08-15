@@ -69,7 +69,7 @@ YOUTRACK_BASE_URL=<url> YOUTRACK_PROJECT=<key> \
 A `no open issues matched` line or a list of issues both mean success. An auth or project error
 means the config is wrong — fix it now rather than writing a file that fails on first use.
 
-To confirm the state names, fetch any real issue from the project with `yt.mjs fetch` and read the
+To confirm the state names, fetch any real issue from the project with `dev.mjs fetch` and read the
 `State` line. Do not invent state names; a `State X` command YouTrack does not recognise returns
 400, or worse, 200 without applying.
 

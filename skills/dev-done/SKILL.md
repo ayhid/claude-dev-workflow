@@ -125,7 +125,7 @@ node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" update <ISSUE-ID> "St
 
 Confirm the read-back line reports that state. If it reports anything else, the command did not
 apply — report that rather than assuming success. Use only state names from the configured
-ladder, and observe the brace rule (see `/dev-task` §5). Prefer `yt.mjs sync`, which applies it for
+ladder, and observe the brace rule (see `/dev-task` §5). Prefer `dev.mjs sync`, which applies it for
 you; a state YouTrack does not recognise fails, sometimes silently.
 
 Pushing the branch and opening a PR are separate actions; ask before doing either.

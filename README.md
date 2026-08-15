@@ -14,7 +14,7 @@ only in repos that actually use YouTrack.
 Nothing installed is project-specific — instance, project, ticket language, repo layout, state
 ladder and commit convention all come from one `.dev-workflow.json` per project.
 
-`yt.mjs sync` reconciles the board against GitHub: open PR → review state, merged PR →
+`dev.mjs sync` reconciles the board against GitHub: open PR → review state, merged PR →
 done state. See [Keeping states honest](#keeping-states-honest).
 
 A `PreToolUse` hook blocks any `git commit -m` whose subject does not match the configured
@@ -86,7 +86,7 @@ shared file, `.claude/settings.json`, is merged rather than rewritten: hooks you
 added stay put.
 
 Requirements: Node ≥ 22. `jq` is needed only by the commit hook, and the
-[GitHub CLI](https://cli.github.com) only by `yt.mjs sync`. The 1Password CLI (`op`) is optional.
+[GitHub CLI](https://cli.github.com) only by `dev.mjs sync`. The 1Password CLI (`op`) is optional.
 **The installed runtime has no dependencies of its own** — there is no `node_modules` under
 `_dev-workflow/`, so it works in a Python, Rust or Go project just as well.
 
@@ -198,7 +198,7 @@ GitHub CLI. None of them depend on anything outside Node's standard library, whi
 
 Two behaviours worth knowing, both learned the hard way against the real API:
 
-- The commands API returns **200 for commands it did not apply**. `yt.mjs update` always reads
+- The commands API returns **200 for commands it did not apply**. `dev.mjs update` always reads
   the state back afterwards and prints what it actually found — trust that line, not the exit code.
 - In a command query, only values *containing a space* may be braced — braces mark where a
   multi-word value ends, they are not general quoting. Both directions bite: `Type {Bug} Priority
@@ -211,7 +211,7 @@ Transitions rot. A PR merges on a Friday, nobody is in a session, and the ticket
 until someone notices. The usual fix is a webhook that fires on merge — but an event that fires
 while the runner is down is simply lost, and the ticket is wrong forever.
 
-`yt.mjs sync` reconciles instead of reacting. It asks *given the PRs that exist right now, where
+`dev.mjs sync` reconciles instead of reacting. It asks *given the PRs that exist right now, where
 should each ticket be?* and advances whatever has fallen behind:
 
 | Evidence | Target |
@@ -242,8 +242,8 @@ freely against any instance. The **write paths cannot be verified without writin
 dry run that looks perfect proves nothing about them — `dev-sync --apply` shipped with a command
 the API rejects, and the dry run had reported the correct plan every time.
 
-So: after changing anything that writes, run it once against a real issue. `yt.mjs create` on a
-throwaway issue you then close, `yt.mjs update` / `yt.mjs sync --apply` on a ticket that genuinely
+So: after changing anything that writes, run it once against a real issue. `dev.mjs create` on a
+throwaway issue you then close, `dev.mjs update` / `dev.mjs sync --apply` on a ticket that genuinely
 needs moving. Then re-run to confirm the operation is idempotent.
 
 Never swallow stderr from a write. The first `--apply` failure printed only `update failed`,

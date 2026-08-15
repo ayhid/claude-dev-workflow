@@ -1,39 +1,41 @@
 /**
- * Shared plumbing for the command modules: config + token in one step, and the
- * `@file` argument convention.
+ * Shared plumbing for the command modules: config + provider in one step, and
+ * the `@file` argument convention.
  */
 import { readFileSync } from 'node:fs';
 
 import { loadConfig } from '../../lib/config.mjs';
-import { resolveToken } from '../../lib/token.mjs';
+import { makeProvider } from '../../lib/provider.mjs';
 
-/** Thrown for expected, user-facing failures — yt.mjs prints `.message` alone. */
+/** Thrown for expected, user-facing failures — dev.mjs prints `.message` alone. */
 export class UserError extends Error {}
 
 /**
- * Load the config and resolve the token.
+ * Load the config and build the provider for it.
+ *
+ * This is the seam. It used to hard-require a YouTrack URL and then a resolved
+ * token before any command could run, which is why the tool could only ever
+ * have one backend: GitHub has neither. Now it validates only what is
+ * genuinely universal — that a project is named when the command needs one —
+ * and hands off everything backend-specific to the adapter, which knows what
+ * *its* credentials look like.
  *
  * @param {{requireProject?: boolean}} [opts]
- * @returns {Promise<{config: object, file: string|null, root: string, token: string}>}
+ * @returns {Promise<{config: object, file: string|null, root: string, provider: object}>}
  */
 export async function context(opts = {}) {
   const { config, file, root } = loadConfig();
 
-  if (!config.baseUrl) {
-    throw new UserError(
-      'no YouTrack URL configured — set YOUTRACK_BASE_URL or add "baseUrl" to .dev-workflow.json (run /dev-init)',
-    );
-  }
   if (opts.requireProject && !config.project) {
     throw new UserError(
-      'no project configured — set YOUTRACK_PROJECT or add "project" to .dev-workflow.json',
+      'no project configured — add "project" to .dev-workflow.json (run /dev-init)',
     );
   }
 
-  const t = await resolveToken(config);
-  if (!t.ok) throw new UserError(t.error);
+  const r = await makeProvider(config);
+  if (!r.ok) throw new UserError(r.error);
 
-  return { config, file, root, token: t.token };
+  return { config, file, root, provider: r.provider };
 }
 
 /**

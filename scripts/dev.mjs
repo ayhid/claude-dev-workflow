@@ -2,20 +2,20 @@
 /**
  * The runtime CLI the skills call.
  *
- *   yt.mjs config [--json]                       effective config
- *   yt.mjs fetch  ABC-22                         issue as markdown, comments included
- *   yt.mjs update ABC-22 "State In Progress"     apply a command, read the state back
- *   yt.mjs update ABC-22 comment "note"          comment only
- *   yt.mjs create --dup-check "slug 500 router"  open issues matching keywords
- *   yt.mjs create "Summary" @/tmp/body.md Bug Major
- *   yt.mjs sync [--apply] [--since 14d] [--deep] reconcile states against GitHub
+ *   dev.mjs config [--json]                       effective config
+ *   dev.mjs fetch  ABC-22                         issue as markdown, comments included
+ *   dev.mjs update ABC-22 "State In Progress"     apply a command, read the state back
+ *   dev.mjs update ABC-22 comment "note"          comment only
+ *   dev.mjs create --dup-check "slug 500 router"  open issues matching keywords
+ *   dev.mjs create "Summary" @/tmp/body.md Bug Major
+ *   dev.mjs sync [--apply] [--since 14d] [--deep] reconcile states against GitHub
  *
  * Nothing here depends on anything outside node: builtins. The installed copy
  * under `_dev-workflow/` has no `node_modules` and must run in any project — a Rust
  * or Python one included. Commands are imported lazily so a run only parses
  * what it needs.
  */
-const USAGE = `usage: yt.mjs <command> [args]
+const USAGE = `usage: dev.mjs <command> [args]
 
   config [--json]                       print the effective workflow config
   fetch  <ISSUE-ID>                     print an issue as markdown
@@ -53,6 +53,6 @@ try {
   const code = await mod.run(args);
   process.exit(code ?? 0);
 } catch (err) {
-  process.stderr.write(`yt ${name}: ${err.message}\n`);
+  process.stderr.write(`dev ${name}: ${err.message}\n`);
   process.exit(1);
 }

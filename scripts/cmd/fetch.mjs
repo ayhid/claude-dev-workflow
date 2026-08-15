@@ -1,72 +1,53 @@
 /**
  * Fetch an issue and print it as clean markdown.
  *
- *   yt.mjs fetch ABC-22
+ *   dev.mjs fetch ABC-22
  *
  * Comments are included in full: tickets migrated from another tracker often
  * carry their real requirements in the comment thread rather than the
  * description, so truncating them loses the acceptance criteria.
+ *
+ * This renderer knows nothing about any backend. The adapter hands over a
+ * NormalizedIssue whose values are already strings and whose timestamps are
+ * already ISO-8601, so the same code prints a YouTrack issue and a GitHub one
+ * identically — which is also what makes the output diffable across providers.
  */
-import { getIssue } from '../../lib/youtrack.mjs';
 import { context, must, UserError } from './common.mjs';
 
-/** Render a custom-field value, whatever shape it arrives in. */
-function renderValue(v) {
-  if (v === null || v === undefined) return '—';
-  if (Array.isArray(v)) return v.length === 0 ? '—' : v.map(renderValue).join(', ');
-  if (typeof v === 'object') {
-    if (typeof v.minutes === 'number') return `${v.minutes}m`;
-    return v.name ?? v.fullName ?? v.login ?? v.presentation ?? v.text ?? '—';
-  }
-  return String(v);
-}
-
-const fieldValue = (issue, name) =>
-  renderValue((issue.customFields ?? []).find((f) => f.name === name)?.value);
-
-const timestamp = (ms) =>
-  typeof ms === 'number'
-    ? `${new Date(ms).toISOString().slice(0, 16).replace('T', ' ')} UTC`
-    : 'unknown date';
+/** ISO-8601 → `YYYY-MM-DD HH:MM UTC`. */
+const timestamp = (iso) =>
+  typeof iso === 'string' && iso ? `${iso.slice(0, 16).replace('T', ' ')} UTC` : 'unknown date';
 
 export async function run(args) {
   const issueId = args[0];
-  if (!issueId) throw new UserError('usage: yt.mjs fetch <ISSUE-ID>   (e.g. ABC-22)');
+  if (!issueId) throw new UserError('usage: dev.mjs fetch <ISSUE-ID>   (e.g. ABC-22)');
 
-  const { config, token } = await context();
-  const issue = must(await getIssue(config.baseUrl, token, issueId));
+  const { provider } = await context();
+  const issue = must(await provider.getIssue(issueId));
 
   const out = [
-    `# ${issue.idReadable} — ${issue.summary || '(no title)'}`,
+    `# ${issue.id} — ${issue.title || '(no title)'}`,
     '',
-    `**State:** ${fieldValue(issue, 'State')}  |  **Assignee:** ${fieldValue(issue, 'Assignee')}`,
+    `**State:** ${issue.state}  |  **Assignee:** ${issue.assignee ?? '—'}`,
     '',
     '## Description',
     '',
-    issue.description?.trim() ? issue.description : '_(no description)_',
+    issue.body?.trim() ? issue.body : '_(no description)_',
     '',
     '## Fields',
     '',
   ];
 
-  const others = (issue.customFields ?? [])
-    .filter((f) => f.name !== 'State' && f.name !== 'Assignee')
-    .map((f) => ({ name: f.name, value: renderValue(f.value) }))
-    .filter((f) => f.value !== '—');
-
   out.push(
-    ...(others.length
-      ? others.map((f) => `- **${f.name}:** ${f.value}`)
+    ...(issue.fields.length
+      ? issue.fields.map((f) => `- **${f.name}:** ${f.value}`)
       : ['_(no other fields set)_']),
   );
 
-  const comments = issue.comments ?? [];
-  out.push('', `## Comments (${comments.length})`, '');
+  out.push('', `## Comments (${issue.comments.length})`, '');
   out.push(
-    ...(comments.length
-      ? comments.map(
-          (c) => `### @${c.author?.login ?? 'unknown'} — ${timestamp(c.created)}\n\n${c.text ?? ''}\n`,
-        )
+    ...(issue.comments.length
+      ? issue.comments.map((c) => `### @${c.author} — ${timestamp(c.at)}\n\n${c.body}\n`)
       : ['_(no comments)_']),
   );
 
