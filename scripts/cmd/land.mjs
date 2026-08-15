@@ -37,6 +37,22 @@ function parseArgs(args) {
   return { opts, rest };
 }
 
+/**
+ * Why the delivery target could not be found, and which key to go fix.
+ *
+ * Naming the key is the whole value of this message: `delivery.base` and
+ * `branch.base` produce an identical failure, and a reader who is told only
+ * that "develop does not exist" has to guess which one put it there.
+ */
+export function missingTargetError({ base, remote, repoDir, fromDeliveryBase }) {
+  return (
+    `the delivery target "${base}" does not exist in ${repoDir}, as a branch or as ${remote}/${base}.\n` +
+    (fromDeliveryBase
+      ? 'It comes from delivery.base — fix that key, or create the branch.'
+      : 'It comes from branch.base — fix that key, or set delivery.base to the branch work should land on.')
+  );
+}
+
 /** Open the PR and report what actually landed on it, not what was requested. */
 async function openPullRequest({ workDir, branch, base, issue, reviewer, remote, apply, L }) {
   L.push(`action:   open a pull request ${branch} → ${base}`);
@@ -121,10 +137,7 @@ export async function run(args) {
     (await vcs.refExists(repoDir, base)) || (await vcs.refExists(repoDir, `${remote}/${base}`));
   if (!targetExists) {
     throw new UserError(
-      `the delivery target "${base}" does not exist in ${repoDir}, as a branch or as ${remote}/${base}.\n` +
-        (delivery.base
-          ? `It comes from delivery.base — fix that key, or create the branch.`
-          : `It comes from branch.base — fix that key, or set delivery.base to the branch work should land on.`),
+      missingTargetError({ base, remote, repoDir, fromDeliveryBase: Boolean(delivery.base) }),
     );
   }
 
