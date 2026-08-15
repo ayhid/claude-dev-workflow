@@ -197,10 +197,14 @@ export function makeVcs({ run }) {
   /**
    * Land `branch` on `base` without a pull request: rebase, fast-forward, push.
    *
-   * `repoDir` is the main checkout — the one with `base` on it — and `workDir`
-   * is where the branch is (the same directory in branch mode, the worktree
-   * otherwise). The rebase runs where the branch is checked out; the merge runs
-   * where the base is.
+   * `repoDir` is the main checkout and `workDir` is where the branch is (the
+   * same directory in branch mode, the worktree otherwise). The rebase runs
+   * where the branch is checked out; the merge runs in the main checkout, which
+   * is switched to `base` for it and — in worktree mode — switched back after.
+   *
+   * `base` is the delivery target, which is not necessarily the branch `repoDir`
+   * has checked out: `delivery.base` lets a project fork from one branch and
+   * land on another.
    *
    * A rebase conflict aborts and reports. Resolving it is a judgement call about
    * someone's code, which is not a thing this should make silently.
@@ -277,8 +281,31 @@ export function makeVcs({ run }) {
       }
     }
 
-    // Read back what actually landed rather than reporting the plan.
+    // Read back what actually landed rather than reporting the plan. This has to
+    // happen before the restore below, or it reports the head of whatever branch
+    // the checkout went back to instead of the one that was landed onto.
     const head = await git(repoDir, ['rev-parse', '--short', 'HEAD']);
+
+    // Put the main checkout back where it was found. It only moved when the
+    // target is not what was checked out there — which, before `delivery.base`
+    // existed, could not happen: the target was always `branch.base` and the
+    // main checkout always sat on it. Now a project can deliver onto `develop`
+    // while the checkout is on `main`, and leaving it on `develop` afterwards is
+    // the "a later command edits the wrong branch and reports a clean tree"
+    // failure this module exists to prevent.
+    //
+    // Worktree mode only: in branch mode `wasOn` is the ticket branch, which the
+    // caller is about to delete, so staying on the target is the correct resting
+    // place there.
+    if (wasOn && wasOn !== base && workDir !== repoDir) {
+      const back = await git(repoDir, ['switch', wasOn]);
+      steps.push(
+        back.ok
+          ? `switch ${repoDir} back to ${wasOn}: ok`
+          : `warning: ${repoDir} is left on ${base}, not ${wasOn}: ${back.stderr}`,
+      );
+    }
+
     return { ok: true, steps, base, head: head.stdout, pushed: push && hasRemote };
   }
 
