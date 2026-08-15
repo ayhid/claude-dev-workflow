@@ -46,7 +46,10 @@ const opt = (name, fallback) => {
 
 if (flag('--help') || flag('-h')) {
   console.log(`
-${c.bold('youtrack-workflow')} — set up the YouTrack ticket workflow for a project
+${c.bold('dev-workflow')} — set up the YouTrack ticket workflow for a project
+
+For a project that uses GitHub Issues, install with this and then run ${c.cyan('/dev-init')},
+which configures the label ladder GitHub needs.
 
 Installs into the project itself: the runtime under ${c.cyan(PAYLOAD_DIR + '/')}, the four
 skills under ${c.cyan('.claude/skills/dev-*')}, and the commit hook into
@@ -94,7 +97,7 @@ async function opRead(ref) {
 }
 
 // --- go ----------------------------------------------------------------------
-p.intro(`${c.bgCyan(c.black(' youtrack-workflow '))}  ${c.dim(targetDir)}`);
+p.intro(`${c.bgCyan(c.black(' dev-workflow '))}  ${c.dim(targetDir)}`);
 
 if (!existsSync(targetDir)) {
   p.cancel(`No such directory: ${targetDir}`);
@@ -438,6 +441,10 @@ const reviewer = bail(
 const idPattern = position === 'prefix' ? '<ID> type(scope): description' : 'type(scope): description (<ID>)';
 
 const config = {
+  // Written explicitly rather than left to the default, so the file says which
+  // tracker it is for. This wizard only configures YouTrack; a GitHub project
+  // is set up by /dev-init, which knows about label ladders.
+  provider: 'youtrack',
   baseUrl,
   project,
   ...(projectId ? { projectId } : {}),
