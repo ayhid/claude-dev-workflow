@@ -184,12 +184,16 @@ export async function run(argv) {
   const evidence = strongestEvidence(observations);
   if (evidence.size === 0) {
     process.stdout.write(
-      `\nNo ${config.project} issues referenced by PRs since ${cutoff}. Nothing to reconcile.\n`,
+      // The ID shape, not the project key: `config.project` is a YouTrack key
+      // that a GitHub config has no equivalent of, so this line read "No null
+      // issues…" for every GitHub project. The syntax sample says the same
+      // thing — which IDs were scanned for — and every backend has one.
+      `\nNo issues matching ${provider.syntax.sample} referenced by PRs since ${cutoff}. Nothing to reconcile.\n`,
     );
     return 0;
   }
 
-  // --- compare against YouTrack ---------------------------------------------
+  // --- compare against the tracker ------------------------------------------
   const row = (a, b, c, d) => `${a.padEnd(12)} ${b.padEnd(16)} ${c.padEnd(16)} ${d}`;
   process.stdout.write(`\n${row('ISSUE', 'CURRENT', 'SHOULD BE', 'WHY')}\n${'-'.repeat(72)}\n`);
 
