@@ -11,25 +11,6 @@ project** — nothing is registered globally, so the skills exist only in repos 
 | `/dev-bug`     | Investigates the likely code path, checks for duplicates, drafts the issue in the project's language, files it on approval. **Never fixes.** |
 | `/dev-done`    | Re-reads the ticket, verifies each criterion with evidence, runs the checks, then lands the work the way the project delivers — pull request, or straight onto the base branch. |
 
-```mermaid
-flowchart TD
-    A["/dev-task ABC-42<br/>or a plain sentence"] --> B["agree acceptance<br/>criteria, then a plan"]
-    B --> C["dev.mjs start<br/>worktree or branch"]
-    C --> D["ticket → In Progress"]
-    D --> E["commits carrying<br/>the issue ID"]
-    E --> F["/dev-done<br/>verify criteria, run checks"]
-    F --> G{"delivery.mode"}
-    G -- "pr" --> H["pull request opened<br/>ticket → In Review"]
-    H --> I["PR merged"]
-    I --> J["dev.mjs sync<br/>ticket → Done"]
-    G -- "direct" --> K["rebase, fast-forward, push<br/>worktree removed<br/>ticket → Done"]
-```
-
-Each ticket is checked out in its own git worktree by default, so starting one never disturbs
-whatever is already in the tree. Whether finished work goes through a pull request or lands straight
-on the base branch is **configuration, not a decision the model makes** — a solo project sets
-`delivery.mode` to `direct` once and is never asked again.
-
 Nothing installed is project-specific: instance, project, ticket language, repo layout, state
 ladder, branch naming, isolation mode and commit convention all come from one
 [`.dev-workflow.json`](docs/configuration.md) per project.
@@ -70,6 +51,25 @@ Either way you now have the four skills. Start work:
 
 `/dev-task` agrees the acceptance criteria with you and waits for your approval on a plan before it
 edits anything.
+
+## How a ticket flows
+
+```mermaid
+flowchart TD
+    A["/dev-task ABC-42<br/>or a plain sentence"] --> B["agree acceptance<br/>criteria, then a plan"]
+    B --> C["dev.mjs start<br/>worktree or branch<br/>ticket → In Progress"]
+    C --> D["commits carrying<br/>the issue ID"]
+    D --> E["/dev-done<br/>verify criteria, run checks"]
+    E --> F{"delivery.mode"}
+    F -- "pr" --> G["pull request opened<br/>ticket → In Review"]
+    G -- "merged" --> H["dev.mjs sync<br/>ticket → Done"]
+    F -- "direct" --> I["rebase, fast-forward, push<br/>worktree removed<br/>ticket → Done"]
+```
+
+Each ticket is checked out in its own git worktree by default, so starting one never disturbs
+whatever is already in the tree. Whether finished work goes through a pull request or lands straight
+on the base branch is **configuration, not a decision the model makes** — a solo project sets
+`delivery.mode` to `direct` once and is never asked again.
 
 ## Install
 
