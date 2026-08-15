@@ -191,6 +191,35 @@ test('formatConfig shows the repo for a github project, not a YouTrack instance'
   assert.doesNotMatch(out, /instance:/, 'a baseUrl means nothing to a github project');
 });
 
+// The skills read the isolation and delivery modes straight off this output to
+// decide which directory to work in and whether to open a PR. A key that is not
+// printed is a key they cannot act on.
+
+test('formatConfig prints the isolation mode and the type mapping', () => {
+  const config = deepMerge(DEFAULTS, { baseUrl: 'https://a.cloud', project: 'ABC' });
+  const out = formatConfig(config, '/x/.dev-workflow.json');
+  assert.match(out, /mode: worktree \(\.worktrees\/\)/);
+  assert.match(out, /types: Bug→fix/);
+});
+
+test('formatConfig spells out what direct delivery will actually do', () => {
+  const config = deepMerge(DEFAULTS, {
+    baseUrl: 'https://a.cloud',
+    project: 'ABC',
+    branch: { mode: 'branch', base: 'trunk' },
+    delivery: { mode: 'direct' },
+  });
+  const out = formatConfig(config, '/x/.dev-workflow.json');
+  assert.match(out, /mode: branch/);
+  assert.doesNotMatch(out, /\.worktrees/, 'branch mode has no worktree directory');
+  assert.match(out, /delivery:\s+direct — rebase, fast-forward trunk, push to origin/);
+});
+
+test('formatConfig says "pull request" when that is the default', () => {
+  const config = deepMerge(DEFAULTS, { baseUrl: 'https://a.cloud', project: 'ABC' });
+  assert.match(formatConfig(config, null), /delivery:\s+pull request/);
+});
+
 test('formatConfig still shows the instance for a youtrack project', () => {
   const config = deepMerge(DEFAULTS, { baseUrl: 'https://a.cloud', project: 'ABC' });
   const out = formatConfig(config, '/x/.dev-workflow.json');

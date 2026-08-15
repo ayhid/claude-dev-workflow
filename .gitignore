@@ -4,3 +4,7 @@ node_modules/
 # package-lock.json is deliberately committed: `main` is the distribution
 # channel for both install paths, so CI must resolve the same dependency tree
 # users get, and `npm ci` needs the lockfile to exist.
+
+# Worktree checkouts created by `dev.mjs start` in worktree mode. The installer
+# writes only _dev-workflow/ and .claude/skills/dev-*, so this line is ours to add.
+.worktrees/

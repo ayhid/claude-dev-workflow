@@ -16,8 +16,11 @@ note() { printf '%s\n' "$*"; }
 
 # Portable collection: macOS still ships bash 3.2, which has no `mapfile`.
 sh_files=() js_files=()
+# Husky hooks carry no extension, so the *.sh sweep would skip them and our own
+# commit gate would be the one shell script nothing parses.
 while IFS= read -r f; do sh_files+=("$f"); done < <(
-  find . -name '*.sh' -not -path './node_modules/*' -not -path './.git/*' | sort)
+  { find . -name '*.sh' -not -path './node_modules/*' -not -path './.git/*'
+    find .husky -maxdepth 1 -type f -not -name '.*' 2>/dev/null; } | sort)
 while IFS= read -r f; do js_files+=("$f"); done < <(
   find . -name '*.mjs' -not -path './node_modules/*' -not -path './.git/*' | sort)
 
