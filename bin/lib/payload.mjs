@@ -21,8 +21,13 @@
  *
  * Nothing written here has dependencies: the payload must run in a project with
  * no package.json at all.
+ *
+ * Reading the manifest back lives in `lib/manifest.mjs`, which ships, because the
+ * installed payload reports its own version and drift from the same file. The
+ * *writing* — `planFiles`, `isOwnedPath`, `installPayload` and the delete pass —
+ * stays here and is never copied into a project, so the boundary has exactly one
+ * implementation.
  */
-import { createHash } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
@@ -36,9 +41,14 @@ import {
 } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 
-/** Where the payload lands, relative to the project root. Fixed, so the skills need no templating. */
-export const PAYLOAD_DIR = '_dev-workflow';
-export const MANIFEST_PATH = join(PAYLOAD_DIR, '_config', 'manifest.json');
+// The manifest schema is understood in one place, and that place ships: the
+// installed payload reads the same file back to report its own version and
+// drift. See lib/manifest.mjs for why the ownership boundary does *not* move
+// with it.
+import { MANIFEST_PATH, PAYLOAD_DIR, detectDrift, readJson, readManifest, sha256 } from '../../lib/manifest.mjs';
+
+export { MANIFEST_PATH, PAYLOAD_DIR, detectDrift, readManifest };
+
 const SKILLS_DIR = join('.claude', 'skills');
 const SETTINGS_PATH = join('.claude', 'settings.json');
 
@@ -49,8 +59,6 @@ export const HOOK_COMMAND = `bash "$CLAUDE_PROJECT_DIR/${PAYLOAD_DIR}/hooks/chec
 
 /** The skill-name prefix we claim. Anything else in .claude/skills/ is someone else's. */
 export const SKILL_PREFIX = 'dev-';
-
-const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 
 /**
  * May the installer write to, or delete, this project-relative path?
@@ -105,19 +113,6 @@ function walk(dir, base = dir, out = []) {
   return out.sort();
 }
 
-/** Read a JSON file, or return `fallback` if it is missing or unparseable. */
-function readJson(path, fallback = null) {
-  try {
-    return JSON.parse(readFileSync(path, 'utf8'));
-  } catch {
-    return fallback;
-  }
-}
-
-export function readManifest(projectDir) {
-  return readJson(join(projectDir, MANIFEST_PATH));
-}
-
 /**
  * Plan the file set this install would write: `{ relPath -> absolute source }`.
  * Paths are relative to the project root.
@@ -147,29 +142,6 @@ export function planFiles(sourceRoot) {
   }
 
   return files;
-}
-
-/**
- * Compare what is on disk against what the manifest recorded.
- *
- * @returns {{modified: string[], missing: string[], clean: string[]}}
- */
-export function detectDrift(projectDir, manifest) {
-  const modified = [];
-  const missing = [];
-  const clean = [];
-
-  for (const entry of manifest?.files ?? []) {
-    const abs = join(projectDir, entry.path);
-    if (!existsSync(abs)) {
-      missing.push(entry.path);
-      continue;
-    }
-    if (sha256(readFileSync(abs)) === entry.sha256) clean.push(entry.path);
-    else modified.push(entry.path);
-  }
-
-  return { modified, missing, clean };
 }
 
 /**

@@ -1,0 +1,120 @@
+{
+  "installation": {
+    "version": "2.0.0",
+    "installDate": "2026-08-15T15:40:34.287Z",
+    "lastUpdated": "2026-08-15T17:43:23.038Z"
+  },
+  "payloadDir": "_dev-workflow",
+  "skills": [
+    "dev-bug",
+    "dev-done",
+    "dev-init",
+    "dev-task"
+  ],
+  "files": [
+    {
+      "path": "_dev-workflow/hooks/check-commit-ticket.sh",
+      "sha256": "6263637ee4409a7bc175694fdbae12a2efee142539cb47f2eb2672910fed9dec"
+    },
+    {
+      "path": "_dev-workflow/lib/branch.mjs",
+      "sha256": "a7408621d18959e5dd059458734c4d53366fede697c4fb9fc857fd6fb508aa44"
+    },
+    {
+      "path": "_dev-workflow/lib/config.mjs",
+      "sha256": "bcfb327b4c20ed142f2af2f6c13a11b99cfd15325927a4b669356e8fdaa3ffc6"
+    },
+    {
+      "path": "_dev-workflow/lib/github.mjs",
+      "sha256": "83a71ee1a4e230524d18826d5a30def4e89457eaaecc56498aefb9005ec35656"
+    },
+    {
+      "path": "_dev-workflow/lib/issueid.mjs",
+      "sha256": "34c3bfbab24b370b20765f893adc0cdc3bf74953566ac632130c459d05041662"
+    },
+    {
+      "path": "_dev-workflow/lib/manifest.mjs",
+      "sha256": "b277ea7f5f65b4f84ee8fd00baf923db249f4901520ebe3b7be08df14d0f5e65"
+    },
+    {
+      "path": "_dev-workflow/lib/provider.mjs",
+      "sha256": "0cb07ba23ae72ffc4ca7663d4221ab085cf1a0839855f52a4b9d585d8bed5fe3"
+    },
+    {
+      "path": "_dev-workflow/lib/sh.mjs",
+      "sha256": "41f9fe345444299c16f9a486f3bc722e288a2e2c7c8ad714f0d3dbc12cfb1050"
+    },
+    {
+      "path": "_dev-workflow/lib/sync.mjs",
+      "sha256": "f1cd3a9ede38fa92ae5578f48e1e3f8e9176e9116ae4c26d8a9a85326f15a2c7"
+    },
+    {
+      "path": "_dev-workflow/lib/token.mjs",
+      "sha256": "c33017f7fa70d0f0df55941b7ddcf0bb6a912bd65bef66970c104225928dcc20"
+    },
+    {
+      "path": "_dev-workflow/lib/vcs.mjs",
+      "sha256": "c9dc5765737b4c675302bc39b24ec2bbf45f0289e1f6ba2fee734b5b85dbe539"
+    },
+    {
+      "path": "_dev-workflow/lib/youtrack.mjs",
+      "sha256": "a59fd7871d628a1a6d96425f37caeb5476ae6b4afd759965b19573d8aeb2a1f4"
+    },
+    {
+      "path": "_dev-workflow/scripts/cmd/common.mjs",
+      "sha256": "1afbc863c1a8de19e15bdc884db6e4c2debf51176d78ff29751c8c6f7cf48d45"
+    },
+    {
+      "path": "_dev-workflow/scripts/cmd/config.mjs",
+      "sha256": "843f46f84d7764c5d93d53b317961c96945e66a0c5a6c5b0e77bc63d16b6bf46"
+    },
+    {
+      "path": "_dev-workflow/scripts/cmd/create.mjs",
+      "sha256": "385ab6d7c8fc751c274b31761a20fd2f0d1421c50b2685bdf3c0bc792782fd1b"
+    },
+    {
+      "path": "_dev-workflow/scripts/cmd/fetch.mjs",
+      "sha256": "d1130e5075e1dcd46840e5a1982cbe7206ce13d2d91471bfd2535cef996f6102"
+    },
+    {
+      "path": "_dev-workflow/scripts/cmd/land.mjs",
+      "sha256": "18a123bca9c42c0f1b5576d6117cadddd3c16332595ce3072ba905cbae1cf8bf"
+    },
+    {
+      "path": "_dev-workflow/scripts/cmd/start.mjs",
+      "sha256": "15e4404e502ad786f4d3834dfd367a5d082c2b62af1f12c55458f5abbdab589f"
+    },
+    {
+      "path": "_dev-workflow/scripts/cmd/sync.mjs",
+      "sha256": "dd8e8903bdced525a4eaf6406e58c0cd4f39f16351fc32801d3369b3341d6a03"
+    },
+    {
+      "path": "_dev-workflow/scripts/cmd/update.mjs",
+      "sha256": "a7449a9fe625b430c43e25beb741f62efd1365cc25074c767945a229e303f4fd"
+    },
+    {
+      "path": "_dev-workflow/scripts/cmd/version.mjs",
+      "sha256": "375c25f12305899a6fdccd2f613e3c6b9c057a5756c758d479e4093086cc5968"
+    },
+    {
+      "path": "_dev-workflow/scripts/dev.mjs",
+      "sha256": "538a3254593731576aa1bccf5ed1ab16390370b0aa53a90cefd301ae45a12120"
+    },
+    {
+      "path": ".claude/skills/dev-bug/SKILL.md",
+      "sha256": "c88917c16d95ef366780692852d8382a77d0d7376f27ce0912995082bb6b4a47"
+    },
+    {
+      "path": ".claude/skills/dev-done/SKILL.md",
+      "sha256": "370f253bc63533537c59ff470579d7912c17cca4e55b3946bdd4068fa95671e5"
+    },
+    {
+      "path": ".claude/skills/dev-init/SKILL.md",
+      "sha256": "793911c6236b27a7cc49eacbab61a964bdb526368e30095b5942553e7e0a3d36"
+    },
+    {
+      "path": ".claude/skills/dev-task/SKILL.md",
+      "sha256": "4ebbeba07a072615b7d87112f6da808dbebfd82493b07b0ecac40804d5e9a9bf"
+    }
+  ]
+}

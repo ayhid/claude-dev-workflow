@@ -2,13 +2,25 @@
 /**
  * Interactive installer for the dev-workflow Claude Code skills.
  *
- *   npx dev-workflow            # configure the project in the cwd
- *   npx dev-workflow --dir ..   # …somewhere else
- *   npx dev-workflow --print    # show the config, write nothing
+ *   npx claude-dev-workflow@latest            # configure the project in the cwd
+ *   npx claude-dev-workflow@latest --update   # refresh the files only, no prompts
+ *   npx claude-dev-workflow@latest --dir ..   # …somewhere else
+ *   npx claude-dev-workflow@latest --print    # show the config, write nothing
  *
  * Two things happen here: `.dev-workflow.json` is written for the target project,
  * and the plugin itself is registered with Claude Code. Both are optional and
  * either can be skipped.
+ *
+ * `@latest` is not decoration. npx keys its cache on the literal spec string and,
+ * on a re-run, only checks whether the cached tree satisfies the range it
+ * recorded — `1.2.3` satisfies the `^1.2.3` it wrote, so a bare
+ * `npx claude-dev-workflow` reruns the stale cached copy indefinitely. `latest`
+ * is a dist-tag, so it is re-resolved every time. Every command this file prints
+ * spells it out for that reason.
+ *
+ * `--update` exists because updating used to mean answering the whole wizard
+ * again — impossible on a GitHub Issues project, since the wizard is YouTrack-only
+ * and demands an instance URL such a project does not have.
  */
 import { execFileSync, execFile } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -55,8 +67,17 @@ Installs into the project itself: the runtime under ${c.cyan(PAYLOAD_DIR + '/')}
 skills under ${c.cyan('.claude/skills/dev-*')}, and the commit hook into
 ${c.cyan('.claude/settings.json')}. Nothing is installed globally.
 
-Re-run it to update. Files you have edited are reported and left alone.
+To update an already-configured project, skip the wizard entirely:
 
+  ${c.cyan('npx claude-dev-workflow@latest --update')}           refresh the files, keep the config
+  ${c.cyan('npx claude-dev-workflow@latest --update --print')}   show what would change
+
+Files you have edited are reported and left alone unless you pass ${c.cyan('--force')}.
+
+Always spell it ${c.cyan('@latest')}: npx caches by the literal spec string, so a bare
+${c.cyan('npx claude-dev-workflow')} keeps re-running whatever version it cached first.
+
+  --update       install/refresh the files only — no prompts, config untouched
   --dir <path>   target project directory (default: cwd)
   --print        print the resulting config instead of writing it
   --force        overwrite an existing .dev-workflow.json, and any edited payload file
@@ -86,6 +107,65 @@ const has = (bin) => {
   }
 };
 
+/** The one command that reliably fetches a newer version. Printed, never guessed at. */
+const UPDATE_COMMAND = 'npx claude-dev-workflow@latest --update';
+
+/**
+ * Copy the payload and skills into the project, and report what happened.
+ *
+ * Shared by the wizard's final step and the bare `--update` path, so the two
+ * cannot drift in what they tell the user — the whole point of `--update` is
+ * that it is the same install, minus the questions.
+ *
+ * @returns {boolean} whether the install completed
+ */
+function installIntoProject({ force = false, dryRun = false } = {}) {
+  const existing = readManifest(targetDir);
+  const updating = Boolean(existing);
+  const s = p.spinner();
+  s.start(dryRun ? 'Checking what would change' : updating ? 'Updating the workflow files' : 'Installing the workflow files');
+
+  try {
+    const result = installPayload({
+      sourceRoot: SOURCE_ROOT,
+      projectDir: targetDir,
+      version: VERSION,
+      force,
+      dryRun,
+    });
+    s.stop(
+      dryRun
+        ? `${result.written.length} file(s) would be written to ${targetDir}`
+        : `${result.written.length} file(s) written to ${targetDir}`,
+    );
+
+    if (dryRun) p.log.info('Dry run — nothing was written.');
+    else if (result.hookAdded) p.log.success('Commit hook added to .claude/settings.json');
+    else p.log.info('Commit hook already registered in .claude/settings.json');
+
+    if (result.removed.length) {
+      p.log.info(`${dryRun ? 'Would remove' : 'Removed'} ${result.removed.length} file(s) no longer shipped.`);
+    }
+
+    // The reason the manifest exists: never overwrite someone's edit silently.
+    if (result.skipped.length) {
+      p.log.warn(`Kept ${result.skipped.length} file(s) you have edited:`);
+      p.note(
+        `${result.skipped.slice(0, 10).join('\n')}${result.skipped.length > 10 ? '\n…' : ''}`,
+        'Left untouched — re-run with --force to overwrite',
+      );
+    }
+
+    p.log.info(`${PAYLOAD_DIR}/ is installer-managed. Commit it, and update with:`);
+    p.log.message(c.cyan(UPDATE_COMMAND));
+    return true;
+  } catch (err) {
+    s.stop(c.yellow('Could not install the workflow files.'));
+    p.log.warn((err.message || '').trim().slice(0, 400));
+    return false;
+  }
+}
+
 /** Read a secret out of 1Password without it ever touching the terminal. */
 async function opRead(ref) {
   try {
@@ -102,6 +182,29 @@ p.intro(`${c.bgCyan(c.black(' dev-workflow '))}  ${c.dim(targetDir)}`);
 if (!existsSync(targetDir)) {
   p.cancel(`No such directory: ${targetDir}`);
   process.exit(1);
+}
+
+// --- 0. the update path ------------------------------------------------------
+// Deliberately *before the first prompt*. An update must not require answering
+// the wizard again: the wizard is YouTrack-only and its instance URL is
+// mandatory, so a GitHub Issues project could not get through it at all. It also
+// makes the installer usable where there is no TTY.
+//
+// An existing manifest is not required — `--update` on a fresh project is a
+// payload install with no config, which is exactly what a project configured by
+// /dev-init wants.
+if (flag('--update')) {
+  const ok = installIntoProject({ force: flag('--force'), dryRun: flag('--print') });
+  if (!ok) {
+    p.outro(c.yellow('Nothing was updated.'));
+    process.exit(1);
+  }
+  p.outro(
+    flag('--print')
+      ? `${c.green('Planned only.')} ${c.dim(`v${VERSION} would be installed in ${targetDir}`)}`
+      : `${c.green('Up to date.')} ${c.dim(`v${VERSION} in ${targetDir}`)}`,
+  );
+  process.exit(0);
 }
 
 let existing = null;
@@ -428,16 +531,95 @@ const enforce = bail(
   }),
 );
 
-// --- 9. reviewer -------------------------------------------------------------
-const reviewer = bail(
-  await p.text({
-    message: `Default PR reviewer ${c.dim('(blank for none)')}`,
-    initialValue: existing?.reviewer ?? '',
-    defaultValue: '',
+/** What `lib/config.mjs` ships when a project's commitlint config says nothing. */
+const DEFAULT_COMMIT_TYPES = ['feat', 'fix', 'docs', 'style', 'refactor', 'test', 'chore', 'perf', 'ci', 'revert', 'build'];
+
+/**
+ * A proposed issue-type → commit-type mapping.
+ *
+ * A proposal, not an inference: the assembled JSON is shown in full and
+ * confirmed before anything is written, and at runtime an unmapped type is an
+ * error naming the key rather than a guess. Only pairs where the commit type
+ * actually exists in this project are written — mapping to a type its commitlint
+ * config rejects would produce a branch its own commits could not reference.
+ */
+function branchTypeMap(issueTypes, commitTypes) {
+  const rules = [
+    [/bug|defect|incident/i, 'fix'],
+    [/feature|story|epic|enhancement/i, 'feat'],
+    [/improvement|refactor|debt/i, 'refactor'],
+    [/doc/i, 'docs'],
+    [/task|chore|maintenance/i, 'chore'],
+  ];
+  const out = {};
+  for (const t of issueTypes ?? []) {
+    const hit = rules.find(([re]) => re.test(t))?.[1] ?? 'chore';
+    if (commitTypes.includes(hit)) out[t] = hit;
+    else if (commitTypes.includes('chore')) out[t] = 'chore';
+  }
+  return out;
+}
+
+// --- 9. isolation and delivery -----------------------------------------------
+//
+// Two working-style questions, asked in working-style terms. Both have real
+// consequences — one decides which directory every later command runs in, the
+// other whether finished work waits for a review that may never come — so
+// neither is inferred from the repo.
+const base = existing?.branch?.base ?? (rootRepo ? baseBranch(rootRepo.dir) : 'main');
+
+const branchMode = bail(
+  await p.select({
+    message: 'Where should starting a ticket check the code out?',
+    initialValue: existing?.branch?.mode ?? 'worktree',
+    options: [
+      {
+        value: 'worktree',
+        label: 'A separate directory (git worktree)',
+        hint: 'leaves this checkout and any work in progress alone',
+      },
+      { value: 'branch', label: 'This checkout', hint: 'switches branch in place; refuses if dirty' },
+    ],
   }),
 );
 
-// --- 10. assemble ------------------------------------------------------------
+const deliveryMode = bail(
+  await p.select({
+    message: `When a ticket is finished, how should it reach ${c.cyan(base)}?`,
+    initialValue: existing?.delivery?.mode ?? 'pr',
+    options: [
+      { value: 'pr', label: 'Open a pull request', hint: 'reviewed, then merged' },
+      {
+        value: 'direct',
+        label: `Land it on ${base}`,
+        hint: 'rebase, fast-forward, push — for a solo project',
+      },
+    ],
+  }),
+);
+
+const useTypedBranches = bail(
+  await p.confirm({
+    message: `Prefix branches with the change type? ${c.dim('(feat/ABC-1-slug rather than ABC-1-slug)')}`,
+    initialValue: (existing?.branch?.pattern ?? '<type>/<ID>-<slug>').includes('<type>'),
+  }),
+);
+
+// --- 10. reviewer ------------------------------------------------------------
+// Only meaningful with a pull request in the picture; a reviewer on a `direct`
+// project is a field nothing will ever read.
+const reviewer =
+  deliveryMode === 'pr'
+    ? bail(
+        await p.text({
+          message: `Default PR reviewer ${c.dim('(blank for none)')}`,
+          initialValue: existing?.reviewer ?? '',
+          defaultValue: '',
+        }),
+      )
+    : '';
+
+// --- 11. assemble ------------------------------------------------------------
 const idPattern = position === 'prefix' ? '<ID> type(scope): description' : 'type(scope): description (<ID>)';
 
 const config = {
@@ -452,8 +634,21 @@ const config = {
   language,
   states,
   branch: {
-    pattern: existing?.branch?.pattern ?? '<ID>-<slug>',
-    base: existing?.branch?.base ?? (rootRepo ? baseBranch(rootRepo.dir) : 'main'),
+    pattern: useTypedBranches ? '<type>/<ID>-<slug>' : '<ID>-<slug>',
+    base,
+    mode: branchMode,
+    ...(existing?.branch?.worktreeDir ? { worktreeDir: existing.branch.worktreeDir } : {}),
+    // The issue types are the ones read off this very project a few steps ago,
+    // mapped onto the commit types detected from its commitlint config. Only
+    // types that exist on both sides are written: a mapping to a commit type
+    // the project does not have would be refused at branch time.
+    ...(useTypedBranches
+      ? { types: branchTypeMap(typeValues, detectedTypes ?? DEFAULT_COMMIT_TYPES) }
+      : {}),
+  },
+  delivery: {
+    mode: deliveryMode,
+    ...(existing?.delivery?.remote ? { remote: existing.delivery.remote } : {}),
   },
   commit: {
     pattern: requireType ? idPattern : position === 'prefix' ? '<ID>: description' : 'description (<ID>)',
@@ -508,48 +703,20 @@ const doInstall = bail(
   }),
 );
 
-if (doInstall) {
-  const s = p.spinner();
-  s.start(`${verb === 'Update' ? 'Updating' : 'Installing'} the workflow files`);
-  try {
-    const result = installPayload({
-      sourceRoot: SOURCE_ROOT,
-      projectDir: targetDir,
-      version: VERSION,
-      force: flag('--force'),
-    });
-    s.stop(`${result.written.length} file(s) written to ${targetDir}`);
-
-    if (result.hookAdded) p.log.success('Commit hook added to .claude/settings.json');
-    else p.log.info('Commit hook already registered in .claude/settings.json');
-
-    if (result.removed.length) {
-      p.log.info(`Removed ${result.removed.length} file(s) no longer shipped.`);
-    }
-
-    // The reason the manifest exists: never overwrite someone's edit silently.
-    if (result.skipped.length) {
-      p.log.warn(`Kept ${result.skipped.length} file(s) you have edited:`);
-      p.note(
-        `${result.skipped.slice(0, 10).join('\n')}${result.skipped.length > 10 ? '\n…' : ''}`,
-        'Left untouched — re-run with --force to overwrite',
-      );
-    }
-
-    p.log.info(`${PAYLOAD_DIR}/ is installer-managed. Commit it, and re-run this to update.`);
-  } catch (err) {
-    s.stop(c.yellow('Could not install the workflow files.'));
-    p.log.warn((err.message || '').trim().slice(0, 400));
-  }
-} else {
-  p.log.warn('Skipped — the skills and runtime were not installed.');
-}
+if (doInstall) installIntoProject({ force: flag('--force') });
+else p.log.warn('Skipped — the skills and runtime were not installed.');
 
 // --- done --------------------------------------------------------------------
 const nextSteps = [
   `${c.cyan('/dev-task ABC-123')}   start work on an issue`,
   `${c.cyan('/dev-bug it broke')}   file one without losing your place`,
   `${c.cyan('/dev-done')}           verify and close out`,
+  '',
+  // Printed even on a fresh install: this line, and the README, are the only
+  // channels that reach a project once it is installed. Nothing inside the
+  // payload can tell a version that predates the update check that it is stale.
+  c.dim('Update later with:'),
+  c.cyan(UPDATE_COMMAND),
 ];
 if (!tokenOpRef) {
   nextSteps.push('', c.dim('Remember to export $YOUTRACK_TOKEN in the shell Claude Code runs in.'));
