@@ -87,10 +87,33 @@ jobs:
       - name: The installed hook still enforces
         run: |
           cd /tmp/scratch
-          printf '{"tool_input":{"command":"git commit -m \"no ticket\""}}' \
-            | CLAUDE_PROJECT_DIR="$PWD" bash _youtrack/hooks/check-commit-ticket.sh \
-            && { echo "FAIL bad commit was allowed"; exit 1; } \
-            || echo "ok   bad commit blocked"
+
+          # Build the payload with jq, as tests/hook.test.sh does. A printf
+          # format string cannot carry this safely: GNU printf eats the
+          # backslash in \" and emits invalid JSON, on which the hook correctly
+          # bails open — so the assertion passed on macOS and silently tested
+          # nothing on Linux.
+          check() {
+            local desc="$1" cmd="$2" want="$3" got
+            set +e
+            jq -n --arg c "$cmd" '{tool_name:"Bash", tool_input:{command:$c}}' \
+              | CLAUDE_PROJECT_DIR="$PWD" bash _youtrack/hooks/check-commit-ticket.sh >/dev/null 2>&1
+            got=$?
+            set -e
+            if [ "$got" -eq "$want" ]; then
+              echo "ok   $desc"
+            else
+              echo "FAIL $desc: want exit $want, got $got"
+              return 1
+            fi
+          }
+
+          rc=0
+          check "a ticketless commit is blocked" 'git commit -m "no ticket"'            2 || rc=1
+          check "the escape hatch is allowed"    'git commit -m "chore(no-ticket): x"'  0 || rc=1
+          check "a referencing commit is allowed" 'git commit -m "fix: x (ABC-1)"'      0 || rc=1
+          check "a non-commit command is allowed" 'ls -la'                              0 || rc=1
+          exit "$rc"
 
       - name: Re-running is idempotent
         run: |
