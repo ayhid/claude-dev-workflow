@@ -64,6 +64,25 @@ wholesale — merge into it, since users have their own hooks there.
 Skill names are namespaced `yt-*`. They live in a flat namespace next to every other skill the
 user has installed, and `task` / `bug` / `done` are far too generic to claim.
 
+## What we own in a user's project, and nothing else
+
+A project is shared ground — other skill-based tools install their own payload directories and
+their own skills alongside ours. We write to exactly two roots:
+
+- `_youtrack/**`
+- `.claude/skills/yt-*/**`
+
+`isOwnedPath` in `bin/lib/payload.mjs` is that boundary, and **every write and every delete goes
+through it** — including the removal pass, so a hand-edited or corrupted manifest still cannot
+reach a file that is not ours. A planned write outside those roots is a hard error, not a warning.
+
+`.claude/settings.json` is the one genuinely shared file. It is **merged, never rewritten**: the
+user's own hooks survive, and our entry is matched by command string so a re-run does not
+duplicate it.
+
+Depend on nothing from any other tool, and assume nothing about its layout. Interoperation here
+means staying out of the way, not integrating.
+
 ## Checks
 
 ```bash

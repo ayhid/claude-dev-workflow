@@ -1,15 +1,23 @@
 /**
  * Installing the workflow into a project.
  *
- * Modelled on BMAD's per-project install: a payload directory the installer
- * owns (`_youtrack/`), an adapter layer it generates (`.claude/skills/yt-*`),
- * and a manifest recording what was written and with what content hash.
+ * The shape: a payload directory the installer owns (`_youtrack/`), an adapter
+ * layer it generates (`.claude/skills/yt-*`), and a manifest recording what was
+ * written and with what content hash.
  *
  * The manifest is the whole point. A vendored copy inside someone's repo goes
  * stale silently, and re-running the installer would otherwise clobber any
  * local edit without saying so. Hashing on the way in means an update can tell
  * "unchanged since we wrote it" (safe to overwrite) from "someone edited this"
  * (report it, leave it alone unless forced).
+ *
+ * **We write only inside our own two roots.** A project is shared ground: other
+ * tools install their own payloads and their own skills alongside ours, and a
+ * `.claude/` directory in particular is common property. `isOwnedPath` is the
+ * hard boundary — every write and, more importantly, every *delete* is filtered
+ * through it, so a wrong or hand-edited manifest still cannot reach a file that
+ * is not ours. `.claude/settings.json` is the one genuinely shared file, and it
+ * is merged, never rewritten.
  *
  * Nothing written here has dependencies: the payload must run in a project with
  * no package.json at all.
@@ -29,7 +37,35 @@ const PAYLOAD_SOURCES = ['lib', 'scripts', 'hooks'];
 
 const HOOK_COMMAND = `bash "$CLAUDE_PROJECT_DIR/${PAYLOAD_DIR}/hooks/check-commit-ticket.sh"`;
 
+/** The skill-name prefix we claim. Anything else in .claude/skills/ is someone else's. */
+export const SKILL_PREFIX = 'yt-';
+
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
+
+/**
+ * May the installer write to, or delete, this project-relative path?
+ *
+ * The only two answers are "inside `_youtrack/`" and "a `.claude/skills/yt-*`
+ * directory". Everything else in the project belongs to someone else — another
+ * tool's payload, another tool's skills, or the user's own files.
+ *
+ * Path traversal is rejected outright: a manifest entry of `../../etc/thing`
+ * must never resolve outside the project.
+ */
+export function isOwnedPath(rel) {
+  if (typeof rel !== 'string' || rel.length === 0) return false;
+
+  const parts = rel.split(/[/\\]/);
+  if (parts.includes('..') || parts.includes('') || rel.startsWith('/')) return false;
+
+  if (parts[0] === PAYLOAD_DIR) return parts.length > 1;
+
+  if (parts[0] === '.claude' && parts[1] === 'skills') {
+    return parts.length > 3 && parts[2].startsWith(SKILL_PREFIX);
+  }
+
+  return false;
+}
 
 /** Every file under `dir`, as paths relative to `base`, sorted for a stable manifest. */
 function walk(dir, base = dir, out = []) {
@@ -156,6 +192,18 @@ export function installPayload({ sourceRoot, projectDir, version, force = false,
   const protectedPaths = new Set(force ? [] : drift.modified);
 
   const planned = planFiles(sourceRoot);
+
+  // A planned path outside our roots means the distribution itself is wrong —
+  // a misnamed skill directory, say. Fail loudly rather than writing into
+  // someone else's territory.
+  for (const rel of planned.keys()) {
+    if (!isOwnedPath(rel)) {
+      throw new Error(
+        `refusing to install: ${rel} is outside ${PAYLOAD_DIR}/ and .claude/skills/${SKILL_PREFIX}*`,
+      );
+    }
+  }
+
   const written = [];
   const skipped = [];
   const manifestFiles = [];
@@ -185,10 +233,16 @@ export function installPayload({ sourceRoot, projectDir, version, force = false,
   }
 
   // Files this version no longer ships, that the last one did.
+  //
+  // This is the only place the installer deletes anything, so it is where a bad
+  // manifest would do real damage. Ownership is re-checked here rather than
+  // trusted from the manifest: the file on disk was read from the project, not
+  // written by us, and it may have been edited by hand.
   const removed = [];
   for (const entry of previous?.files ?? []) {
     if (planned.has(entry.path)) continue;
     if (protectedPaths.has(entry.path)) continue;
+    if (!isOwnedPath(entry.path)) continue;
     const abs = join(projectDir, entry.path);
     if (!existsSync(abs)) continue;
     if (!dryRun) rmSync(abs, { force: true });

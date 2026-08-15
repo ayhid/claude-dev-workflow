@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,7 @@ import {
   PAYLOAD_DIR,
   detectDrift,
   installPayload,
+  isOwnedPath,
   mergeHookIntoSettings,
   planFiles,
   readManifest,
@@ -251,4 +252,106 @@ test('a stale file the user has edited is protected, not removed', () => {
   const result = install(dir);
   assert.ok(!result.removed.includes(stale));
   assert.equal(readFileSync(join(dir, stale), 'utf8'), 'edited by me');
+});
+
+// --- staying inside our own two roots ----------------------------------------
+//
+// A project is shared ground: other tools install their own payload directories
+// and their own skills next to ours. The installer must be incapable of
+// touching any of it, by construction rather than by luck.
+
+test('isOwnedPath accepts only our payload and our namespaced skills', () => {
+  assert.equal(isOwnedPath(join(PAYLOAD_DIR, 'scripts', 'yt.mjs')), true);
+  assert.equal(isOwnedPath(join('.claude', 'skills', 'yt-task', 'SKILL.md')), true);
+
+  // Another tool's payload, another tool's skills, the user's own files.
+  assert.equal(isOwnedPath(join('_other', 'scripts', 'thing.py')), false);
+  assert.equal(isOwnedPath(join('.claude', 'skills', 'other-agent', 'SKILL.md')), false);
+  assert.equal(isOwnedPath(join('.claude', 'settings.json')), false, 'merged, never rewritten');
+  assert.equal(isOwnedPath('README.md'), false);
+  assert.equal(isOwnedPath('src/index.ts'), false);
+  assert.equal(isOwnedPath(PAYLOAD_DIR), false, 'the root itself is not a file');
+});
+
+test('isOwnedPath rejects traversal and absolute paths', () => {
+  for (const bad of [
+    '../outside.txt',
+    join(PAYLOAD_DIR, '..', '..', 'etc', 'passwd'),
+    '/etc/passwd',
+    '',
+    null,
+    undefined,
+  ]) {
+    assert.equal(isOwnedPath(bad), false, `${bad} must not be writable`);
+  }
+});
+
+test('a co-installed tool in the same project is left completely untouched', () => {
+  const dir = scratch();
+
+  // A project already using another skill-based tool, laid out the way one is.
+  const foreign = {
+    [join('_other', 'config.toml')]: 'name = "other"',
+    [join('_other', 'scripts', 'run.py')]: 'print("hi")',
+    [join('.claude', 'skills', 'other-agent', 'SKILL.md')]: '---\nname: other-agent\n---\n',
+    [join('.claude', 'skills', 'other-review', 'SKILL.md')]: '---\nname: other-review\n---\n',
+  };
+  for (const [rel, body] of Object.entries(foreign)) {
+    mkdirSync(dirname(join(dir, rel)), { recursive: true });
+    writeFileSync(join(dir, rel), body);
+  }
+
+  install(dir);
+  install(dir); // and again — the update path is where deletes happen
+
+  for (const [rel, body] of Object.entries(foreign)) {
+    assert.equal(readFileSync(join(dir, rel), 'utf8'), body, `${rel} must be untouched`);
+  }
+
+  // Our skills sit alongside theirs rather than replacing them.
+  const skills = readdirSync(join(dir, '.claude', 'skills')).sort();
+  assert.deepEqual(skills, [
+    'other-agent',
+    'other-review',
+    'yt-bug',
+    'yt-done',
+    'yt-init',
+    'yt-task',
+  ]);
+});
+
+test('a manifest naming a foreign path cannot delete it', () => {
+  // The manifest lives in the user's repo and can be edited or go wrong. It is
+  // never trusted as authority to remove a file outside our roots.
+  const dir = scratch();
+  install(dir);
+
+  const foreign = join('_other', 'precious.toml');
+  mkdirSync(dirname(join(dir, foreign)), { recursive: true });
+  writeFileSync(join(dir, foreign), 'keep me');
+
+  const manifest = readManifest(dir);
+  manifest.files.push({
+    path: foreign,
+    sha256: createHash('sha256').update('keep me').digest('hex'),
+  });
+  manifest.files.push({ path: '../escaped.txt', sha256: 'x'.repeat(64) });
+  writeFileSync(join(dir, MANIFEST_PATH), JSON.stringify(manifest, null, 2));
+
+  const result = install(dir);
+  assert.ok(!result.removed.includes(foreign));
+  assert.equal(readFileSync(join(dir, foreign), 'utf8'), 'keep me');
+});
+
+test('the installer refuses to plan a write outside its roots', () => {
+  // A misnamed skill directory in the distribution would otherwise install into
+  // someone else's namespace.
+  const fakeDist = scratch();
+  mkdirSync(join(fakeDist, 'skills', 'not-namespaced'), { recursive: true });
+  writeFileSync(join(fakeDist, 'skills', 'not-namespaced', 'SKILL.md'), '---\nname: x\n---\n');
+
+  assert.throws(
+    () => installPayload({ sourceRoot: fakeDist, projectDir: scratch(), version: '0.0.0' }),
+    /refusing to install/,
+  );
 });

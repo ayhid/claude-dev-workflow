@@ -73,6 +73,11 @@ on a re-run.
 `_youtrack/` is meant to be committed: it is how your teammates get the same workflow without
 installing anything.
 
+It writes to exactly two places — `_youtrack/` and `.claude/skills/yt-*/` — and never touches
+anything else, so it sits alongside other skill-based tooling without interfering with it. The one
+shared file, `.claude/settings.json`, is merged rather than rewritten: hooks you or another tool
+added stay put.
+
 Requirements: Node ≥ 22. `jq` is needed only by the commit hook, and the
 [GitHub CLI](https://cli.github.com) only by `yt.mjs sync`. The 1Password CLI (`op`) is optional.
 **The installed runtime has no dependencies of its own** — there is no `node_modules` under
