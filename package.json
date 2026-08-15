@@ -27,6 +27,7 @@
     "scripts",
     "hooks",
     "examples",
+    "docs",
     "README.md",
     "CHANGELOG.md"
   ],

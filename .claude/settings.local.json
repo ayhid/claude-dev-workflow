@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git commit -q -m 'docs\\(no-ticket\\): restructure the README around a quick start' -m 'The README was 397 lines at one altitude with no way in. Changes: *)"
+    ]
+  }
+}

@@ -124,6 +124,11 @@ repository and the git rules testable without a network.
   ships it; `bin/lib/payload.mjs` picks these up wholesale, so nothing repo-specific may live in
   them.
 - `bin/` — the installer. Runs from the npx checkout only, never from a user's project.
+- `docs/` — user-facing reference, listed in `package.json` `files` so it ships in the tarball.
+  Never copied into a project: `planFiles` reads `lib/`, `scripts/`, `hooks/` and `skills/` only.
+  `README.md` links into it, so a heading rename there breaks a link here.
+- `CONTRIBUTING.md` — how to verify a write path, for outside contributors. Repo-local; this file
+  stays the architecture document.
 - `tests/`, `.github/`, `.husky/`, `commitlint.config.mjs`, `release.config.mjs` — repo-local
   development only. Never referenced at runtime, never copied into a project. The
   `devDependencies` they pull in are the *only* dependencies this repo may grow; `lib/` and
