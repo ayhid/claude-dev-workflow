@@ -81,3 +81,23 @@ test('has is true for a binary that exists but fails --version', async () => {
   const r = await sh('node', ['-e', 'process.exit(2)']);
   assert.equal(r.code, 2, 'a non-127 exit means the binary was found');
 });
+
+test('sh writes opts.input to stdin', async () => {
+  const r = await sh('cat', [], { input: 'hello from stdin' });
+  assert.equal(r.ok, true);
+  assert.equal(r.stdout, 'hello from stdin');
+});
+
+test('sh handles an input larger than a comfortable argv', async () => {
+  // The reason stdin exists here: a real issue body can approach ARG_MAX.
+  const big = 'x'.repeat(500_000);
+  const r = await sh('cat', [], { input: big });
+  assert.equal(r.ok, true);
+  assert.equal(r.stdout.length, big.length);
+});
+
+test('sh does not hang when the child ignores stdin', async () => {
+  const r = await sh('node', ['-e', 'console.log("done")'], { input: 'ignored' });
+  assert.equal(r.ok, true);
+  assert.equal(r.stdout, 'done');
+});

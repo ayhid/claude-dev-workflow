@@ -179,3 +179,21 @@ test('the bash hook probes the same config names, in the same order', () => {
 
   assert.deepEqual(fromBash, fromJs);
 });
+
+test('formatConfig shows the repo for a github project, not a YouTrack instance', () => {
+  const config = deepMerge(DEFAULTS, {
+    provider: 'github',
+    github: { repo: 'acme/api', labels: { Done: 'done' } },
+  });
+  const out = formatConfig(config, '/x/.dev-workflow.json');
+  assert.match(out, /provider:\s+github/);
+  assert.match(out, /repo:\s+acme\/api/);
+  assert.doesNotMatch(out, /instance:/, 'a baseUrl means nothing to a github project');
+});
+
+test('formatConfig still shows the instance for a youtrack project', () => {
+  const config = deepMerge(DEFAULTS, { baseUrl: 'https://a.cloud', project: 'ABC' });
+  const out = formatConfig(config, '/x/.dev-workflow.json');
+  assert.match(out, /provider:\s+youtrack/);
+  assert.match(out, /instance:\s+https:\/\/a\.cloud/);
+});

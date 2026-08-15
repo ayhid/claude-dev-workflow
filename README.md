@@ -130,6 +130,45 @@ Only `baseUrl` and `project` are required — everything else has a working defa
 }
 ```
 
+### Using GitHub Issues instead
+
+Set `provider` and describe the label ladder. Authentication is the [GitHub CLI](https://cli.github.com)
+you already have — there is no token to configure.
+
+```json
+{
+  "provider": "github",
+  "github": {
+    "repo": "acme/api",
+    "labels": {
+      "In Progress": "status: in progress",
+      "In Review": "status: review",
+      "Done": "status: done"
+    }
+  },
+  "states": {
+    "ladder": ["Backlog", "In Progress", "In Review", "Done"],
+    "start": "In Progress", "review": "In Review", "done": "Done"
+  },
+  "commit": { "idPattern": "#[0-9]+" }
+}
+```
+
+GitHub has no state field, so the ladder is modelled with labels and `done` also closes the issue.
+Three things follow, and the tool will tell you about each rather than guessing:
+
+- **The mapping is required.** Every rung except the first needs a label. The first rung — `Backlog`
+  above — is what an issue carrying *no* ladder label means, which is why an explicit `states.ladder`
+  is required for GitHub: without it, every untouched issue would read as in-progress.
+- **Labels must already exist.** A missing one fails with the `gh label create` command to fix it;
+  creating labels in a repository is a visible side effect, so it is not done for you.
+- **`#123` is per-repository.** For a project spanning several repos, set `github.issuesRepo` to say
+  which one holds the issues, or `#123` is ambiguous.
+
+Closing an issue as *not planned* puts it off the ladder, so declined work is never reported as
+shipped. Note that GitHub closes issues itself when a PR says `Fixes #12`, which means an issue can
+reach *done* without ever passing through *review*.
+
 Notable fields:
 
 - **`language`** — the language ticket *prose* is written in, regardless of the session's

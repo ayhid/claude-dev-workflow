@@ -32,6 +32,31 @@ wholesale — merge into it, since users have their own hooks there.
 
 `main` is the distribution channel. A broken commit ships immediately.
 
+## Adding an issue-tracker backend
+
+`lib/provider.mjs` is the contract: an **Adapter** per backend, a `makeProvider` **Factory**, and a
+`capabilities` record. Callers branch on capabilities, never on `provider.name` — a name check is a
+place a future backend has to be taught about, which is exactly what the layer exists to prevent.
+
+A new backend is one file in `lib/`, one `case` in the factory, and a passing run of
+`tests/provider.contract.mjs` **unchanged**. If the core needs changing to accommodate a backend,
+the abstraction is wrong: fix it in `provider.mjs` rather than special-casing a command.
+
+Four rules the contract enforces, not conventions to remember:
+
+1. **IO is injected.** An adapter takes its transport (`fetch`, or a command runner) as an
+   argument. That is what makes every adapter testable offline, and it is why the YouTrack tests no
+   longer monkey-patch `globalThis.fetch`.
+2. **No inference.** Every mapping comes from config. A missing one is an error naming the key to
+   add. A guess that is usually right is worse than an error, because the times it is wrong are
+   silent — `github.labels` is required for this reason.
+3. **Writes read back.** Report the state found afterwards, never the one requested, and converge
+   on a repeat. YouTrack made this necessary; it is the contract for everyone.
+4. **Output is stable.** Sorted, rendered, ISO-8601. The same inputs print the same bytes.
+
+Rung resolution belongs to the adapter (`setState` takes `start`/`review`/`done`), not the caller.
+Leaving it to callers makes rule 2 advisory.
+
 ## YouTrack API invariants — learned the hard way, do not regress
 
 1. **The commands API returns 200 for commands it did not apply.** Always read the state back and
