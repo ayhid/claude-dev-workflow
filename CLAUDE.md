@@ -90,5 +90,7 @@ npm test        # lint + unit tests + hook table test
 npm run lint    # bash -n, node --check, shellcheck when installed
 ```
 
-Commits in this repo use the `chore(no-ticket):` escape hatch — the plugin is installed at user
-scope, so its own commit hook applies here, and this repo has no YouTrack project of its own.
+Commits in this repo use the `chore(no-ticket):` escape hatch: this repo has no YouTrack project
+of its own, and `.claude/settings.json` registers `hooks/check-commit-ticket.sh` against the
+source tree, so the guard we ship applies to us too. That registration is the only thing making it
+apply — dogfooding here is deliberate, and removing the entry silently removes the enforcement.

@@ -119,6 +119,11 @@ jobs:
             name=$(grep -m1 '^name:' "$f" | sed 's/^name:[[:space:]]*//')
             grep -q '^description:' "$f" || { echo "FAIL $f: no description:"; rc=1; }
             [ "$name" = "$dir" ] || { echo "FAIL $f: name '$name' != directory '$dir'"; rc=1; }
+            # 1.1.0 shipped `task`, `bug` and `done` past the check above: they
+            # matched their directories, and both were too generic to claim in a
+            # namespace shared with every other skill the user has installed.
+            case "$dir"  in yt-*) ;; *) echo "FAIL $f: directory '$dir' is not namespaced yt-"; rc=1 ;; esac
+            case "$name" in yt-*) ;; *) echo "FAIL $f: name '$name' is not namespaced yt-"; rc=1 ;; esac
             [ "$rc" -eq 0 ] && echo "ok   $f"
           done
           exit "$rc"
