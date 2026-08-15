@@ -1,10 +1,10 @@
 ---
 name: dev-task
-description: Start work on a YouTrack issue — fetch it, agree acceptance criteria, plan, move it to the in-progress state, branch, and implement with ticket-referencing commits. Use when the user starts work on a ticket or types /dev-task.
+description: Start work on a tracker issue — fetch it, agree acceptance criteria, plan, move it to the in-progress state, branch, and implement with ticket-referencing commits. Use when the user starts work on a ticket or types /dev-task.
 argument-hint: [ISSUE-ID]
 ---
 
-# /dev-task — start work from a YouTrack issue
+# /dev-task — start work from a tracker issue
 
 `$ARGUMENTS` is the issue ID, e.g. `ABC-398`. If it is empty, ask for one and stop.
 
@@ -74,14 +74,16 @@ Give a short plan: files to touch, approach, risks, how each acceptance criterio
 ## 5. Move the ticket to the configured start state
 
 ```bash
-node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" update $ARGUMENTS "State <configured states.start>"
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" update $ARGUMENTS state start
 ```
 
+`start`, `review` and `done` are rungs, not state names: the tracker's own vocabulary lives in
+the config, and the adapter translates. Never interpolate a state name here — passing a rung is
+what keeps this line correct across trackers and stops a session inventing a state that does not
+exist.
+
 The script prints the state it reads back afterwards. Confirm that line reports the state you
-asked for — YouTrack can return 200 for a command it did not apply, so the read-back is the
-actual check. Use only state names from the configured ladder, and **brace a state name only when
-it contains a space** — `State {In Review}` is correct, `State {Staging}` is rejected outright with
-`expected: {Staging}`. Braces mark where a multi-word value ends; they are not quoting.
+asked for: a tracker can accept a write and apply nothing, so the read-back is the actual check.
 
 ## 6. Create the branch
 
@@ -129,7 +131,7 @@ It matches PRs to issues through the branch name, so a branch named per the conf
 what makes this work. If it reports no drift, say so and post the link by hand instead:
 
 ```bash
-node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" update $ARGUMENTS "State <configured states.review>" "<PR opened: url>"
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" update $ARGUMENTS state review "<PR opened: url>"
 ```
 
 Request the configured reviewer, and push to every remote listed for that repo. Verify the PR body

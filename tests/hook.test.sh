@@ -131,6 +131,41 @@ without_jq() {
   fi
 }
 
+# --- a configurable ID pattern -------------------------------------------------
+#
+# The default must stay byte-identical to the pre-provider behaviour, so every
+# case above runs with no config at all. These cover what the key adds.
+
+CFG_GH='{"provider":"github"}'
+CFG_GH_PREFIX='{"provider":"github","commit":{"position":"prefix"}}'
+CFG_CUSTOM='{"commit":{"idPattern":"TASK_[0-9]+"}}'
+
+run_case 'github: #123 at the suffix is accepted' 0 \
+  'git commit -m "fix(api): handle nulls (#123)"' "$CFG_GH"
+run_case 'github: no issue reference is blocked' 2 \
+  'git commit -m "fix(api): handle nulls"' "$CFG_GH"
+run_case 'github: a YouTrack-shaped id no longer counts' 2 \
+  'git commit -m "fix(api): handle nulls (ABC-1)"' "$CFG_GH"
+run_case 'github: prefix position strips the id before the type' 0 \
+  'git commit -m "#123 fix(api): handle nulls"' "$CFG_GH_PREFIX"
+run_case 'github: the escape hatch still works' 0 \
+  'git commit -m "chore(no-ticket): tidy"' "$CFG_GH"
+
+run_case 'a custom idPattern is honoured' 0 \
+  'git commit -m "feat: thing (TASK_42)"' "$CFG_CUSTOM"
+run_case 'a custom idPattern rejects the default shape' 2 \
+  'git commit -m "feat: thing (ABC-1)"' "$CFG_CUSTOM"
+
+# The one that matters most. A malformed regex makes every [[ =~ ]] return
+# non-zero, which would turn this guard into a universal commit blocker — it
+# must fall back to the default rather than block everything.
+run_case 'fail open: an invalid idPattern falls back, it does not block' 0 \
+  'git commit -m "feat: thing (ABC-1)"' '{"commit":{"idPattern":"["}}'
+run_case 'fail open: an invalid idPattern still blocks a ticketless commit' 2 \
+  'git commit -m "feat: thing"' '{"commit":{"idPattern":"["}}'
+run_case 'a comma in idPattern is rejected, not mangled' 0 \
+  'git commit -m "feat: thing (ABC-1)"' '{"commit":{"idPattern":"A,B"}}'
+
 without_jq 'no jq: warns that a commit is unchecked' yes 'git commit -m "nope"'
 without_jq 'no jq: stays quiet for other commands'   no  'npm test'
 

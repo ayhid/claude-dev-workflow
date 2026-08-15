@@ -52,6 +52,9 @@ export function runContractSuite(label, h) {
       assert.equal(typeof p[m], 'function', `${m} must be implemented`);
     }
     assert.equal(typeof p.name, 'string');
+    assert.ok(p.syntax?.regex instanceof RegExp, 'syntax.regex must be a RegExp');
+    assert.equal(typeof p.syntax.ere, 'string', 'syntax.ere is what the bash hook needs');
+    assert.equal(typeof p.syntax.sample, 'string');
     for (const c of ['types', 'priorities', 'assignee', 'freeTextSearch', 'rawCommand']) {
       assert.equal(typeof p.capabilities[c], 'boolean', `capabilities.${c} must be declared`);
     }

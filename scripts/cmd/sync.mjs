@@ -78,7 +78,7 @@ async function slugFor(config, repoPath, dir) {
 }
 
 /** PRs in one state, newer than the cutoff, as issue-ID observations. */
-async function observePrs({ slug, prState, cutoff, project, rank, state, deep, limit }) {
+async function observePrs({ slug, prState, cutoff, syntax, rank, state, deep, limit }) {
   const res = await shJson('gh', [
     'pr', 'list',
     '-R', slug,
@@ -96,7 +96,7 @@ async function observePrs({ slug, prState, cutoff, project, rank, state, deep, l
   for (const pr of prs) {
     if (((pr.mergedAt ?? pr.createdAt) ?? '') < cutoff) continue;
 
-    const ids = extractIssueIds(`${pr.headRefName} ${pr.title}`, project);
+    const ids = extractIssueIds(`${pr.headRefName} ${pr.title}`, syntax);
 
     if (ids.length === 0 && deep) {
       // The branch and title said nothing, but the commit convention puts the
@@ -107,7 +107,7 @@ async function observePrs({ slug, prState, cutoff, project, rank, state, deep, l
         '--json', 'commits',
         '-q', '.commits[].messageHeadline',
       ]);
-      if (commits.ok) ids.push(...extractIssueIds(commits.stdout, project));
+      if (commits.ok) ids.push(...extractIssueIds(commits.stdout, syntax));
     }
 
     for (const id of new Set(ids)) observations.push({ id, rank, state, url: pr.url });
@@ -120,6 +120,9 @@ export async function run(argv) {
   await requireGh();
 
   const { config, root, provider } = await context({ requireProject: true });
+  // The ID shape comes from the provider, so a GitHub project scans PR titles
+  // for `#123` rather than for a project key that does not exist there.
+  const syntax = provider.syntax;
   const ladder = ladderOf(config);
   const rankReview = rankOf(config, config.states.review);
   const rankDone = rankOf(config, config.states.done);
@@ -162,7 +165,7 @@ export async function run(argv) {
           slug,
           prState,
           cutoff,
-          project: config.project,
+          syntax,
           rank,
           state,
           deep: opts.deep,

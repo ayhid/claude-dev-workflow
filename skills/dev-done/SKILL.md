@@ -1,6 +1,6 @@
 ---
 name: dev-done
-description: Finish work on the current branch's YouTrack issue — verify acceptance criteria, run the project's checks, and on confirmation move the ticket to the configured done state with a summary comment. Use when the user says they are done or types /dev-done.
+description: Finish work on the current branch's tracker issue — verify acceptance criteria, run the project's checks, and on confirmation move the ticket to the configured done state with a summary comment. Use when the user says they are done or types /dev-done.
 argument-hint: "[optional ISSUE-ID]"
 ---
 
@@ -120,12 +120,11 @@ correctly stays where it is. Apply the transition by hand only when the project 
 PR for this work:
 
 ```bash
-node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" update <ISSUE-ID> "State <configured states.done>" "<summary>"
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" update <ISSUE-ID> state done "<summary>"
 ```
 
-Confirm the read-back line reports that state. If it reports anything else, the command did not
-apply — report that rather than assuming success. Use only state names from the configured
-ladder, and observe the brace rule (see `/dev-task` §5). Prefer `dev.mjs sync`, which applies it for
-you; a state YouTrack does not recognise fails, sometimes silently.
+Confirm the read-back line reports the expected state. If it reports anything else, the write did
+not apply — report that rather than assuming success. Prefer `dev.mjs sync`, which applies the
+transition for you and reconciles against the PR evidence.
 
 Pushing the branch and opening a PR are separate actions; ask before doing either.

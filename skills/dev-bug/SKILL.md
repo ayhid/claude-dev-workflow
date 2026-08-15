@@ -1,10 +1,10 @@
 ---
 name: dev-bug
-description: Capture a bug as a YouTrack issue — investigate the likely code path, check for duplicates, draft the issue, and file it on approval. Use when the user types /dev-bug or describes something broken mid-session.
+description: Capture a bug as a tracker issue — investigate the likely code path, check for duplicates, draft the issue, and file it on approval. Use when the user types /dev-bug or describes something broken mid-session.
 argument-hint: [free-form description of the problem]
 ---
 
-# /dev-bug — file a bug in YouTrack
+# /dev-bug — file a bug in the tracker
 
 `$ARGUMENTS` is a free-form description. If it is empty, ask what broke and stop.
 
@@ -67,7 +67,7 @@ node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" update <EXISTING-ID> 
 ## 5. Draft the issue
 
 **Write it in the configured ticket language** — summary and description both, whatever language
-this session is being conducted in. The ticket is read by the team in YouTrack, not by this
+this session is being conducted in. The ticket is read by the team in the tracker, not by this
 session. Keep code identifiers, file paths, endpoints, log lines and error messages verbatim in
 their original language; translate only the prose around them.
 
