@@ -60,28 +60,28 @@ jobs:
         run: |
           set -e
           for f in \
-            _youtrack/scripts/yt.mjs \
-            _youtrack/lib/config.mjs \
-            _youtrack/hooks/check-commit-ticket.sh \
-            _youtrack/_config/manifest.json \
+            _dev-workflow/scripts/dev.mjs \
+            _dev-workflow/lib/config.mjs \
+            _dev-workflow/hooks/check-commit-ticket.sh \
+            _dev-workflow/_config/manifest.json \
             .claude/settings.json \
-            .claude/skills/yt-task/SKILL.md \
-            .claude/skills/yt-bug/SKILL.md \
-            .claude/skills/yt-done/SKILL.md \
-            .claude/skills/yt-init/SKILL.md
+            .claude/skills/dev-task/SKILL.md \
+            .claude/skills/dev-bug/SKILL.md \
+            .claude/skills/dev-done/SKILL.md \
+            .claude/skills/dev-init/SKILL.md
           do
             test -f "/tmp/scratch/$f" && echo "ok   $f" || { echo "FAIL missing $f"; exit 1; }
           done
-          test -x /tmp/scratch/_youtrack/hooks/check-commit-ticket.sh \
+          test -x /tmp/scratch/_dev-workflow/hooks/check-commit-ticket.sh \
             || { echo "FAIL hook is not executable"; exit 1; }
-          test ! -d /tmp/scratch/_youtrack/node_modules \
+          test ! -d /tmp/scratch/_dev-workflow/node_modules \
             || { echo "FAIL payload must have no node_modules"; exit 1; }
 
       - name: The installed runtime runs with no dependencies
         run: |
           cd /tmp/scratch
-          echo '{"baseUrl":"https://example.invalid","project":"ABC"}' > .youtrack.json
-          node _youtrack/scripts/yt.mjs config | tee out.txt
+          echo '{"baseUrl":"https://example.invalid","project":"ABC"}' > .dev-workflow.json
+          node _dev-workflow/scripts/dev.mjs config | tee out.txt
           grep -q "project:     ABC" out.txt
 
       - name: The installed hook still enforces
@@ -97,7 +97,7 @@ jobs:
             local desc="$1" cmd="$2" want="$3" got
             set +e
             jq -n --arg c "$cmd" '{tool_name:"Bash", tool_input:{command:$c}}' \
-              | CLAUDE_PROJECT_DIR="$PWD" bash _youtrack/hooks/check-commit-ticket.sh >/dev/null 2>&1
+              | CLAUDE_PROJECT_DIR="$PWD" bash _dev-workflow/hooks/check-commit-ticket.sh >/dev/null 2>&1
             got=$?
             set -e
             if [ "$got" -eq "$want" ]; then
@@ -145,8 +145,8 @@ jobs:
             # 1.1.0 shipped `task`, `bug` and `done` past the check above: they
             # matched their directories, and both were too generic to claim in a
             # namespace shared with every other skill the user has installed.
-            case "$dir"  in yt-*) ;; *) echo "FAIL $f: directory '$dir' is not namespaced yt-"; rc=1 ;; esac
-            case "$name" in yt-*) ;; *) echo "FAIL $f: name '$name' is not namespaced yt-"; rc=1 ;; esac
+            case "$dir"  in dev-*) ;; *) echo "FAIL $f: directory '$dir' is not namespaced dev-"; rc=1 ;; esac
+            case "$name" in dev-*) ;; *) echo "FAIL $f: name '$name' is not namespaced dev-"; rc=1 ;; esac
             [ "$rc" -eq 0 ] && echo "ok   $f"
           done
           exit "$rc"

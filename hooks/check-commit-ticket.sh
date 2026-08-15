@@ -40,12 +40,15 @@ types='feat|fix|docs|style|refactor|test|chore|perf|ci|revert|build'
 position='suffix'
 pattern='type(scope): description (RMB-123)'
 
+# Must list the same names in the same order as CONFIG_FILES in lib/config.mjs.
+# A test asserts the two lists have not drifted, which they have done before.
 _find_cfg() {
   local dir="${CLAUDE_PROJECT_DIR:-$PWD}"
   dir=$(cd "$dir" 2>/dev/null && pwd) || return 1
   while [ -n "$dir" ]; do
-    [ -f "$dir/.youtrack.json" ]        && { printf '%s' "$dir/.youtrack.json"; return 0; }
-    [ -f "$dir/.claude/youtrack.json" ] && { printf '%s' "$dir/.claude/youtrack.json"; return 0; }
+    for rel in .dev-workflow.json .claude/dev-workflow.json; do
+      [ -f "$dir/$rel" ] && { printf '%s' "$dir/$rel"; return 0; }
+    done
     [ "$dir" = "/" ] && break
     dir=$(dirname "$dir")
   done

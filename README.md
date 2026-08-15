@@ -6,13 +6,13 @@ only in repos that actually use YouTrack.
 
 | Skill         | What it does |
 | ------------- | ------------ |
-| `/yt-init`    | Probes the repo, asks what it cannot infer, verifies the credentials, writes `.youtrack.json`. |
-| `/yt-task ID` | Fetches the issue, agrees acceptance criteria, plans, moves it to *in progress*, branches, implements with ticket-referencing commits. |
-| `/yt-bug`     | Investigates the likely code path, checks for duplicates, drafts the issue in the project's language, files it on approval. **Never fixes.** |
-| `/yt-done`    | Re-reads the ticket, verifies each criterion with evidence, runs the checks, closes on confirmation. |
+| `/dev-init`    | Probes the repo, asks what it cannot infer, verifies the credentials, writes `.dev-workflow.json`. |
+| `/dev-task ID` | Fetches the issue, agrees acceptance criteria, plans, moves it to *in progress*, branches, implements with ticket-referencing commits. |
+| `/dev-bug`     | Investigates the likely code path, checks for duplicates, drafts the issue in the project's language, files it on approval. **Never fixes.** |
+| `/dev-done`    | Re-reads the ticket, verifies each criterion with evidence, runs the checks, closes on confirmation. |
 
 Nothing installed is project-specific — instance, project, ticket language, repo layout, state
-ladder and commit convention all come from one `.youtrack.json` per project.
+ladder and commit convention all come from one `.dev-workflow.json` per project.
 
 `yt.mjs sync` reconciles the board against GitHub: open PR → review state, merged PR →
 done state. See [Keeping states honest](#keeping-states-honest).
@@ -39,7 +39,7 @@ An interactive wizard ([`@clack/prompts`](https://github.com/bombshell-dev/clack
    and scopes, runtime pins and git remotes, and shows them for confirmation;
 5. infers whether issue IDs go at the prefix or suffix of a commit subject from the last 50
    commits;
-6. writes `.youtrack.json` and installs the workflow into the project.
+6. writes `.dev-workflow.json` and installs the workflow into the project.
 
 It works offline too — if the API is unreachable it says so and falls back to typed answers.
 
@@ -51,16 +51,23 @@ npx github:ayhid/claude-youtrack-workflow --force                  # overwrite f
 
 Cloned locally, `node bin/install.mjs` is the same thing.
 
+### Upgrading from v1
+
+v2 renamed the layout and does not migrate the old one. If a project still has a `_youtrack/`
+directory, delete it along with `.claude/skills/yt-*` and the `PreToolUse` entry in
+`.claude/settings.json` that points at it, then run the installer. Config moved too: rename
+`.youtrack.json` to `.dev-workflow.json` — the contents are unchanged.
+
 ### What lands in the project
 
 ```
 your-project/
-  .youtrack.json                  # your config — edit this
-  _youtrack/                      # installer-managed runtime; commit it, do not edit
+  .dev-workflow.json                  # your config — edit this
+  _dev-workflow/                      # installer-managed runtime; commit it, do not edit
     scripts/  lib/  hooks/
     _config/manifest.json         # version + a sha256 per installed file
   .claude/
-    skills/yt-task, yt-bug, yt-done, yt-init
+    skills/dev-task, dev-bug, dev-done, dev-init
     settings.json                 # the commit hook, merged in alongside your own
 ```
 
@@ -70,10 +77,10 @@ a newer version no longer ships are removed. `--force` overrides that. Your `.cl
 is merged, never overwritten — hooks you added yourself survive, and the entry is not duplicated
 on a re-run.
 
-`_youtrack/` is meant to be committed: it is how your teammates get the same workflow without
+`_dev-workflow/` is meant to be committed: it is how your teammates get the same workflow without
 installing anything.
 
-It writes to exactly two places — `_youtrack/` and `.claude/skills/yt-*/` — and never touches
+It writes to exactly two places — `_dev-workflow/` and `.claude/skills/dev-*/` — and never touches
 anything else, so it sits alongside other skill-based tooling without interfering with it. The one
 shared file, `.claude/settings.json`, is merged rather than rewritten: hooks you or another tool
 added stay put.
@@ -81,11 +88,11 @@ added stay put.
 Requirements: Node ≥ 22. `jq` is needed only by the commit hook, and the
 [GitHub CLI](https://cli.github.com) only by `yt.mjs sync`. The 1Password CLI (`op`) is optional.
 **The installed runtime has no dependencies of its own** — there is no `node_modules` under
-`_youtrack/`, so it works in a Python, Rust or Go project just as well.
+`_dev-workflow/`, so it works in a Python, Rust or Go project just as well.
 
 ## Configuration
 
-`/yt-init` writes `.youtrack.json` at the repo root (`.claude/youtrack.json` also works). The
+`/dev-init` writes `.dev-workflow.json` at the repo root (`.claude/dev-workflow.json` also works). The
 scripts walk up from `$CLAUDE_PROJECT_DIR` to find it, so it works from any subdirectory.
 
 Only `baseUrl` and `project` are required — everything else has a working default.
@@ -137,11 +144,11 @@ Notable fields:
   projects that do not use conventional commits.
 - **`commit.types` / `scopes`** — copy these from the project's own commitlint config; both the
   hook and the model read them.
-- **`repos`** — omit for a single-repo project. With entries, `when` is how `/yt-task` routes a
-  ticket to a repo, `checks` is what `/yt-done` runs there, `env` is prepended to every command in
+- **`repos`** — omit for a single-repo project. With entries, `when` is how `/dev-task` routes a
+  ticket to a repo, `checks` is what `/dev-done` runs there, `env` is prepended to every command in
   that repo, and `remotes` lists everywhere branches are pushed.
 
-`.youtrack.json` holds no secret — `tokenOpRef` is a 1Password *reference* — so it is meant to
+`.dev-workflow.json` holds no secret — `tokenOpRef` is a 1Password *reference* — so it is meant to
 be committed.
 
 Two worked examples live in [`examples/`](examples/): a plain single-repo project, and a
@@ -173,21 +180,21 @@ file. Useful for one-off runs against another instance, and for CI.
 They are ordinary CLI tools; the skills just call them.
 
 ```bash
-node _youtrack/scripts/yt.mjs config [--json]                      # effective config
-node _youtrack/scripts/yt.mjs fetch  ABC-22                        # issue as markdown, comments included
-node _youtrack/scripts/yt.mjs update ABC-22 "State In Progress"    # apply a command, read the state back
-node _youtrack/scripts/yt.mjs update ABC-22 "State Done" @/tmp/c.md # …with a comment (literal or @file)
-node _youtrack/scripts/yt.mjs update ABC-22 comment "note"         # comment only
-node _youtrack/scripts/yt.mjs create --dup-check "slug 500 router" # open issues matching keywords
-node _youtrack/scripts/yt.mjs create "Summary" @/tmp/body.md Bug Major   # prints the new ID on stdout
-node _youtrack/scripts/yt.mjs sync                                 # dry run: report state drift
-node _youtrack/scripts/yt.mjs sync --apply --since 14d             # apply it, over a 14-day window
-node _youtrack/scripts/yt.mjs sync --deep                          # also read commit subjects
+node _dev-workflow/scripts/dev.mjs config [--json]                      # effective config
+node _dev-workflow/scripts/dev.mjs fetch  ABC-22                        # issue as markdown, comments included
+node _dev-workflow/scripts/dev.mjs update ABC-22 "State In Progress"    # apply a command, read the state back
+node _dev-workflow/scripts/dev.mjs update ABC-22 "State Done" @/tmp/c.md # …with a comment (literal or @file)
+node _dev-workflow/scripts/dev.mjs update ABC-22 comment "note"         # comment only
+node _dev-workflow/scripts/dev.mjs create --dup-check "slug 500 router" # open issues matching keywords
+node _dev-workflow/scripts/dev.mjs create "Summary" @/tmp/body.md Bug Major   # prints the new ID on stdout
+node _dev-workflow/scripts/dev.mjs sync                                 # dry run: report state drift
+node _dev-workflow/scripts/dev.mjs sync --apply --since 14d             # apply it, over a 14-day window
+node _dev-workflow/scripts/dev.mjs sync --deep                          # also read commit subjects
 ```
 
 `config`, `fetch`, `update` and `create` are plain HTTP. `sync` additionally drives `git` and the
 GitHub CLI. None of them depend on anything outside Node's standard library, which is what lets
-`_youtrack/` sit in a project of any language with nothing to install.
+`_dev-workflow/` sit in a project of any language with nothing to install.
 
 Two behaviours worth knowing, both learned the hard way against the real API:
 
@@ -214,7 +221,7 @@ should each ticket be?* and advances whatever has fallen behind:
 
 It only moves tickets **forward** along `states.ladder`, and leaves anything off the ladder alone —
 a ticket parked in `Blocked` or `Won't Fix` was put there on purpose. Running it twice is a no-op,
-so it is safe from a hook, a cron, or the top of `/yt-task`. Missing a week costs latency, nothing else.
+so it is safe from a hook, a cron, or the top of `/dev-task`. Missing a week costs latency, nothing else.
 
 It matches PRs to issues through the **branch name and PR title**. `--deep` additionally reads each
 unmatched PR's commit subjects, which is where a `type(scope): description (ABC-1)` convention puts
@@ -230,9 +237,9 @@ when branches live on a fork but PRs are opened against the parent.
 
 ## Verifying changes to this repo
 
-The read paths (`yt-fetch`, `--dup-check`, `yt-config`, a `yt-sync` dry run) can be exercised
+The read paths (`dev-fetch`, `--dup-check`, `dev-config`, a `dev-sync` dry run) can be exercised
 freely against any instance. The **write paths cannot be verified without writing once**, and a
-dry run that looks perfect proves nothing about them — `yt-sync --apply` shipped with a command
+dry run that looks perfect proves nothing about them — `dev-sync --apply` shipped with a command
 the API rejects, and the dry run had reported the correct plan every time.
 
 So: after changing anything that writes, run it once against a real issue. `yt.mjs create` on a
@@ -250,9 +257,9 @@ the repo-local `/release` skill in `.claude/skills/`.
 
 These are deliberate, and worth preserving in any fork:
 
-- `/yt-bug` files and stops. It never starts the fix, edits a file or switches branch — the session
+- `/dev-bug` files and stops. It never starts the fix, edits a file or switches branch — the session
   may be mid-task on something else.
-- `/yt-task` does not touch a file before the plan is approved, and does not close a ticket unasked.
-- `/yt-done` refuses to close a ticket whose acceptance criteria are unmet or whose suite fails, and
+- `/dev-task` does not touch a file before the plan is approved, and does not close a ticket unasked.
+- `/dev-done` refuses to close a ticket whose acceptance criteria are unmet or whose suite fails, and
   reports the gap instead.
 - Nothing bypasses git hooks. No `--no-verify`, no `HUSKY=0`.

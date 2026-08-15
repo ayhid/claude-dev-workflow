@@ -21,12 +21,12 @@ export async function context(opts = {}) {
 
   if (!config.baseUrl) {
     throw new UserError(
-      'no YouTrack URL configured — set YOUTRACK_BASE_URL or add "baseUrl" to .youtrack.json (run /yt-init)',
+      'no YouTrack URL configured — set YOUTRACK_BASE_URL or add "baseUrl" to .dev-workflow.json (run /dev-init)',
     );
   }
   if (opts.requireProject && !config.project) {
     throw new UserError(
-      'no project configured — set YOUTRACK_PROJECT or add "project" to .youtrack.json',
+      'no project configured — set YOUTRACK_PROJECT or add "project" to .dev-workflow.json',
     );
   }
 

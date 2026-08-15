@@ -1,10 +1,12 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  CONFIG_FILES,
   DEFAULTS,
   deepMerge,
   findConfigFile,
@@ -15,6 +17,7 @@ import {
   rankOf,
 } from '../lib/config.mjs';
 
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const scratch = () => mkdtempSync(join(tmpdir(), 'ytcfg-'));
 
 test('deepMerge merges objects recursively', () => {
@@ -39,23 +42,23 @@ test('deepMerge does not mutate its inputs', () => {
 test('findConfigFile walks up from a subdirectory', () => {
   const root = scratch();
   mkdirSync(join(root, 'a', 'b'), { recursive: true });
-  writeFileSync(join(root, '.youtrack.json'), '{}');
-  assert.equal(findConfigFile(join(root, 'a', 'b')), join(root, '.youtrack.json'));
+  writeFileSync(join(root, '.dev-workflow.json'), '{}');
+  assert.equal(findConfigFile(join(root, 'a', 'b')), join(root, '.dev-workflow.json'));
 });
 
-test('findConfigFile accepts .claude/youtrack.json', () => {
+test('findConfigFile accepts .claude/dev-workflow.json', () => {
   const root = scratch();
   mkdirSync(join(root, '.claude'), { recursive: true });
-  writeFileSync(join(root, '.claude', 'youtrack.json'), '{}');
-  assert.equal(findConfigFile(root), join(root, '.claude', 'youtrack.json'));
+  writeFileSync(join(root, '.claude', 'dev-workflow.json'), '{}');
+  assert.equal(findConfigFile(root), join(root, '.claude', 'dev-workflow.json'));
 });
 
-test('a root .youtrack.json wins over .claude/youtrack.json', () => {
+test('a root .dev-workflow.json wins over .claude/dev-workflow.json', () => {
   const root = scratch();
   mkdirSync(join(root, '.claude'), { recursive: true });
-  writeFileSync(join(root, '.claude', 'youtrack.json'), '{}');
-  writeFileSync(join(root, '.youtrack.json'), '{}');
-  assert.equal(findConfigFile(root), join(root, '.youtrack.json'));
+  writeFileSync(join(root, '.claude', 'dev-workflow.json'), '{}');
+  writeFileSync(join(root, '.dev-workflow.json'), '{}');
+  assert.equal(findConfigFile(root), join(root, '.dev-workflow.json'));
 });
 
 test('findConfigFile returns null when there is none', () => {
@@ -63,7 +66,7 @@ test('findConfigFile returns null when there is none', () => {
 });
 
 test('projectRootFor climbs out of .claude', () => {
-  assert.equal(projectRootFor('/x/y/.claude/youtrack.json'), '/x/y');
+  assert.equal(projectRootFor('/x/y/.claude/dev-workflow.json'), '/x/y');
   assert.equal(projectRootFor('/x/y/.youtrack.json'), '/x/y');
   assert.equal(projectRootFor(null), null);
 });
@@ -79,7 +82,7 @@ test('loadConfig fills defaults when no file exists', () => {
 test('loadConfig layers the file over the defaults', () => {
   const root = scratch();
   writeFileSync(
-    join(root, '.youtrack.json'),
+    join(root, '.dev-workflow.json'),
     JSON.stringify({ baseUrl: 'https://acme.youtrack.cloud/', project: 'ABC', states: { done: 'Fixed' } }),
   );
   const { config } = loadConfig({ dir: root, env: {} });
@@ -90,13 +93,13 @@ test('loadConfig layers the file over the defaults', () => {
 
 test('loadConfig strips a trailing slash from baseUrl', () => {
   const root = scratch();
-  writeFileSync(join(root, '.youtrack.json'), JSON.stringify({ baseUrl: 'https://acme.cloud///' }));
+  writeFileSync(join(root, '.dev-workflow.json'), JSON.stringify({ baseUrl: 'https://acme.cloud///' }));
   assert.equal(loadConfig({ dir: root, env: {} }).config.baseUrl, 'https://acme.cloud');
 });
 
 test('environment overrides the file', () => {
   const root = scratch();
-  writeFileSync(join(root, '.youtrack.json'), JSON.stringify({ baseUrl: 'https://a.cloud', project: 'ABC' }));
+  writeFileSync(join(root, '.dev-workflow.json'), JSON.stringify({ baseUrl: 'https://a.cloud', project: 'ABC' }));
   const { config } = loadConfig({ dir: root, env: { YOUTRACK_PROJECT: 'ZZZ' } });
   assert.equal(config.project, 'ZZZ');
   assert.equal(config.baseUrl, 'https://a.cloud');
@@ -104,19 +107,19 @@ test('environment overrides the file', () => {
 
 test('an empty environment variable does not override', () => {
   const root = scratch();
-  writeFileSync(join(root, '.youtrack.json'), JSON.stringify({ project: 'ABC' }));
+  writeFileSync(join(root, '.dev-workflow.json'), JSON.stringify({ project: 'ABC' }));
   assert.equal(loadConfig({ dir: root, env: { YOUTRACK_PROJECT: '' } }).config.project, 'ABC');
 });
 
 test('loadConfig reports invalid JSON by path', () => {
   const root = scratch();
-  writeFileSync(join(root, '.youtrack.json'), '{ not json');
+  writeFileSync(join(root, '.dev-workflow.json'), '{ not json');
   assert.throws(() => loadConfig({ dir: root, env: {} }), /is not valid JSON/);
 });
 
 test('loadConfig rejects a non-object config', () => {
   const root = scratch();
-  writeFileSync(join(root, '.youtrack.json'), '[1,2]');
+  writeFileSync(join(root, '.dev-workflow.json'), '[1,2]');
   assert.throws(() => loadConfig({ dir: root, env: {} }), /must contain a JSON object/);
 });
 
@@ -137,7 +140,7 @@ test('rankOf orders the ladder and rejects off-ladder states', () => {
 test('formatConfig reports a missing instance rather than printing null', () => {
   const { config } = loadConfig({ dir: scratch(), env: {} });
   const out = formatConfig(config, null);
-  assert.match(out, /instance:\s+MISSING — run \/yt-init/);
+  assert.match(out, /instance:\s+MISSING — run \/dev-init/);
   assert.match(out, /\(none configured — treat the project as a single repo/);
 });
 
@@ -153,4 +156,26 @@ test('formatConfig renders repos and the ladder', () => {
   assert.match(out, /- frontend/);
   assert.match(out, /checks: pnpm test/);
   assert.match(out, /env: {4}NODE=22/);
+});
+
+// --- the JS walk and the bash walk must not drift -----------------------------
+//
+// lib/config.mjs exists because three copies of this upward walk had already
+// drifted apart once. Two of them survive by necessity: the hook is bash, so it
+// cannot import this module. Pinning the lists against each other is the only
+// thing keeping a rename from silently making the hook read a different file
+// than the runtime does.
+
+test('the bash hook probes the same config names, in the same order', () => {
+  const hook = readFileSync(join(ROOT, 'hooks', 'check-commit-ticket.sh'), 'utf8');
+
+  const loop = hook.match(/for rel in ([^;]+); do/);
+  assert.ok(loop, 'could not find the config-name loop in check-commit-ticket.sh');
+
+  const fromBash = loop[1].trim().split(/\s+/);
+  // The JS list uses path.join, which is backslash-separated on Windows; the
+  // hook is POSIX shell and always uses forward slashes.
+  const fromJs = CONFIG_FILES.map((p) => p.split(/[/\\]/).join('/'));
+
+  assert.deepEqual(fromBash, fromJs);
 });

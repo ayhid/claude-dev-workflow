@@ -11,7 +11,7 @@
  *   yt.mjs sync [--apply] [--since 14d] [--deep] reconcile states against GitHub
  *
  * Nothing here depends on anything outside node: builtins. The installed copy
- * under `_youtrack/` has no `node_modules` and must run in any project — a Rust
+ * under `_dev-workflow/` has no `node_modules` and must run in any project — a Rust
  * or Python one included. Commands are imported lazily so a run only parses
  * what it needs.
  */
@@ -24,8 +24,8 @@ const USAGE = `usage: yt.mjs <command> [args]
   create --dup-check <KEYWORDS>         search open issues
   sync   [--apply] [--since 30d] [--repo PATH] [--deep] [--limit N]
 
-Config comes from .youtrack.json (or .claude/youtrack.json), then the
-environment. Run /yt-init to create one.`;
+Config comes from .dev-workflow.json (or .claude/dev-workflow.json), then the
+environment. Run /dev-init to create one.`;
 
 const COMMANDS = {
   config: () => import('./cmd/config.mjs'),

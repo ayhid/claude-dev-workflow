@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // PostToolUse(Edit|Write) guard: a shipped SKILL.md must declare `name:` equal
-// to its directory, and that name must be namespaced `yt-`.
+// to its directory, and that name must be namespaced `dev-`.
 //
 // Repo-local development tooling — this lives under .claude/ and is NOT part of
 // the shipped payload. It exists because 1.1.0 shipped skills named `task`,
@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs';
 import { basename, dirname, sep } from 'node:path';
 import { readHookInput, allow, block, run } from './lib.mjs';
 
-const PREFIX = 'yt-';
+const PREFIX = 'dev-';
 
 run('skill-name-prefix', () => {
   const input = readHookInput();

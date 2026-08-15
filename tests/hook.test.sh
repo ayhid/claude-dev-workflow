@@ -28,7 +28,7 @@ run_case() {
   local desc="$1" want="$2" cmd="$3" cfg="${4-}"
   local dir="$TMP/case-$((pass + fail))"
   mkdir -p "$dir"
-  [ -n "$cfg" ] && printf '%s' "$cfg" > "$dir/.youtrack.json"
+  [ -n "$cfg" ] && printf '%s' "$cfg" > "$dir/.dev-workflow.json"
 
   local payload got err
   payload=$(jq -n --arg c "$cmd" '{tool_name:"Bash", tool_input:{command:$c}}')

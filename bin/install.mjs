@@ -6,7 +6,7 @@
  *   npx youtrack-workflow --dir ..   # …somewhere else
  *   npx youtrack-workflow --print    # show the config, write nothing
  *
- * Two things happen here: `.youtrack.json` is written for the target project,
+ * Two things happen here: `.dev-workflow.json` is written for the target project,
  * and the plugin itself is registered with Claude Code. Both are optional and
  * either can be skipped.
  */
@@ -49,21 +49,21 @@ if (flag('--help') || flag('-h')) {
 ${c.bold('youtrack-workflow')} — set up the YouTrack ticket workflow for a project
 
 Installs into the project itself: the runtime under ${c.cyan(PAYLOAD_DIR + '/')}, the four
-skills under ${c.cyan('.claude/skills/yt-*')}, and the commit hook into
+skills under ${c.cyan('.claude/skills/dev-*')}, and the commit hook into
 ${c.cyan('.claude/settings.json')}. Nothing is installed globally.
 
 Re-run it to update. Files you have edited are reported and left alone.
 
   --dir <path>   target project directory (default: cwd)
   --print        print the resulting config instead of writing it
-  --force        overwrite an existing .youtrack.json, and any edited payload file
+  --force        overwrite an existing .dev-workflow.json, and any edited payload file
   --help         this message
 `);
   process.exit(0);
 }
 
 const targetDir = resolve(opt('--dir', process.cwd()));
-const configPath = join(targetDir, '.youtrack.json');
+const configPath = join(targetDir, '.dev-workflow.json');
 
 // --- helpers -----------------------------------------------------------------
 const bail = (value) => {
@@ -106,7 +106,7 @@ if (existsSync(configPath) && !flag('--print')) {
   try {
     existing = JSON.parse(readFileSync(configPath, 'utf8'));
   } catch {
-    p.log.warn(`${c.yellow('.youtrack.json exists but is not valid JSON')} — it will be replaced.`);
+    p.log.warn(`${c.yellow('.dev-workflow.json exists but is not valid JSON')} — it will be replaced.`);
   }
   if (existing && !flag('--force')) {
     p.log.info(
@@ -475,7 +475,7 @@ if (flag('--print')) {
   process.exit(0);
 }
 
-const write = bail(await p.confirm({ message: `Write ${c.cyan('.youtrack.json')}?`, initialValue: true }));
+const write = bail(await p.confirm({ message: `Write ${c.cyan('.dev-workflow.json')}?`, initialValue: true }));
 if (write) {
   writeFileSync(configPath, json, 'utf8');
   p.log.success(`Wrote ${configPath}`);
@@ -540,9 +540,9 @@ if (doInstall) {
 
 // --- done --------------------------------------------------------------------
 const nextSteps = [
-  `${c.cyan('/yt-task ABC-123')}   start work on an issue`,
-  `${c.cyan('/yt-bug it broke')}   file one without losing your place`,
-  `${c.cyan('/yt-done')}           verify and close out`,
+  `${c.cyan('/dev-task ABC-123')}   start work on an issue`,
+  `${c.cyan('/dev-bug it broke')}   file one without losing your place`,
+  `${c.cyan('/dev-done')}           verify and close out`,
 ];
 if (!tokenOpRef) {
   nextSteps.push('', c.dim('Remember to export $YOUTRACK_TOKEN in the shell Claude Code runs in.'));

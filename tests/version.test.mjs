@@ -41,7 +41,11 @@ test('everything the installer copies is in package.json files', () => {
 
 test('the installer itself is shipped', () => {
   assert.ok(pkg.files.includes('bin'));
-  assert.equal(pkg.bin['youtrack-workflow'], './bin/install.mjs');
+  // Asserted against pkg.name rather than a literal: the previous version
+  // hardcoded 'youtrack-workflow' and went stale the moment the product was
+  // renamed. `npx <name>` is what users type, so the two must agree.
+  assert.deepEqual(Object.keys(pkg.bin), [pkg.name]);
+  assert.equal(pkg.bin[pkg.name], './bin/install.mjs');
   assert.ok(existsSync(join(ROOT, 'bin', 'install.mjs')));
 });
 

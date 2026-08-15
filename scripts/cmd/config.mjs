@@ -4,7 +4,7 @@
  *   yt.mjs config          human-readable summary
  *   yt.mjs config --json   merged JSON, defaults filled in
  *
- * Every field has a default, so this succeeds with no .youtrack.json at all —
+ * Every field has a default, so this succeeds with no .dev-workflow.json at all —
  * except baseUrl, which has none and is reported as missing rather than fatal.
  * It also needs no token: a skill calls this first, to find out whether the
  * project is configured at all.

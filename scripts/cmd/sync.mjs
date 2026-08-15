@@ -174,7 +174,7 @@ export async function run(argv) {
 
   if (scanned === 0) {
     throw new UserError(
-      'no repositories scanned — check .youtrack.json repos[] and their git remotes',
+      'no repositories scanned — check .dev-workflow.json repos[] and their git remotes',
     );
   }
 

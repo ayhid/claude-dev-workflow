@@ -1,8 +1,8 @@
 /**
  * Installing the workflow into a project.
  *
- * The shape: a payload directory the installer owns (`_youtrack/`), an adapter
- * layer it generates (`.claude/skills/yt-*`), and a manifest recording what was
+ * The shape: a payload directory the installer owns (`_dev-workflow/`), an adapter
+ * layer it generates (`.claude/skills/dev-*`), and a manifest recording what was
  * written and with what content hash.
  *
  * The manifest is the whole point. A vendored copy inside someone's repo goes
@@ -23,31 +23,45 @@
  * no package.json at all.
  */
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 
 /** Where the payload lands, relative to the project root. Fixed, so the skills need no templating. */
-export const PAYLOAD_DIR = '_youtrack';
+export const PAYLOAD_DIR = '_dev-workflow';
 export const MANIFEST_PATH = join(PAYLOAD_DIR, '_config', 'manifest.json');
 const SKILLS_DIR = join('.claude', 'skills');
 const SETTINGS_PATH = join('.claude', 'settings.json');
 
-/** Directories copied verbatim from the distribution into `_youtrack/`. */
+/** Directories copied verbatim from the distribution into `_dev-workflow/`. */
 const PAYLOAD_SOURCES = ['lib', 'scripts', 'hooks'];
 
-const HOOK_COMMAND = `bash "$CLAUDE_PROJECT_DIR/${PAYLOAD_DIR}/hooks/check-commit-ticket.sh"`;
+export const HOOK_COMMAND = `bash "$CLAUDE_PROJECT_DIR/${PAYLOAD_DIR}/hooks/check-commit-ticket.sh"`;
 
 /** The skill-name prefix we claim. Anything else in .claude/skills/ is someone else's. */
-export const SKILL_PREFIX = 'yt-';
+export const SKILL_PREFIX = 'dev-';
 
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 
 /**
  * May the installer write to, or delete, this project-relative path?
  *
- * The only two answers are "inside `_youtrack/`" and "a `.claude/skills/yt-*`
+ * The only two answers are "inside `_dev-workflow/`" and "a `.claude/skills/dev-*`
  * directory". Everything else in the project belongs to someone else — another
  * tool's payload, another tool's skills, or the user's own files.
+ *
+ * Writes and deletes share one predicate on purpose. There is no second,
+ * looser rule for deletion: whatever the installer is not allowed to create, it
+ * is not allowed to remove either.
  *
  * Path traversal is rejected outright: a manifest entry of `../../etc/thing`
  * must never resolve outside the project.
@@ -65,6 +79,20 @@ export function isOwnedPath(rel) {
   }
 
   return false;
+}
+
+/**
+ * Replace a file atomically: write a sibling temporary, then rename over it.
+ *
+ * Used for `.claude/settings.json`, the one file we share with the user's own
+ * hooks. A same-directory rename is atomic, so an interrupted install can never
+ * leave that file half-written — the alternative is a project whose every Bash
+ * tool call fires a hook parsed out of truncated JSON.
+ */
+function writeAtomically(absPath, body) {
+  const tmp = `${absPath}.tmp`;
+  writeFileSync(tmp, body);
+  renameSync(tmp, absPath);
 }
 
 /** Every file under `dir`, as paths relative to `base`, sorted for a stable manifest. */
@@ -249,12 +277,14 @@ export function installPayload({ sourceRoot, projectDir, version, force = false,
     removed.push(entry.path);
   }
 
-  // Settings merge.
+  // Settings merge. Written atomically because this file is shared with the
+  // user's own hooks: a torn write here breaks every Bash tool call in the
+  // project, not just ours.
   const settingsAbs = join(projectDir, SETTINGS_PATH);
   const { settings, added: hookAdded } = mergeHookIntoSettings(readJson(settingsAbs, {}));
   if (!dryRun && hookAdded) {
     mkdirSync(dirname(settingsAbs), { recursive: true });
-    writeFileSync(settingsAbs, `${JSON.stringify(settings, null, 2)}\n`);
+    writeAtomically(settingsAbs, `${JSON.stringify(settings, null, 2)}\n`);
   }
 
   if (!dryRun) {
@@ -267,13 +297,13 @@ export function installPayload({ sourceRoot, projectDir, version, force = false,
       },
       payloadDir: PAYLOAD_DIR,
       skills: [...planned.keys()]
-        .filter((p) => p.startsWith(`${SKILLS_DIR}${sep}`) && p.endsWith('SKILL.md'))
+        .filter((p) => p.startsWith(`${SKILLS_DIR}${sep}`) && p.endsWith("SKILL.md"))
         .map((p) => p.split(sep)[2]),
       files: manifestFiles.sort((a, b) => a.path.localeCompare(b.path)),
     };
     const manifestAbs = join(projectDir, MANIFEST_PATH);
     mkdirSync(dirname(manifestAbs), { recursive: true });
-    writeFileSync(manifestAbs, `${JSON.stringify(manifest, null, 2)}\n`);
+    writeAtomically(manifestAbs, `${JSON.stringify(manifest, null, 2)}\n`);
   }
 
   return { written, skipped, removed, hookAdded, isUpdate, modified: drift.modified };

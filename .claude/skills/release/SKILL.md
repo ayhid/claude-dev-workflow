@@ -21,7 +21,7 @@ confirmation.
 ## 2. Bump the version
 
 `package.json` → `.version` is the only place it lives; the installer stamps it into each
-project's `_youtrack/_config/manifest.json` at install time.
+project's `_dev-workflow/_config/manifest.json` at install time.
 
 Because installed projects are updated by **re-running the installer**, the version is how a user
 tells what they have. A release that does not bump it leaves them unable to see they are stale.
@@ -45,10 +45,10 @@ without writing.
 So, against a real instance, if anything touching a write path changed:
 
 ```bash
-node scripts/yt.mjs create "Release smoke test" "ignore me" Task Minor   # prints the new ID
-node scripts/yt.mjs update <ID> "State In Progress"                      # check the read-back line
-node scripts/yt.mjs update <ID> comment "smoke"
-node scripts/yt.mjs sync --apply                                          # if there is real drift
+node scripts/dev.mjs create "Release smoke test" "ignore me" Task Minor   # prints the new ID
+node scripts/dev.mjs update <ID> "State In Progress"                      # check the read-back line
+node scripts/dev.mjs update <ID> comment "smoke"
+node scripts/dev.mjs sync --apply                                          # if there is real drift
 ```
 
 Then **re-run each one** to confirm it is idempotent, and close the throwaway issue.
@@ -68,10 +68,10 @@ node bin/install.mjs --dir /tmp/rel --print   # config path only, writes nothing
 
 Then a genuine install into `/tmp/rel`, and against it confirm:
 
-- `_youtrack/`, the four `.claude/skills/yt-*`, and the hook in `.claude/settings.json` exist;
-- **no `node_modules` under `_youtrack/`** — the payload must stay dependency-free, or it breaks
+- `_dev-workflow/`, the four `.claude/skills/dev-*`, and the hook in `.claude/settings.json` exist;
+- **no `node_modules` under `_dev-workflow/`** — the payload must stay dependency-free, or it breaks
   in every non-Node project;
-- `node _youtrack/scripts/yt.mjs config` runs from the installed copy;
+- `node _dev-workflow/scripts/dev.mjs config` runs from the installed copy;
 - editing a payload file by hand and re-running reports it as modified and **leaves it alone**;
   `--force` overwrites it;
 - a pre-existing unrelated hook in `.claude/settings.json` survives the install.

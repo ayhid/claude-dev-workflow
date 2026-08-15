@@ -1,13 +1,13 @@
 ---
-name: yt-init
-description: Set up the YouTrack workflow in this project — probe the repo, confirm the instance, project, language, state ladder and check commands with the user, and write .youtrack.json. Use when /yt-task, /yt-bug or /yt-done reports missing config, or when the user types /yt-init.
+name: dev-init
+description: Set up the YouTrack workflow in this project — probe the repo, confirm the instance, project, language, state ladder and check commands with the user, and write .dev-workflow.json. Use when /dev-task, /dev-bug or /dev-done reports missing config, or when the user types /dev-init.
 argument-hint: [optional YouTrack URL or project key]
 ---
 
-# /yt-init — configure the YouTrack workflow for this project
+# /dev-init — configure the YouTrack workflow for this project
 
-Produces one file, `.youtrack.json` at the repo root. Everything `/yt-task`, `/yt-bug` and `/yt-done`
-need that is project-specific lives there; nothing under _youtrack/ is edited per project.
+Produces one file, `.dev-workflow.json` at the repo root. Everything `/dev-task`, `/dev-bug` and `/dev-done`
+need that is project-specific lives there; nothing under _dev-workflow/ is edited per project.
 
 There is also a non-interactive-model path to the same file: `npx youtrack-workflow` runs a CLI
 wizard that does this deterministically, including reading the project's real state names off the
@@ -16,11 +16,11 @@ API. If the user would rather click through prompts than converse, point them at
 ## 1. Check what already exists
 
 ```bash
-node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" config
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" config
 ```
 
 If a config file is already reported, show it and ask whether to amend or replace it. Never
-overwrite an existing `.youtrack.json` without saying what will change.
+overwrite an existing `.dev-workflow.json` without saying what will change.
 
 ## 2. Probe the repo before asking anything
 
@@ -63,7 +63,7 @@ Once you have the URL, project and token source, prove they work:
 
 ```bash
 YOUTRACK_BASE_URL=<url> YOUTRACK_PROJECT=<key> \
-  node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" create --dup-check "test"
+  node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" create --dup-check "test"
 ```
 
 A `no open issues matched` line or a list of issues both mean success. An auth or project error
@@ -73,7 +73,7 @@ To confirm the state names, fetch any real issue from the project with `yt.mjs f
 `State` line. Do not invent state names; a `State X` command YouTrack does not recognise returns
 400, or worse, 200 without applying.
 
-## 5. Write `.youtrack.json`
+## 5. Write `.dev-workflow.json`
 
 Full shape — omit anything that does not apply, every field except `baseUrl` and `project` has
 a working default:
@@ -135,20 +135,20 @@ Field notes:
 - `commit.types` and `commit.scopes` should be **copied from the project's commitlint config**, not
   guessed — the hook and the model both read them.
 - `repos` empty (or absent) means a single repo at the project root. With entries, `when`
-  is the routing rule `/yt-task` uses to pick a repo and `checks` is what `/yt-done` runs there.
+  is the routing rule `/dev-task` uses to pick a repo and `checks` is what `/dev-done` runs there.
 - `env` is prepended to every command run in that repo. Use it for pins the version manager
   cannot resolve on its own.
-- `notes` is free-form and is shown to the model on every `/yt-task`, `/yt-bug` and `/yt-done`.
+- `notes` is free-form and is shown to the model on every `/dev-task`, `/dev-bug` and `/dev-done`.
 
 ## 6. Confirm it loads, and tell them what is next
 
 ```bash
-node "${CLAUDE_PROJECT_DIR}/_youtrack/scripts/yt.mjs" config
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" config
 ```
 
 Read the summary back and check it matches what was agreed. Then:
 
-- Suggest committing `.youtrack.json` — it holds no secret, only a 1Password *reference*.
+- Suggest committing `.dev-workflow.json` — it holds no secret, only a 1Password *reference*.
 - If they chose `$YOUTRACK_TOKEN` over 1Password, remind them it must be exported in the shell
   Claude Code runs in, and must not be committed.
-- Point at `/yt-task <ID>` as the entry point.
+- Point at `/dev-task <ID>` as the entry point.
