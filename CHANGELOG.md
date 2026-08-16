@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/ayhid/claude-dev-workflow/compare/v1.0.1...v1.0.2) (2026-08-16)
+
+
+### Bug Fixes
+
+* **install:** show none rather than undefined for a blank answer ([#18](https://github.com/ayhid/claude-dev-workflow/issues/18)) ([68f4529](https://github.com/ayhid/claude-dev-workflow/commit/68f45290b22ee466d953d12c304d014c641d3ca2))
+
 ## [1.0.1](https://github.com/ayhid/claude-dev-workflow/compare/v1.0.0...v1.0.1) (2026-08-16)
 
 
