@@ -178,13 +178,29 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # 24, not the 22 the other jobs pin. `engines` says >=22 and that floor is
+      # what `test` and `install` exist to prove, but publishing is a different
+      # question: npm trusted publishing needs npm >= 11.5.1, and the 22 line is
+      # pinned at npm 10.9.8 for good — npm majors are not backported into an
+      # LTS. 24 bundles npm 11, so the toolchain satisfies it by construction
+      # rather than by a mutable `npm install -g npm@latest` on every run.
+      #
+      # setup-node does not manage npm independently: it installs whatever npm
+      # the chosen Node bundles, so bumping the action version alone changes
+      # nothing here. The Node version is the only lever.
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
       - run: npm ci --no-audit --no-fund
 
+      # NPM_TOKEN is the bootstrap, not the destination. npm's trusted publishing
+      # (OIDC) needs no secret at all, but it is configured on a package's
+      # settings page — which cannot exist until the package has been published
+      # once. So: publish once with a granular token, then add the trusted
+      # publisher on npmjs.com and delete both this env entry and the secret.
+      # `id-token: write` above is already what OIDC needs.
       - name: Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
