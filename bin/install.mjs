@@ -467,6 +467,11 @@ if (candidates.length) {
         message: `Checks for ${c.cyan(path)} ${c.dim('(&&-separated; blank for none)')}`,
         initialValue: checksDefault,
         defaultValue: '',
+        // Clack renders a submitted text prompt as `value || placeholder`, so a
+        // prompt that accepts a blank answer and has no placeholder prints the
+        // string "undefined" back at you. Every `defaultValue: ''` prompt below
+        // carries one for that reason; tests/install-prompts.test.mjs enforces it.
+        placeholder: 'none',
       }),
     );
     const checks = checksAnswer.split('&&').map((s) => s.trim()).filter(Boolean);
@@ -476,6 +481,7 @@ if (candidates.length) {
         message: `What belongs in ${c.cyan(path)}? ${c.dim('(routing hint; blank if it is the only one)')}`,
         initialValue: prior?.when ?? '',
         defaultValue: '',
+        placeholder: 'none',
       }),
     );
 
@@ -615,6 +621,7 @@ const reviewer =
           message: `Default PR reviewer ${c.dim('(blank for none)')}`,
           initialValue: existing?.reviewer ?? '',
           defaultValue: '',
+          placeholder: 'none',
         }),
       )
     : '';
