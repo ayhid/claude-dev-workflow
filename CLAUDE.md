@@ -195,6 +195,14 @@ Two consequences, both deliberate:
   actually gets is the path enforced here. That registration is the only thing making the guard
   apply — removing the entry silently removes the enforcement.
 
+- **The ladder is reconciled by CI, not by hand.** `.github/workflows/reconcile.yml` runs
+  `dev.mjs sync --apply --deep` on every merged PR, plus weekly. `--deep` is load-bearing: a branch
+  named by hand carries no issue ID, so the commit subjects are the only link. Its second step is
+  repo-local glue, not a design — a PR opened by `land --apply` says `Closes #123`, so GitHub closes
+  the issue before anything can relabel it, and the reconciler then reads a closed issue as already
+  done and declines to move it. That strands `status: in review` forever, which is what happened to
+  #6. Delete the step if the tool ever learns to repair a stale label on an already-closed issue.
+
 Work with an issue behind it references it as `(#123)`. Work without one keeps the
 `<type>(no-ticket):` escape hatch; the type in it is incidental, so any configured type carries it.
 

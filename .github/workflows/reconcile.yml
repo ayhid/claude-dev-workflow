@@ -1,0 +1,109 @@
+name: reconcile
+
+# Merging a PR is not, on its own, enough to move a ticket. This repo is a
+# consumer of its own workflow, so it feels that directly: #1, #2, #3 and #6 all
+# ended up wrong, in two different ways.
+#
+#   - A PR whose only link to its issue is the commit convention
+#     `type(scope): description (#12)` closes nothing. That is a *reference*, not
+#     one of GitHub's closing keywords, so the issue stays open carrying whatever
+#     `status:` label it had.
+#   - A PR opened by `dev.mjs land --apply` carries `Closes #12`, so GitHub closes
+#     the issue at merge — before anything can relabel it. `sync` then reads a
+#     closed issue as already done (`stateOf` in lib/github.mjs) and correctly
+#     declines to move it, which strands `status: in review` forever. #6 sat like
+#     that from 2026-08-15 until it was fixed by hand.
+#
+# So this runs both halves: reconcile what GitHub did not close, then repair the
+# label GitHub's own auto-close stranded.
+#
+# The second step is repo-local glue, not a design. It stands in for a gap in the
+# tool — the reconciler has no notion of "right state, wrong label" — and should
+# be deleted if the tool ever grows one.
+
+on:
+  pull_request:
+    types: [closed]
+  # A merge that happened while this workflow was broken would otherwise stay
+  # wrong until somebody noticed. sync is forward-only and idempotent, so a
+  # weekly run that finds nothing costs one API call and no writes.
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write # the label swap and the close
+  pull-requests: read # sync's evidence is the PR list
+
+concurrency:
+  group: reconcile
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    # `closed` fires on every close. Only a merge is evidence that work landed;
+    # a PR closed unmerged must leave its ticket exactly where it is.
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # The floor in package.json engines, matching the other jobs.
+          node-version: '22'
+
+      # No install step, deliberately: _dev-workflow/ is committed and has no
+      # dependencies of its own. That is the same property the ci `install` job
+      # exists to prove, exercised here for real on every merge.
+      #
+      # --deep is not optional. A branch named by hand carries no issue ID, so
+      # for those PRs the commit subjects are the only link to the issue.
+      - name: Reconcile the ladder against the PRs that exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node _dev-workflow/scripts/dev.mjs sync --apply --deep
+
+      - name: Repair labels stranded by GitHub's own auto-close
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Closed as "not planned" is GitHub's Won't Fix: off the ladder on
+          # purpose. It is skipped here for the same reason the reconciler skips
+          # off-ladder states — somebody put it there deliberately.
+          #
+          # Only issues carrying a *stale ladder label* are touched. An issue
+          # closed with no status label at all is left alone rather than being
+          # backfilled, so unrelated history (bot issues, imports) stays as it is.
+          # One line per stranded label, `number<TAB>label`, rather than a list
+          # per issue: ladder labels contain spaces ("status: in review"), so
+          # anything that word-splits a list of them corrupts the name it is
+          # about to pass to --remove-label.
+          # shellcheck disable=SC2016  # $issue is a jq binding, not a shell variable
+          gh issue list -R "$GITHUB_REPOSITORY" \
+            --state closed \
+            --limit 100 \
+            --json number,stateReason,labels \
+            -q '.[]
+                | select(.stateReason == "COMPLETED")
+                | . as $issue
+                | $issue.labels[].name
+                | select(. == "status: in progress" or . == "status: in review")
+                | "\($issue.number)\t\(.)"' > stale.tsv
+
+          if [ ! -s stale.tsv ]; then
+            echo "no stranded labels"
+            exit 0
+          fi
+
+          # Removing a label the issue does not carry is an error, which is why
+          # each removal names a label the listing just read off that issue.
+          while IFS=$'\t' read -r number label; do
+            echo "repairing #$number: $label -> status: done"
+            gh issue edit "$number" -R "$GITHUB_REPOSITORY" \
+              --add-label "status: done" \
+              --remove-label "$label"
+          done < stale.tsv
