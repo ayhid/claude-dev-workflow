@@ -201,17 +201,22 @@ jobs:
       # once. So: publish once with a granular token, then add the trusted
       # publisher on npmjs.com and delete both this env entry and the secret.
       # `id-token: write` above is already what OIDC needs.
-      # NODE_AUTH_TOKEN is not redundant with NPM_TOKEN, and leaving it out is
-      # what made every release since the first fail with a 401 on /-/whoami.
-      # `registry-url` above makes setup-node write an .npmrc containing
-      # `_authToken=${NODE_AUTH_TOKEN}` and point NPM_CONFIG_USERCONFIG at it.
-      # @semantic-release/npm honours that file — it logs "Reading npm config
-      # from …/_temp/.npmrc" — so with NODE_AUTH_TOKEN unset it authenticated
-      # with setup-node's literal placeholder, XXXXX-XXXXX-XXXXX-XXXXX, and
-      # NPM_TOKEN was never consulted. A valid token could not have fixed it.
+      # No npm credential here on purpose: publishing is authenticated by npm's
+      # trusted publishing (OIDC), configured against this repo and this
+      # workflow file on npmjs.com. `id-token: write` above is the whole of what
+      # it needs from us.
+      #
+      # @semantic-release/npm exchanges a GitHub Actions ID token for a
+      # short-lived registry token, and on success returns *before* writing any
+      # .npmrc — so setup-node's `_authToken=${NODE_AUTH_TOKEN}` placeholder is
+      # never consulted, and `npm publish` authenticates itself. That last part
+      # is why the release job pins Node 24: the CLI does the OIDC exchange, and
+      # it only learned how in npm 11.5.1.
+      #
+      # A failure here reads as ENONPMTOKEN — that is the OIDC exchange having
+      # failed and the plugin falling back to looking for a token, not a missing
+      # secret. Check the trusted publisher's workflow filename first.
       - name: Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npx semantic-release
