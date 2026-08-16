@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/ayhid/claude-dev-workflow/compare/v1.0.0...v1.0.1) (2026-08-16)
+
+
+### Bug Fixes
+
+* **no-ticket:** authenticate npm publishes with trusted publishing ([3375a13](https://github.com/ayhid/claude-dev-workflow/commit/3375a132ed32c8af13475d5c3e97af38b7c9b996))
+
 # 1.0.0 (2026-08-16)
 
 
