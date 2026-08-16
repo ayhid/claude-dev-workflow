@@ -1,3 +1,24 @@
+# 1.0.0 (2026-08-16)
+
+
+### Bug Fixes
+
+* brace only multi-word state values, and surface the real error ([bb96c4e](https://github.com/ayhid/claude-dev-workflow/commit/bb96c4eff33f36f635ddaaca6b44c27574c92733))
+* **core:** let each backend own its project-identity check ([#1](https://github.com/ayhid/claude-dev-workflow/issues/1)) ([5b79ec7](https://github.com/ayhid/claude-dev-workflow/commit/5b79ec737b529e6ddfe96855c30f5799a9dabf54))
+* **create:** warn when an explicit issue type cannot be stored ([#3](https://github.com/ayhid/claude-dev-workflow/issues/3)) ([ee8be26](https://github.com/ayhid/claude-dev-workflow/commit/ee8be262aba84fbe0aa06c4ffd8de9c8be571fcf))
+* invoke the commit hook via bash and document it in the manifest ([7ff735a](https://github.com/ayhid/claude-dev-workflow/commit/7ff735a500f82143ecdde25a325d035399ef8e13))
+* **sync:** report the issue-id shape, not a null project key ([#2](https://github.com/ayhid/claude-dev-workflow/issues/2)) ([9e2f243](https://github.com/ayhid/claude-dev-workflow/commit/9e2f243d1d6ef1ef690e06c70e0f19d9dafccf17)), closes [#123](https://github.com/ayhid/claude-dev-workflow/issues/123)
+
+
+### Features
+
+* add an interactive @clack/prompts installer ([1e8322e](https://github.com/ayhid/claude-dev-workflow/commit/1e8322e81e32e480cc121f4543ca5207e67d2ed4))
+* add yt-sync.sh, a reconciler for issue state drift ([86dea86](https://github.com/ayhid/claude-dev-workflow/commit/86dea86678e7ce800a82d8e08597f7b531f6250f))
+* extract the YouTrack ticket workflow into a portable plugin ([93b3de8](https://github.com/ayhid/claude-dev-workflow/commit/93b3de88bafdc405d2ba6894ed3307a44d5e6751))
+* **land:** deliver onto a branch other than the fork point ([#6](https://github.com/ayhid/claude-dev-workflow/issues/6)) ([2df964c](https://github.com/ayhid/claude-dev-workflow/commit/2df964c8e34df92ccdf18f8c086c013c24acc685))
+* **no-ticket:** add git delivery commands and repo release tooling ([2ec0baf](https://github.com/ayhid/claude-dev-workflow/commit/2ec0bafea8567c03755108ce0dd8da4df408540e))
+* **no-ticket:** let an installed project update itself ([e9df455](https://github.com/ayhid/claude-dev-workflow/commit/e9df45592394e4b7ae3d044d6fc71fa588fc5f50))
+
 # Changelog
 
 Maintained by [semantic-release](https://semantic-release.gitbook.io) from the commit history —
