@@ -9,7 +9,7 @@
 [![node](https://img.shields.io/node/v/claude-dev-workflow?style=flat-square)](https://nodejs.org)
 [![license](https://img.shields.io/npm/l/claude-dev-workflow?style=flat-square)](LICENSE)
 
-<!-- TODO: vhs recording of npx claude-dev-workflow@latest -->
+![The install wizard verifying a token, listing the projects it can see, reading that project's real State values, and writing .dev-workflow.json](https://raw.githubusercontent.com/ayhid/claude-dev-workflow/main/.github/assets/wizard.gif)
 
 Ticket-driven development against your issue tracker, [YouTrack](https://www.jetbrains.com/youtrack/)
 or [GitHub Issues](docs/configuration.md#github-issues), as four Claude Code skills. It installs **per
