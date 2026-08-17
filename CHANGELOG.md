@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.1.0...v1.2.0) (2026-08-17)
+
+
+### Features
+
+* **status:** report where the work stands ([#25](https://github.com/ayhid/claude-dev-workflow/issues/25)) ([b78937f](https://github.com/ayhid/claude-dev-workflow/commit/b78937fdb76c3baa40d3bcd2574b6b2a775b23ef))
+
 # [1.1.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.0.2...v1.1.0) (2026-08-17)
 
 
