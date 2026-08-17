@@ -43,6 +43,7 @@ const COMMANDS = {
   start: () => import('./cmd/start.mjs'),
   land: () => import('./cmd/land.mjs'),
   sync: () => import('./cmd/sync.mjs'),
+  note: () => import('./cmd/note.mjs'),
   // `version` reports and, with --upgrade, rewrites the workflow's own files.
   // Not `upgrade`: one letter from `update` above, which writes to the tracker.
   version: () => import('./cmd/version.mjs'),

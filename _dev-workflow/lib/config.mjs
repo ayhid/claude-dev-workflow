@@ -14,6 +14,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 
+import { DEFAULT_MAX_CHARS, mergeForDisplay } from './notes.mjs';
+
 /** Every field has a working default except baseUrl, which has none. */
 export const DEFAULTS = {
   /**
@@ -106,6 +108,18 @@ export const DEFAULTS = {
   defaultPriority: 'Normal',
   reviewer: null,
   sync: { comment: 'PR {url} — {state}' },
+
+  /**
+   * Where `dev.mjs note` writes durable project knowledge.
+   *
+   * Beside `.dev-workflow.json` rather than inside `_dev-workflow/`: that tree is
+   * installer-managed and reported as drift when it is edited, which is exactly
+   * wrong for a file whose whole purpose is to accumulate a team's own prose.
+   * It is meant to be committed, and it holds no secret.
+   */
+  notesFile: '.dev-workflow.notes.md',
+  notes: null,
+  notesMaxChars: 4000,
   repos: [],
 };
 
@@ -225,7 +239,7 @@ export function rankOf(config, state) {
 }
 
 /** The human-readable summary a skill reads in one call. */
-export function formatConfig(config, file) {
+export function formatConfig(config, file, notesFileContent = null) {
   const L = [];
   const push = (label, value) => L.push(`${label.padEnd(13)}${value}`);
 
@@ -305,10 +319,21 @@ export function formatConfig(config, file) {
     }
   }
 
+  // Two sources on purpose. The inline array is what every project configured
+  // before `dev.mjs note` existed already has, and it is never migrated or
+  // rewritten; the file is what the command appends to. Both print, inline
+  // first, so upgrading changes nothing about what a session already sees.
+  //
+  // `notesFileContent` is passed in rather than read here: this function is pure
+  // and is called from tests with no filesystem. The caller does the IO.
   L.push('', 'notes:');
-  const notes = config.notes;
-  if (!notes) L.push('  (none)');
-  else for (const n of Array.isArray(notes) ? notes : [notes]) L.push(`  - ${n}`);
+  const { lines } = mergeForDisplay({
+    inline: config.notes,
+    file: notesFileContent,
+    path: config.notesFile,
+    maxChars: config.notesMaxChars ?? DEFAULT_MAX_CHARS,
+  });
+  L.push(...lines);
 
   return L.join('\n');
 }

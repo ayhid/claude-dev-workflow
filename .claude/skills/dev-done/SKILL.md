@@ -115,6 +115,31 @@ uses worktree mode.
 Every commit should match the configured commit pattern and carry the issue ID. Uncommitted work
 means the ticket is not done — surface it rather than closing over it.
 
+## 5.5. Anything worth keeping?
+
+Before landing, ask yourself what this ticket taught that **the code does not already say** and that
+the next session would otherwise rediscover the hard way: a trap in an API, why an approach was
+rejected, a convention nothing enforces. If there is something, offer it to the user in one line and
+write it on approval:
+
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" note "<the durable fact>"
+```
+
+It lands in the project's notes file, tagged with the date and this ticket, and is shown to every
+later `/dev-task`, `/dev-bug` and `/dev-done`.
+
+Most tickets teach nothing durable, and **that is the normal case** — say nothing rather than
+manufacturing a note. Three things do not belong here:
+
+- what changed, or how it was verified — that is the ticket summary in §6;
+- anything the diff already says, or that a reader would learn from the code;
+- working notes about this ticket. Those go on the ticket:
+  `dev.mjs update <ISSUE-ID> comment "…"`.
+
+A notes file that fills with restated commit messages is worse than an empty one, because the next
+session has to read all of it to find the two lines that mattered.
+
 ## 6. Ask, then land
 
 Draft a summary comment **in the configured ticket language**: what changed, which files, how it

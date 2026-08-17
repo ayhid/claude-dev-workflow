@@ -16,6 +16,7 @@ editor has a heading with the same name here.
 - [`commit` — the convention the hook enforces](#commit--the-convention-the-hook-enforces)
 - [`delivery` — how work lands](#delivery--how-work-lands)
 - [`repos` — more than one](#repos--more-than-one)
+- [`notesFile` — durable project knowledge](#notesfile--durable-project-knowledge)
 - [Credentials (YouTrack)](#credentials-youtrack)
 - [Environment overrides (YouTrack)](#environment-overrides-youtrack)
 - [Every field at once](#every-field-at-once)
@@ -206,6 +207,41 @@ is prepended to every command in that repo, and `remotes` lists everywhere branc
 `main` while another needs a PR — or lands on a different branch entirely, since `base` is part of
 that block like every other delivery field.
 
+## `notesFile` — durable project knowledge
+
+What a session learns dies with the session unless something writes it down. `dev.mjs note` appends
+to a markdown file beside your config, tagged with the date and the ticket the work was under:
+
+```bash
+node _dev-workflow/scripts/dev.mjs note "the commit convention (#12) is a reference, not a closing keyword"
+```
+
+```markdown
+## 2026-08-17 — #12
+
+the commit convention (#12) is a reference, not a closing keyword
+```
+
+| Field | Default | What it does |
+| --- | --- | --- |
+| `notesFile` | `.dev-workflow.notes.md` | Where notes are appended, relative to the project root. |
+| `notesMaxChars` | `4000` | How much of it `dev.mjs config` prints before it truncates. |
+| `notes` | none | The older inline array. Still read, still printed first, never rewritten. |
+
+Both sources are shown to the model on every `/dev-task`, `/dev-bug` and `/dev-done`, so a note is
+context the next session starts with rather than something it has to be told.
+
+The file is a **log, not a config**: entries are appended and never rewritten, so anything you edit
+by hand survives. Commit it, the same as `.dev-workflow.json` — it holds no secret and it is worth
+more to the next person than to you. When `dev.mjs config` truncates, it says how many entries it
+left out and where to read them; it never drops one silently.
+
+Notes about one ticket belong on that ticket instead, where they stay attached to the work:
+
+```bash
+node _dev-workflow/scripts/dev.mjs update ABC-22 comment "tried X, it deadlocks under load"
+```
+
 ## Credentials (YouTrack)
 
 A GitHub Issues project has no credentials to configure — it uses the GitHub CLI's own auth.
@@ -272,7 +308,9 @@ Useful for one-off runs against another instance, and for CI. There is no GitHub
       "github": "acme/frontend"
     }
   ],
-  "notes": ["Anything a future session must know that the code does not say."]
+  "notes": ["Anything a future session must know that the code does not say."],
+  "notesFile": ".dev-workflow.notes.md",
+  "notesMaxChars": 4000
 }
 ```
 
