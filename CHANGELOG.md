@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.0.2...v1.1.0) (2026-08-17)
+
+
+### Features
+
+* **note:** save durable project knowledge while working ([#24](https://github.com/ayhid/claude-dev-workflow/issues/24)) ([55ae03b](https://github.com/ayhid/claude-dev-workflow/commit/55ae03b8ee93c895e2e51f59a04bfd84384710fe))
+
 ## [1.0.2](https://github.com/ayhid/claude-dev-workflow/compare/v1.0.1...v1.0.2) (2026-08-16)
 
 
