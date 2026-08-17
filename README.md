@@ -292,6 +292,9 @@ Each command below is prefixed with `node _dev-workflow/scripts/dev.mjs`.
 | `sync` | dry run: report state drift | git + GitHub CLI |
 | `sync --apply --since 14d` | applies it, over a 14-day window | HTTP + git + GitHub CLI |
 | `sync --deep` | also reads commit subjects | git + GitHub CLI |
+| `note "what you learned"` | appends it to the project's notes file, tagged with the current ticket | nothing |
+| `note @/tmp/longer.md` | the same, from a file | nothing |
+| `note` | where notes live and how many there are | nothing |
 | `version` | installed vs latest, and files you have edited | HTTP only |
 | `version --upgrade` | brings the payload up to date | git |
 
