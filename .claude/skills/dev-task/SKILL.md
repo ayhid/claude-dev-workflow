@@ -29,7 +29,22 @@ here** — do not carry conventions over from another project.
 
 If it reports `MISSING`, run `/dev-init` first and stop.
 
-Then reconcile the board before trusting any state you are about to read:
+Then find out what is already in flight, before starting anything new:
+
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" status --all
+```
+
+It lists every worktree, the ticket each one carries, that ticket's state and whether a PR exists.
+Two things it tells you that change what you do next:
+
+- **The work you are being asked for may already be checked out.** Resume that worktree instead of
+  creating a second one for the same ticket.
+- **A ticket left in progress with a dirty tree is someone's unfinished work** — very possibly this
+  session's, before a compaction. Say so rather than starting over on top of it.
+
+It only reports; it changes nothing. Then reconcile the board before trusting any state you are
+about to read:
 
 ```bash
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" sync

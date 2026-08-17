@@ -1,8 +1,8 @@
 {
   "installation": {
-    "version": "1.0.2",
+    "version": "1.1.0",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-17T07:19:12.354Z"
+    "lastUpdated": "2026-08-17T07:26:50.689Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -49,6 +49,10 @@
       "sha256": "41f9fe345444299c16f9a486f3bc722e288a2e2c7c8ad714f0d3dbc12cfb1050"
     },
     {
+      "path": "_dev-workflow/lib/status.mjs",
+      "sha256": "38fd32bf2cb61870bf18b82098a512c437dfdfa5ff792056cd53fa8fb8083e2d"
+    },
+    {
       "path": "_dev-workflow/lib/sync.mjs",
       "sha256": "f1cd3a9ede38fa92ae5578f48e1e3f8e9176e9116ae4c26d8a9a85326f15a2c7"
     },
@@ -58,7 +62,7 @@
     },
     {
       "path": "_dev-workflow/lib/vcs.mjs",
-      "sha256": "25a182bbc4e1baac2b1793d9a1981e59878f1b96a7f5440f0d444bfb3f8435e1"
+      "sha256": "750cb4f965f6c65dd36248a6648224fbc8e76a1606f9742d33d8c9ed4ed2c9fa"
     },
     {
       "path": "_dev-workflow/lib/youtrack.mjs",
@@ -93,6 +97,10 @@
       "sha256": "15e4404e502ad786f4d3834dfd367a5d082c2b62af1f12c55458f5abbdab589f"
     },
     {
+      "path": "_dev-workflow/scripts/cmd/status.mjs",
+      "sha256": "142b0498b41b7974942c5d72f73652182da0ae03444328c1524934f2cdc893c2"
+    },
+    {
       "path": "_dev-workflow/scripts/cmd/sync.mjs",
       "sha256": "dd8e8903bdced525a4eaf6406e58c0cd4f39f16351fc32801d3369b3341d6a03"
     },
@@ -106,7 +114,7 @@
     },
     {
       "path": "_dev-workflow/scripts/dev.mjs",
-      "sha256": "c4e0a0149e1bde5d22185e3534a059d27a8ce842e89359ab7f98d3873cf7b754"
+      "sha256": "047cff3043cd45a838d0bfc6a629c5bb41dfd162cbe502ed169ffadafa7a2828"
     },
     {
       "path": ".claude/skills/dev-bug/SKILL.md",
@@ -122,7 +130,7 @@
     },
     {
       "path": ".claude/skills/dev-task/SKILL.md",
-      "sha256": "4ebbeba07a072615b7d87112f6da808dbebfd82493b07b0ecac40804d5e9a9bf"
+      "sha256": "3221a861e8b434e159be91101a7a0c102b9f2c5a8231966d2c01b5ac79e75ea3"
     }
   ]
 }

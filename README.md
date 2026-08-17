@@ -260,7 +260,7 @@ multi-repo routing, credentials and environment overrides. Two worked examples l
 They are ordinary CLI tools; the skills just call them. The three you will reach for by hand:
 
 ```bash
-node _dev-workflow/scripts/dev.mjs fetch ABC-22                # issue as markdown, comments included
+node _dev-workflow/scripts/dev.mjs status                      # where this checkout stands
 node _dev-workflow/scripts/dev.mjs start ABC-22                # branch or worktree, ticket to in progress
 node _dev-workflow/scripts/dev.mjs sync                        # dry run: report state drift
 ```
@@ -292,6 +292,8 @@ Each command below is prefixed with `node _dev-workflow/scripts/dev.mjs`.
 | `sync` | dry run: report state drift | git + GitHub CLI |
 | `sync --apply --since 14d` | applies it, over a 14-day window | HTTP + git + GitHub CLI |
 | `sync --deep` | also reads commit subjects | git + GitHub CLI |
+| `status` | this checkout: branch, ticket, state, PR, dirty files, next step | git + GitHub CLI |
+| `status --all` | every worktree and ticket in flight, across configured repos | git + GitHub CLI |
 | `note "what you learned"` | appends it to the project's notes file, tagged with the current ticket | nothing |
 | `note @/tmp/longer.md` | the same, from a file | nothing |
 | `note` | where notes live and how many there are | nothing |
