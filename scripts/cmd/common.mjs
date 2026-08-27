@@ -2,10 +2,19 @@
  * Shared plumbing for the command modules: config + provider in one step, and
  * the `@file` argument convention.
  */
-import { readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import { findIssueCheckouts } from '../../lib/branch.mjs';
 import { loadConfig } from '../../lib/config.mjs';
+import {
+  closeEvent,
+  metricsEnabled,
+  metricsFileOf,
+  parseLog,
+  renderEvent,
+  roleOf,
+} from '../../lib/metrics.mjs';
 import { makeProvider } from '../../lib/provider.mjs';
 
 /** Thrown for expected, user-facing failures — dev.mjs prints `.message` alone. */
@@ -33,7 +42,99 @@ export async function context() {
   const r = await makeProvider(config);
   if (!r.ok) throw new UserError(r.error);
 
-  return { config, file, root, provider: r.provider };
+  return { config, file, root, provider: withMetrics(r.provider, { config, root }) };
+}
+
+/**
+ * The provider, with every state change it reports appended to the local log.
+ *
+ * This is a choke point, chosen for the reason `lib/vcs.mjs` puts its refusals
+ * in one `git()` wrapper: `update`, `land`, `sync`, `start`, `resume` and
+ * `abandon` all move tickets, and instrumenting each of them would be six
+ * places for the seventh to be forgotten. Every command takes its provider from
+ * `context()`, so wrapping here covers the ones that exist and the ones that do
+ * not yet.
+ *
+ * It records the state that came **back**, not the rung that was asked for
+ * (rule 3) — which also happens to be the only thing that works, since `sync`
+ * passes a ladder state rather than a rung.
+ *
+ * Nothing here may fail a command. A log is a nice-to-have and a ticket
+ * transition is not: a write that throws is reported on stderr and swallowed,
+ * because failing a close because a log file was read-only would be an
+ * instrument that broke the thing it was measuring.
+ */
+export function withMetrics(provider, { config, root, now = () => new Date() }) {
+  if (!metricsEnabled(config)) return provider;
+
+  const path = resolve(root, metricsFileOf(config));
+  let annotation = {};
+
+  return {
+    ...provider,
+
+    /**
+     * What the caller knows and the provider cannot: whether the acceptance
+     * criteria passed first time. Set by `update` and `land` from `--criteria`
+     * just before the close, and consumed by the next state change only.
+     *
+     * A method on the wrapper rather than an argument to `setState`, because
+     * `setState`'s signature is the provider contract and this is not part of
+     * it — no adapter should have to know that a log exists.
+     */
+    annotate(fields = {}) {
+      annotation = { ...annotation, ...fields };
+    },
+
+    async setState(id, rung, comment) {
+      const result = await provider.setState(id, rung, comment);
+      if (result.ok) {
+        const { criteria = null } = annotation;
+        annotation = {};
+        record({ path, config, provider, id, state: result.state, criteria, at: now() });
+      }
+      return result;
+    },
+  };
+}
+
+/** Append one event, or say on stderr why it could not be appended. */
+function record({ path, config, provider, id, state, criteria, at }) {
+  const role = roleOf(config, state);
+  // A transition to something the project has no rung for — parked in Blocked,
+  // moved by hand — is not an event this log has an opinion about.
+  if (!role) return;
+
+  try {
+    const existed = existsSync(path);
+    const previous = existed ? readFileSync(path, 'utf8') : '';
+    const { events } = parseLog(previous);
+
+    const line =
+      role === 'start'
+        ? renderEvent({ role, id, state, at, provider: provider.name })
+        : closeEvent({ events, role, id, state, at, provider: provider.name, criteria });
+
+    // A write this process was killed halfway through leaves a line with no
+    // newline on it. Appending straight onto that would join the two into one
+    // unreadable line, turning a truncated record into a *lost* record — so the
+    // separator is repaired first. `lib/notes.mjs` fixes the same thing for the
+    // same reason.
+    const needsBreak = previous.length > 0 && !previous.endsWith('\n');
+    appendFileSync(path, needsBreak ? `\n${line}` : line);
+
+    if (!existed) {
+      // Said once, on creation, rather than written into anyone's .gitignore:
+      // this tool writes to `_dev-workflow/` and `.claude/skills/dev-*` and
+      // nowhere else, and worktree mode sets the precedent for saying the line.
+      process.stderr.write(
+        `dev: created ${path} — one line per ticket transition, local and never sent anywhere.\n` +
+          'Add it to .gitignore: every developer appends to it, so a shared copy conflicts on merge.\n',
+      );
+    }
+  } catch (err) {
+    process.stderr.write(`dev: could not record the transition of ${id}: ${err.message}\n`);
+  }
 }
 
 /**
