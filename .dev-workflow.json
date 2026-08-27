@@ -13,7 +13,8 @@
     "ladder": ["Backlog", "In Progress", "In Review", "Done"],
     "start": "In Progress",
     "review": "In Review",
-    "done": "Done"
+    "done": "Done",
+    "abandon": "Backlog"
   },
   "branch": {
     "pattern": "<ID>-<slug>",
