@@ -4,6 +4,7 @@
  */
 import { readFileSync } from 'node:fs';
 
+import { findIssueCheckouts } from '../../lib/branch.mjs';
 import { loadConfig } from '../../lib/config.mjs';
 import { makeProvider } from '../../lib/provider.mjs';
 
@@ -83,4 +84,46 @@ export function resolveRepo(config, root, wanted) {
 export function must(result) {
   if (!result.ok) throw new UserError(result.error);
   return result.data;
+}
+
+/**
+ * The one local checkout that carries `id`, or null.
+ *
+ * `abandon` and `resume` both start here and disagree about only one thing:
+ * whether "none" is a failure. So the lookup is shared and that judgement is
+ * not — this returns null and each caller says what null means to it.
+ *
+ * Ambiguity is fatal for both, and refused rather than resolved. Two branches
+ * for one ticket is somebody's half-finished second attempt, and picking one by
+ * a rule nobody asked for is how a recovery verb deletes the wrong branch.
+ *
+ * @returns {Promise<{branch: string, path: string|null} | null>}
+ */
+export async function locateWork({ config, vcs, repoDir, id }) {
+  const [worktrees, branches] = await Promise.all([
+    vcs.listWorktreeEntries(repoDir),
+    vcs.listBranches(repoDir),
+  ]);
+
+  const matches = findIssueCheckouts(config, { worktrees, branches }, id);
+  if (matches.length > 1) {
+    throw new UserError(
+      `${id} has more than one branch in ${repoDir} — say which by hand:\n` +
+        matches.map((m) => `  ${m.branch}${m.path ? `   (${m.path})` : ''}`).join('\n'),
+    );
+  }
+  return matches[0] ?? null;
+}
+
+/**
+ * At most `max` of `lines`, with a line saying how many were left out.
+ *
+ * A refusal that lists forty modified files scrolls the reason for the refusal
+ * off the screen; one that lists three and says "and 37 more" does not. Shared
+ * so the two recovery verbs count and word it identically.
+ */
+export function preview(lines, max = 10) {
+  const shown = lines.slice(0, max);
+  const rest = lines.length - shown.length;
+  return rest > 0 ? [...shown, `  … and ${rest} more`] : shown;
 }
