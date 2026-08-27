@@ -8,6 +8,7 @@
     "start": "In Progress",
     "review": "In Review",
     "done": "Done",
+    "abandon": "Open",
     "ladder": ["Open", "In Progress", "In Review", "Done"]
   },
 

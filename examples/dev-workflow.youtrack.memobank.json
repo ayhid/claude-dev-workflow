@@ -8,6 +8,7 @@
     "start": "In Progress",
     "review": "In Review",
     "done": "Staging",
+    "abandon": "Open",
     "ladder": [
       "Submitted",
       "Open",

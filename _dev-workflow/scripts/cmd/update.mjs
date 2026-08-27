@@ -7,7 +7,7 @@
  *   dev.mjs update ABC-22 comment "Implemented X and Y. Tests green."
  *   dev.mjs update ABC-22 raw "Type Bug Priority Major"     # youtrack only
  *
- * Callers name the *rung* — `start`, `review`, `done` — not the state. That is
+ * Callers name the *rung* — `start`, `review`, `done`, `abandon` — not the state. That is
  * what makes the command portable: the same line works whether the backend
  * moves a State field or swaps a label, and a skill no longer has to read the
  * configured state name out of `dev.mjs config` and interpolate it, which was a
@@ -26,7 +26,7 @@ import { context, must, readArg, UserError } from './common.mjs';
 
 const USAGE = `usage: dev.mjs update <ISSUE-ID> <VERB> [ARGS]
 
-  state <start|review|done|"<ladder state>"> [COMMENT|@FILE]
+  state <start|review|done|abandon|"<ladder state>"> [COMMENT|@FILE]
   comment <TEXT|@FILE>
   raw "<command>" [COMMENT|@FILE]        backend-native, where supported`;
 
@@ -50,7 +50,9 @@ export async function run(args) {
 
   if (verb === 'state') {
     const [rung, rawComment] = rest;
-    if (!rung) throw new UserError('"state" needs a rung: start, review, done, or a ladder state');
+    if (!rung) {
+      throw new UserError('"state" needs a rung: start, review, done, abandon, or a ladder state');
+    }
     const comment = rawComment === undefined ? '' : readArg(rawComment, 'comment file');
 
     const result = await provider.setState(issue, rung, comment || undefined);

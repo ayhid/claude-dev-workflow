@@ -93,13 +93,21 @@ paths, endpoints and error messages always stay verbatim.
   "ladder": ["Backlog", "In Progress", "In Review", "Done"],
   "start": "In Progress",
   "review": "In Review",
-  "done": "Done"
+  "done": "Done",
+  "abandon": "Backlog"
 }
 ```
 
 `ladder` is the full list of states this project has. It exists to stop a session inventing one;
 `start` / `review` / `done` are the three the skills actually apply. Many YouTrack projects have no
 `Fixed` or `Closed` at all.
+
+`abandon` is where `dev.mjs abandon` puts a ticket whose work is being thrown away, and it is the
+one rung with **no default**. Everything else in the tool moves a ticket forward, so a wrong value
+here is a mistake nothing else will notice or correct — and the ladder cannot supply one either: a
+project that configures no `ladder` gets the derived `["In Progress", "In Review", "Done"]`, whose
+first entry is where the ticket already is. Leave it unset and the verb says which key to add;
+every other command is unaffected.
 
 ## `branch` — names, worktrees
 
@@ -277,7 +285,13 @@ Useful for one-off runs against another instance, and for CI. There is no GitHub
   "project": "ABC",
   "tokenOpRef": "op://Private/youtrack/credential",
   "language": "English",
-  "states": { "start": "In Progress", "review": "In Review", "done": "Done", "ladder": [] },
+  "states": {
+    "start": "In Progress",
+    "review": "In Review",
+    "done": "Done",
+    "abandon": null,
+    "ladder": []
+  },
   "branch": {
     "pattern": "<type>/<ID>-<slug>",
     "base": "main",

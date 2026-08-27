@@ -38,13 +38,26 @@ node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" status --all
 It lists every worktree, the ticket each one carries, that ticket's state and whether a PR exists.
 Two things it tells you that change what you do next:
 
-- **The work you are being asked for may already be checked out.** Resume that worktree instead of
-  creating a second one for the same ticket.
+- **The work you are being asked for may already be checked out.** Do not create a second worktree
+  for the same ticket.
 - **A ticket left in progress with a dirty tree is someone's unfinished work** — very possibly this
-  session's, before a compaction. Say so rather than starting over on top of it.
+  session's, before a compaction. Never start over on top of it.
 
-It only reports; it changes nothing. Then reconcile the board before trusting any state you are
-about to read:
+In either case, pick it back up rather than restarting, and read what is already there before
+touching anything:
+
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" resume <ISSUE-ID>
+```
+
+It puts the worktree back if it went missing, lists the uncommitted files **by name** and the
+commits already made, and moves the ticket to the start rung if it is behind. That listing is the
+context the previous session had and you do not — read it before deciding anything, and continue
+from §6 rather than from §1. Its last line is `cd <path>`: everything after it runs there.
+
+`status --all` and `resume --print` only report; they change nothing.
+
+Then reconcile the board before trusting any state you are about to read:
 
 ```bash
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" sync
@@ -249,3 +262,21 @@ node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" update $ARGUMENTS com
 
 Never run this step unprompted. `/dev-done` does the same close-out and re-verifies from scratch —
 prefer it when the work spanned more than one session.
+
+## 9. If the work is being dropped instead
+
+Only when the **user** says to stop — a wrong approach, a ticket overtaken by another. Never on your
+own judgement, and never because something turned out to be hard.
+
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" abandon $ARGUMENTS "<why, in one line>"
+```
+
+It records the reason on the ticket, moves it to the configured `states.abandon`, then removes the
+worktree and deletes the branch. The reason is what a reader finds months later, so write the real
+one: "superseded by #31" or "the API cannot support this", not "abandoned".
+
+It refuses while the branch still holds uncommitted changes or commits the base branch has not seen,
+and lists them. **Show that list to the user and ask before passing `--force`** — that flag is what
+discards the work, and nothing recovers it afterwards. If they would rather keep the work, stop:
+leave the branch alone and say so.

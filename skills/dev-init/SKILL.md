@@ -60,7 +60,12 @@ them correct you. Then ask the rest in one batch.
 1. **Language for ticket prose** — the language issues are written in, which is often not the
    language the session is conducted in. Default to English if they have no preference.
 2. **State ladder** — the states this project moves through, and specifically which one means
-   *started*, which means *in review*, and which means *finished*.
+   *started*, which means *in review*, which means *finished*, and which one a ticket goes **back**
+   to when its work is thrown away (`states.abandon`, what `dev.mjs abandon` uses). That last one is
+   usually the first rung — `Backlog`, `Open`, `Submitted` — and it has no default: everything else
+   in the tool only ever moves a ticket forward, so a wrong value here is a mistake nothing else
+   will correct. If the project has no such state, leave it out; `abandon` then says which key to
+   add and nothing else is affected.
 3. **How work should reach the base branch.** Ask it in plain terms, because it is a working-style
    question, not a technical one:
 
@@ -182,6 +187,7 @@ Everything except the provider-specific block below has a working default; omit 
     "start": "In Progress",
     "review": "In Review",
     "done": "Done",
+    "abandon": "Open",
     "ladder": ["Submitted", "Open", "In Progress", "In Review", "Done"]
   },
   "issueTypes": ["Bug", "Feature", "Task", "Epic", "Improvement"],
@@ -209,7 +215,8 @@ Everything except the provider-specific block below has a working default; omit 
     "ladder": ["Backlog", "In Progress", "In Review", "Done"],
     "start": "In Progress",
     "review": "In Review",
-    "done": "Done"
+    "done": "Done",
+    "abandon": "Backlog"
   },
   "commit": { "idPattern": "#[0-9]+", "position": "suffix" }
 }
@@ -259,7 +266,8 @@ Field notes:
 
 - `states.ladder` stops a session inventing a state that does not exist. `start` / `review` / `done`
   are the three rungs the skills actually apply, and they are what the commands take — no skill ever
-  passes a raw state name.
+  passes a raw state name. `states.abandon` is the fourth rung and the only one with no default: it
+  is where `dev.mjs abandon` walks a ticket back to.
 - `branch.pattern` takes `<type>`, `<ID>` and `<slug>`; a token you leave out is never rendered, so
   `"<ID>-<slug>"` keeps the pre-gitflow names exactly. The branch is what `/dev-done` and `sync`
   read the ticket back out of, so `<ID>` should stay in it.

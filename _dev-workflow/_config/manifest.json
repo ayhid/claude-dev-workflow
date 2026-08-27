@@ -1,8 +1,8 @@
 {
   "installation": {
-    "version": "1.1.0",
+    "version": "1.2.0",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-17T07:26:50.689Z"
+    "lastUpdated": "2026-08-27T18:23:03.160Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -18,11 +18,11 @@
     },
     {
       "path": "_dev-workflow/lib/branch.mjs",
-      "sha256": "a7408621d18959e5dd059458734c4d53366fede697c4fb9fc857fd6fb508aa44"
+      "sha256": "34bcf88f8253602c10742503fecdc60ab59023e7c7676b820c9898075a9a28ef"
     },
     {
       "path": "_dev-workflow/lib/config.mjs",
-      "sha256": "f24d7f56d2f395d121e01bc6c43ec219b414f5f9c7c29eaede71908c9d9649a0"
+      "sha256": "1f1644c40126ecb7cbeb2d0139d4801a42e0e109f689df5a338e2bcdd006b95c"
     },
     {
       "path": "_dev-workflow/lib/github.mjs",
@@ -62,15 +62,19 @@
     },
     {
       "path": "_dev-workflow/lib/vcs.mjs",
-      "sha256": "750cb4f965f6c65dd36248a6648224fbc8e76a1606f9742d33d8c9ed4ed2c9fa"
+      "sha256": "a8cb7a411df216b7ac782f317897530614d7a92b8c99e3a5af06200696f46fb5"
     },
     {
       "path": "_dev-workflow/lib/youtrack.mjs",
       "sha256": "a59fd7871d628a1a6d96425f37caeb5476ae6b4afd759965b19573d8aeb2a1f4"
     },
     {
+      "path": "_dev-workflow/scripts/cmd/abandon.mjs",
+      "sha256": "2e5a91e5b2f5d19cbad8bf066f91d1a59fbe19c235d5f6a0b4a5826b00580934"
+    },
+    {
       "path": "_dev-workflow/scripts/cmd/common.mjs",
-      "sha256": "1afbc863c1a8de19e15bdc884db6e4c2debf51176d78ff29751c8c6f7cf48d45"
+      "sha256": "ea45927c41809e6210c26326d2478a0e6fc95e002c3d60195a2ad61a4dd17491"
     },
     {
       "path": "_dev-workflow/scripts/cmd/config.mjs",
@@ -93,6 +97,10 @@
       "sha256": "e213ce655214ee8cab4a2838f876d76d77fa028cfe099fcf285de42c33247890"
     },
     {
+      "path": "_dev-workflow/scripts/cmd/resume.mjs",
+      "sha256": "d746fee672f8a87da91adaa41204b070428b574c80061588743e98439a11b38f"
+    },
+    {
       "path": "_dev-workflow/scripts/cmd/start.mjs",
       "sha256": "15e4404e502ad786f4d3834dfd367a5d082c2b62af1f12c55458f5abbdab589f"
     },
@@ -106,7 +114,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/update.mjs",
-      "sha256": "a7449a9fe625b430c43e25beb741f62efd1365cc25074c767945a229e303f4fd"
+      "sha256": "82d4718cc8aa3331de12e10bb7b5418dfecdf7f83f579367de7e5bb95848529f"
     },
     {
       "path": "_dev-workflow/scripts/cmd/version.mjs",
@@ -114,7 +122,7 @@
     },
     {
       "path": "_dev-workflow/scripts/dev.mjs",
-      "sha256": "047cff3043cd45a838d0bfc6a629c5bb41dfd162cbe502ed169ffadafa7a2828"
+      "sha256": "3aa3a5d588fe9c949d453e1bdfadbb7b15ca375db4d79e2e727b1128edd66969"
     },
     {
       "path": ".claude/skills/dev-bug/SKILL.md",
@@ -126,11 +134,11 @@
     },
     {
       "path": ".claude/skills/dev-init/SKILL.md",
-      "sha256": "793911c6236b27a7cc49eacbab61a964bdb526368e30095b5942553e7e0a3d36"
+      "sha256": "847467cb97c06d3e1206e508ccc02759c27c058e27b420281f9834852d07d6d4"
     },
     {
       "path": ".claude/skills/dev-task/SKILL.md",
-      "sha256": "3221a861e8b434e159be91101a7a0c102b9f2c5a8231966d2c01b5ac79e75ea3"
+      "sha256": "ddf67471f1f5c0e21e936fd0cca1c1a4fc06925b7bfc68cbf910d2fb5d03310f"
     }
   ]
 }

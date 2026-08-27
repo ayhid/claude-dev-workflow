@@ -110,6 +110,12 @@ repository and the git rules testable without a network.
 6. **One vocabulary for branches and commits.** `branch.types` maps an issue type onto a
    *commit* type, and a value outside `commit.types` is refused. Two lists would drift, and the
    branch saying `feature/` while its commits must say `feat` is exactly that drift.
+7. **`abandon` writes the tracker before it destroys anything, and refuses before it writes.**
+   Both halves are the design. A tracker call that fails costs a retry; a branch deleted before the
+   reason was recorded costs the reason, which is the only thing abandoning a ticket produces.
+   `states.abandon` has no default and must not grow one — everything else in this tool moves a
+   ticket forward, so nothing will notice or correct a guess here, and the derived ladder's first
+   entry is `In Progress`, the state the ticket is already in.
 
 ## Security properties to preserve
 

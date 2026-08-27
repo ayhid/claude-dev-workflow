@@ -94,6 +94,40 @@ export function makeVcs({ run }) {
     return { ok: true, clean: r.stdout === '', dirty: r.stdout ? r.stdout.split('\n') : [] };
   }
 
+  /**
+   * Every local branch, by name.
+   *
+   * `for-each-ref` rather than `git branch`: the latter marks the current branch
+   * with a `*` and pads the rest, which is a parsing problem invented for no
+   * reason. Sorted by git itself, so the order is stable (contract rule 4).
+   */
+  async function listBranches(dir) {
+    const r = await git(dir, ['for-each-ref', '--format=%(refname:short)', 'refs/heads/']);
+    if (!r.ok || !r.stdout) return [];
+    return r.stdout.split('\n').filter(Boolean);
+  }
+
+  /**
+   * The commits on `branch` that are not on `base` — what deleting it would lose.
+   *
+   * Deliberately local and deliberately literal about which ref it compared
+   * against: a fetch would make a report a network operation, and a branch whose
+   * commits were squash-merged onto the base still reads as ahead here, because
+   * from git's point of view it is. Naming the ref in the output is what lets a
+   * reader tell the two apart.
+   *
+   * @returns {Promise<{ok: true, count: number, subjects: string[]} | {ok: false, error: string}>}
+   */
+  async function commitsAhead(dir, { base, branch }) {
+    if (!(await refExists(dir, base))) {
+      return { ok: false, error: `no such ref "${base}" in ${dir}` };
+    }
+    const r = await git(dir, ['log', '--format=%h %s', `${base}..${branch}`]);
+    if (!r.ok) return { ok: false, error: r.stderr || `could not compare ${branch} with ${base}` };
+    const subjects = r.stdout ? r.stdout.split('\n').filter(Boolean) : [];
+    return { ok: true, count: subjects.length, subjects };
+  }
+
   /** Paths of every worktree registered on this repo, main checkout included. */
   async function listWorktrees(dir) {
     return (await listWorktreeEntries(dir)).map((w) => w.path);
@@ -342,9 +376,26 @@ export function makeVcs({ run }) {
    * and by then git may already have dropped its admin entry, which makes the
    * `--force` retry fail with "is not a working tree". The last tier is git's
    * own documented reclaim path: delete the directory, then prune.
+   *
+   * `force` and `switchTo` are what `abandon` needs and `land` does not: work
+   * being thrown away rather than delivered is still checked out, and its
+   * commits are still unmerged. Neither is a default — `force` is the caller
+   * having already told the user exactly what it discards.
+   *
+   * `branchDeleted` is reported rather than left for a caller to infer from the
+   * notes: "the branch was kept because git refused" is a different outcome from
+   * a clean teardown, and prose is not a return value.
    */
-  async function cleanupWork({ repoDir, worktreePath, branch, worktreeRoot }) {
+  async function cleanupWork({
+    repoDir,
+    worktreePath,
+    branch,
+    worktreeRoot,
+    force = false,
+    switchTo = null,
+  }) {
     const notes = [];
+    let deleted = false;
 
     if (worktreePath) {
       const first = await git(repoDir, ['worktree', 'remove', worktreePath]);
@@ -369,16 +420,36 @@ export function makeVcs({ run }) {
     }
 
     if (branch) {
-      const del = await git(repoDir, ['branch', '-d', branch]);
+      // git refuses to delete a branch that is checked out somewhere, and in
+      // branch mode that somewhere is the main checkout. `land` never hits this
+      // — it has already switched to the base to merge — but `abandon` reaches
+      // here with the ticket branch still checked out, and a delete that fails
+      // for a reason the caller could have removed is not a refusal worth
+      // keeping. Only `--discard-changes` throws work away, so it is gated on
+      // the same `force` the caller already had to pass.
+      if (switchTo && (await currentBranch(repoDir)) === branch) {
+        const args = force ? ['switch', '--discard-changes', switchTo] : ['switch', switchTo];
+        const back = await git(repoDir, args);
+        if (!back.ok) {
+          notes.push(`branch ${branch} kept: ${repoDir} could not switch to ${switchTo}: ${back.stderr}`);
+          return { ok: true, notes, branchDeleted: false };
+        }
+        notes.push(`${repoDir} switched to ${switchTo}`);
+      }
+
+      // -d refuses an unmerged branch, which is the point: the commits on it are
+      // the work. -D is what the caller passes `force` to mean, having been told
+      // exactly how many commits it discards.
+      const del = await git(repoDir, ['branch', force ? '-D' : '-d', branch]);
       if (!del.ok) {
-        // -d refuses an unmerged branch, which is the point. Say so and keep it.
         notes.push(`branch ${branch} kept: ${del.stderr}`);
       } else {
         notes.push(`branch ${branch} deleted`);
+        deleted = true;
       }
     }
 
-    return { ok: true, notes };
+    return { ok: true, notes, branchDeleted: deleted };
   }
 
   return {
@@ -387,8 +458,10 @@ export function makeVcs({ run }) {
     branchExists,
     refExists,
     isClean,
+    listBranches,
     listWorktrees,
     listWorktreeEntries,
+    commitsAhead,
     mainCheckout,
     isIgnored,
     startWork,

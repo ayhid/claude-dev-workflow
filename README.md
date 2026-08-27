@@ -90,10 +90,20 @@ flowchart TD
     F -- "pr" --> G["pull request opened<br/>ticket → In Review"]
     G -- "merged" --> H["dev.mjs sync<br/>ticket → Done"]
     F -- "direct" --> I["rebase, fast-forward, push<br/>worktree removed<br/>ticket → Done"]
+    C -. "session ends" .-> J["dev.mjs resume<br/>worktree back, ticket caught up"]
+    J -.-> D
+    C -. "giving up" .-> K["dev.mjs abandon<br/>reason recorded<br/>ticket → states.abandon"]
 ```
 
 Each ticket is checked out in its own git worktree by default, so starting one never disturbs
 whatever is already in the tree.
+
+Not every ticket finishes, and not every session does either. `dev.mjs resume` puts a missing
+worktree back and prints what the last session had actually left there — the uncommitted files by
+name and the commits already made — then catches a ticket up to the start rung if it is behind.
+`dev.mjs abandon` is the other way out: it records why on the ticket, moves it to `states.abandon`,
+and takes the worktree and branch down. It refuses while there is anything to lose, so the reason
+you gave is never the last trace of work you meant to keep.
 
 > [!IMPORTANT]
 > Whether finished work goes through a pull request or lands straight on the target branch is
@@ -113,6 +123,7 @@ These are deliberate, and worth preserving in any fork.
 | `/dev-bug` files and stops. It never starts the fix, edits a file or switches branch, because the session may be mid-task on something else. | The `/dev-bug` skill contract |
 | `/dev-task` does not touch a file before the plan is approved, and does not close a ticket unasked. | The `/dev-task` skill contract |
 | `/dev-done` refuses to close a ticket whose acceptance criteria are unmet or whose suite fails, and reports the gap instead. | The `/dev-done` skill contract |
+| `dev.mjs abandon` refuses while the branch has uncommitted changes or commits the base has not seen, and names each one. `--force` is the only thing that discards them. | The check runs before the first write, so a refusal really does leave everything as it was found. |
 | Nothing bypasses git hooks. No `--no-verify`, no `HUSKY=0`. | `lib/vcs.mjs` refuses to build the argv, so it holds for code added later too. |
 | Nothing force-resolves a merge conflict. `-X theirs` and `checkout --theirs` discard one side silently. | A rebase conflict aborts, leaves the branch untouched, and says which commits clashed. |
 | Nothing writes outside `_dev-workflow/` and `.claude/skills/dev-*`. That includes your `.gitignore`. | `isOwnedPath` in the installer; worktree mode prints the line to add rather than adding it. |
@@ -287,6 +298,10 @@ Each command below is prefixed with `node _dev-workflow/scripts/dev.mjs`.
 | `create "Summary" @/tmp/body.md Bug Major` | files the issue, prints the new ID on stdout | HTTP only |
 | `start ABC-22 [--type T] [--mode worktree\|branch] [--repo PATH]` | branch or worktree, ticket to in progress | HTTP + git |
 | `start ABC-22 --print` | just shows the name and path | git |
+| `resume [ABC-22]` | worktree back, uncommitted files and commits so far, ticket caught up | HTTP + git |
+| `resume ABC-22 --print` | the same report, repairing nothing | git |
+| `abandon ABC-22 "why"` | records the reason, walks the ticket back, removes the worktree and branch | HTTP + git |
+| `abandon ABC-22 "why" --force` | the same, discarding uncommitted changes and unmerged commits | HTTP + git |
 | `land` | dry run: how this work would reach the base branch | git + GitHub CLI |
 | `land --apply` | opens the PR, or rebase + fast-forward + push | git + GitHub CLI |
 | `sync` | dry run: report state drift | git + GitHub CLI |
@@ -300,13 +315,14 @@ Each command below is prefixed with `node _dev-workflow/scripts/dev.mjs`.
 | `version` | installed vs latest, and files you have edited | HTTP only |
 | `version --upgrade` | brings the payload up to date | git |
 
-`config`, `fetch`, `update` and `create` are plain HTTP. `start`, `land` and `sync` additionally
-drive `git` and the GitHub CLI. None of them depend on anything outside Node's standard library,
+`config`, `fetch`, `update` and `create` are plain HTTP. `start`, `resume`, `abandon`, `land` and
+`sync` additionally drive `git`, and `land` and `sync` the GitHub CLI. None of them depend on anything outside Node's standard library,
 which is what lets `_dev-workflow/` sit in a project of any language with nothing to install.
 
 </details>
 
-**`update` names the rung, not the state.** `state start`, `state review`, `state done`: the same
+**`update` names the rung, not the state.** `state start`, `state review`, `state done`,
+`state abandon`: the same
 line works whether the backend moves a State field or swaps a label, so no session ever has to guess
 a state name. An explicit ladder state is accepted too, and rejected before anything is sent if it
 is not on the ladder. `update` writes to the issue tracker; `version` reports on, and optionally
@@ -357,7 +373,14 @@ stateDiagram-v2
     inprog --> finished: land --apply, delivery.mode direct
     inprog --> offladder: moved by hand
     offladder --> inprog: moved by hand
+    inprog --> Backlog: dev.mjs abandon
 ```
+
+The reconciler is what makes that one-way. `abandon` is the only thing in the tool that walks a
+ticket **back**, which is why the state it walks back to is required configuration
+(`states.abandon`) rather than a guess: nothing else will notice a wrong one. It does not touch
+pull requests either — an open PR still referencing the ticket will pull it forward to the review
+rung on the next run, so close the PR too, or the walk-back does not stick.
 
 It only ever moves **forward** along `states.ladder`, and never touches a state off the ladder: a
 ticket parked in `Blocked` or `Won't Fix` was put there on purpose, and no reconciler should

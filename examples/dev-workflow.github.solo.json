@@ -18,7 +18,8 @@
     "ladder": ["Backlog", "In Progress", "Done"],
     "start": "In Progress",
     "review": "In Progress",
-    "done": "Done"
+    "done": "Done",
+    "abandon": "Backlog"
   },
 
   "//branch": "Type prefixes come from the issue's own label, mapped onto a commit type so the branch and its commits agree. `#42` becomes `42` in the ref: a `#` in a branch name is a comment character in too many files to be worth it.",

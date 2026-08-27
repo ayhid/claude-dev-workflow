@@ -199,3 +199,48 @@ export function worktreePathFor(config, { repoDir, branch }) {
   const leaf = String(branch ?? '').split('/').join('-');
   return `${repoDir}/${dir}/${leaf}`;
 }
+
+/**
+ * Every local checkout that carries `id`, as `{branch, path}`.
+ *
+ * Pure, like everything else here: the caller hands over what git reported —
+ * `listWorktreeEntries` for the mounted worktrees and `listBranches` for the
+ * refs — and this decides which of them are the ticket's. That split is what
+ * lets the awkward cases (two branches for one ticket, a branch whose worktree
+ * was deleted by hand) be asserted without a repository.
+ *
+ * It reads the ID back out of each name rather than rendering the expected one
+ * and comparing: a branch created before `branch.pattern` was last changed, or
+ * named by hand, still belongs to its ticket, and a recovery verb that cannot
+ * find such a branch is useless exactly when it is needed.
+ *
+ * `path` is null for a branch with no worktree — a real state, and the one
+ * `resume` exists to repair.
+ *
+ * @param {object} config
+ * @param {{worktrees?: Array<{path: string, branch: string|null}>, branches?: string[]}} seen
+ * @param {string} id
+ * @returns {Array<{branch: string, path: string|null}>} sorted by branch name
+ */
+export function findIssueCheckouts(config, { worktrees = [], branches = [] } = {}, id) {
+  const wanted = refIdFor(config, id);
+  if (!wanted) return [];
+
+  const isTheOne = (name) => {
+    const found = issueIdFromBranch(config, name);
+    return Boolean(found) && refIdFor(config, found) === wanted;
+  };
+
+  // The worktree entries go in first so a branch that is mounted keeps its
+  // path: the same branch also appears in the ref list, and letting that
+  // overwrite it would report every checkout as missing.
+  const byBranch = new Map();
+  for (const w of worktrees) {
+    if (w?.branch && isTheOne(w.branch)) byBranch.set(w.branch, { branch: w.branch, path: w.path });
+  }
+  for (const name of branches) {
+    if (isTheOne(name) && !byBranch.has(name)) byBranch.set(name, { branch: name, path: null });
+  }
+
+  return [...byBranch.values()].sort((a, b) => a.branch.localeCompare(b.branch));
+}
