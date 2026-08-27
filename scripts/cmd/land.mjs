@@ -1,7 +1,7 @@
 /**
  * Get finished work onto the branch this project delivers onto.
  *
- *   dev.mjs land [ISSUE-ID] [--apply] [--repo PATH]
+ *   dev.mjs land [ISSUE-ID] [--apply] [--repo PATH] [--criteria first-pass|reworked]
  *
  * Which of the two things happens is `delivery.mode`, not a judgement call made
  * per session: `pr` opens a pull request and lets the reconciler move the
@@ -20,6 +20,7 @@
  */
 import { issueIdFromBranch } from '../../lib/branch.mjs';
 import { deliveryBase, deliveryFor } from '../../lib/config.mjs';
+import { parseCriteria } from '../../lib/metrics.mjs';
 import { sh } from '../../lib/sh.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
 import { context, resolveRepo, UserError } from './common.mjs';
@@ -30,10 +31,19 @@ function parseArgs(args) {
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--apply') opts.apply = true;
+    else if (a === '--criteria') opts.criteria = args[++i];
     else if (a === '--repo') opts.repo = args[++i];
     else if (a.startsWith('-')) throw new UserError(`unknown flag ${a}`);
     else rest.push(a);
   }
+
+  // Only meaningful on a `direct` delivery, which is the one that closes the
+  // ticket here; in `pr` mode the reconciler does it later and there is nothing
+  // to annotate. Validated either way, so a typo is not silently dropped.
+  const criteria = parseCriteria(opts.criteria);
+  if (!criteria.ok) throw new UserError(criteria.error);
+  opts.criteria = criteria.criteria;
+
   return { opts, rest };
 }
 
@@ -234,6 +244,7 @@ export async function run(args) {
     for (const n of cleaned.notes) L.push(`          ${n}`);
   }
 
+  if (opts.criteria) provider.annotate({ criteria: opts.criteria });
   const moved = await provider.setState(id, 'done');
   L.push(moved.ok ? `state:    ${moved.state}` : `state:    NOT MOVED — ${moved.error}`);
 
