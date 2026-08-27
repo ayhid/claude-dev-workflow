@@ -1,0 +1,109 @@
+/**
+ * What is going on across the whole project, in the order a standup is given.
+ *
+ *   dev.mjs standup [--since 1d] [--stale 7d] [--repo PATH]
+ *
+ * Four questions, one command: what merged, what is in flight, what has stopped
+ * moving, and the single thing waiting on you. `status --all` answers the
+ * middle one; the rest is what a session — or a person on a Monday — actually
+ * needs before deciding anything.
+ *
+ * It reports and never writes, and that is a contract rather than an omission:
+ * this is the first thing run in the morning, and a command that reconciles the
+ * board as a side effect of being asked about it would be unsafe to run without
+ * thinking. Where it sees drift it prints the command that fixes it and stops.
+ *
+ * The scan itself is `status`'s, imported rather than reimplemented — two
+ * scanners would disagree about what "in flight" means the first time either
+ * was touched. What this adds per branch is two cheap git reads: how far ahead
+ * of the base it is, and when it was last committed to, which is what makes
+ * "stale" a measurement rather than an impression.
+ *
+ * Without the GitHub CLI it still runs: the PR columns read `-`, the merged
+ * section is empty, and it says so. "I cannot reach GitHub" is not a reason to
+ * refuse to say what is checked out.
+ */
+import { issueIdFromBranch } from '../../lib/branch.mjs';
+import { sh } from '../../lib/sh.mjs';
+import { describeStandup, inFlight, mergedSince } from '../../lib/standup.mjs';
+import { PR_UNKNOWN } from '../../lib/status.mjs';
+import { cutoffFrom, extractIssueIds, parseSince } from '../../lib/sync.mjs';
+import { makeVcs } from '../../lib/vcs.mjs';
+import { context, resolveRepo, UserError } from './common.mjs';
+import { repoDirs, scanRepos } from './status.mjs';
+
+const USAGE = 'usage: dev.mjs standup [--since 1d] [--stale 7d] [--repo PATH]';
+
+function parseArgs(argv) {
+  const opts = { since: '1d', stale: '7d', repo: '' };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--since') opts.since = argv[++i] ?? '';
+    else if (a === '--stale') opts.stale = argv[++i] ?? '';
+    else if (a === '--repo') opts.repo = argv[++i] ?? '';
+    else throw new UserError(`unknown argument '${a}'\n\n${USAGE}`);
+  }
+  return opts;
+}
+
+export async function run(argv) {
+  const opts = parseArgs(argv);
+  const { config, root, provider } = await context();
+  const vcs = makeVcs({ run: sh });
+
+  // Run from inside a worktree and the config walk resolves the root to that
+  // worktree, which carries a tracked copy of the config. Worktrees belong to
+  // the main checkout — the trap `start` documents at its top.
+  const main = await vcs.mainCheckout(root);
+  const base = config.branch?.base ?? 'main';
+
+  // Both windows go through the reconciler's own parser, so `7d` means the same
+  // thing in every command that takes one.
+  const cutoff = cutoffFrom(parseSince(opts.since));
+  const staleAfter = Math.max(1, Math.round(parseSince(opts.stale) / 1440));
+
+  const dirs = opts.repo ? [resolveRepo(config, main, opts.repo).dir] : repoDirs(config, main);
+  const scanned = await scanRepos({ config, vcs, dirs, cwd: process.cwd() });
+
+  const rows = [];
+  for (const row of inFlight(scanned.rows, { base })) {
+    // Two reads per branch, and only for branches that are in flight. Doing
+    // this in `status` instead would put a git call per worktree behind a
+    // command whose whole point is to answer instantly.
+    const dir = row.path;
+    const ahead = row.branch ? await vcs.commitsAhead(dir, { base, branch: row.branch }) : null;
+    rows.push({
+      ...row,
+      commits: ahead?.ok ? ahead.count : null,
+      lastCommit: row.branch ? await vcs.lastCommitAt(dir, row.branch) : null,
+    });
+  }
+
+  const merged = mergedSince(scanned.prs, { cutoff }).map((pr) => ({
+    ...pr,
+    // The branch first, then the title: a ref cannot hold a `#`, so the two
+    // carry the ID in different syntaxes and only one rule reads each.
+    issueId:
+      issueIdFromBranch(config, pr.headRefName) ?? extractIssueIds(pr.title, provider.syntax)[0] ?? null,
+  }));
+
+  // One batched read for every ticket on the board, in flight or just merged.
+  // Per issue here would be a process spawn plus a round trip each on a
+  // CLI-backed backend, for a command meant to be run every morning.
+  const ids = [...new Set([...rows.map((r) => r.issueId), ...merged.map((m) => m.issueId)].filter(Boolean))];
+  const states = ids.length ? await provider.getStates(ids) : new Map();
+  const issueOf = (id) => (id ? { id, state: states.get(id) ?? null } : null);
+
+  const lines = describeStandup({
+    rows: rows.map((row) => ({ ...row, issue: issueOf(row.issueId) })),
+    merged: merged.map((pr) => ({ ...pr, issue: issueOf(pr.issueId) })),
+    config,
+    since: opts.since,
+    cutoff,
+    staleAfter,
+    prUnknown: scanned.prUnknown || rows.some((r) => r.pr === PR_UNKNOWN),
+  });
+
+  process.stdout.write(`${lines.join('\n')}\n`);
+  return 0;
+}

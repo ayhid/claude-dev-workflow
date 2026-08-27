@@ -9,20 +9,16 @@
  * sequence that deleted an unmerged branch, which is exactly what must not
  * happen without `--force`.
  */
-import { execFile } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { findIssueCheckouts } from '../lib/branch.mjs';
 import { DEFAULTS, deepMerge, resolveRung } from '../lib/config.mjs';
-import { sh } from '../lib/sh.mjs';
-import { makeVcs } from '../lib/vcs.mjs';
 import { abandonComment } from '../scripts/cmd/abandon.mjs';
 import { stateGap } from '../scripts/cmd/resume.mjs';
+import { git, scaffold, withStubGh } from './ghstub.mjs';
 
 const gh = (patch = {}) =>
   deepMerge(DEFAULTS, { provider: 'github', github: { repo: 'o/r' }, ...patch });
@@ -162,33 +158,9 @@ test('an off-ladder or unreadable ticket is never moved', () => {
 });
 
 // --- the destructive half, against a real repository --------------------------
-
-const git = async (dir, ...args) => {
-  const r = await sh('git', ['-C', dir, ...args]);
-  if (!r.ok) throw new Error(`git ${args.join(' ')} in ${dir} failed: ${r.stderr}`);
-  return r.stdout.trim();
-};
-
-/**
- * A repo on `main`, a ticket branch with one unmerged commit checked out in a
- * worktree, and a second ticket branch nobody has mounted.
- */
-async function scaffold() {
-  const root = mkdtempSync(join(tmpdir(), 'recover-'));
-  const repo = join(root, 'repo');
-  const wt = join(root, 'repo', '.worktrees', 'feat-12-thing');
-
-  await sh('git', ['init', '-b', 'main', repo]);
-  await git(repo, 'config', 'user.email', 'test@example.invalid');
-  await git(repo, 'config', 'user.name', 'Test');
-  await git(repo, 'commit', '--allow-empty', '-m', 'root');
-
-  await git(repo, 'worktree', 'add', wt, '-b', 'feat/12-thing', 'main');
-  await git(wt, 'commit', '--allow-empty', '-m', 'feat(x): half of it (#12)');
-  await git(repo, 'branch', 'fix/13-other', 'main');
-
-  return { root, repo, wt, vcs: makeVcs({ run: sh }) };
-}
+//
+// The scaffold and the stub live in ./ghstub.mjs: `standup` drives the same
+// shapes, and two copies of a fake are two fakes that will disagree.
 
 test('commitsAhead counts what deleting the branch would lose', async () => {
   const { repo, vcs } = await scaffold();
@@ -266,7 +238,7 @@ test('branch mode: the checkout is moved off the branch before it is deleted', a
 
 test('a worktree the session is not standing in comes down with its untracked files', async () => {
   const { repo, wt, vcs } = await scaffold();
-  await sh('bash', ['-c', `echo scratch > ${JSON.stringify(join(wt, 'scratch.txt'))}`]);
+  writeFileSync(join(wt, 'scratch.txt'), 'scratch\n');
 
   const dirty = await vcs.isClean(wt);
   assert.equal(dirty.clean, false, 'an untracked file is work too — abandon must see it');
@@ -312,95 +284,6 @@ test('resume re-mounts an existing branch and never creates one', async () => {
 // that records every call and can be told to fail. This is not the real API,
 // and it does not pretend to be; it is the only way to assert "a refusal wrote
 // nothing" and "a rejected write deleted nothing" at all.
-
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-
-const GH_STUB = `#!/usr/bin/env bash
-set -u
-printf '%s\\n' "$*" >> "$GH_LOG"
-[ "\${1:-}" = "--version" ] && { echo "gh version 2.40.0 (2024-01-01)"; exit 0; }
-[ "\${1:-}" = "auth" ] && exit 0
-if [ "\${GH_FAIL_EDIT:-}" = "1" ] && [ "\${2:-}" = "edit" ]; then
-  echo "gh: the label could not be applied" >&2
-  exit 1
-fi
-case "\${2:-}" in
-  view)
-    printf '{"number":12,"title":"Half a thing","body":"","state":"OPEN","stateReason":null,"url":"https://github.com/o/r/issues/12","labels":[%s],"assignees":[],"author":{"login":"a"},"createdAt":"2026-01-01T00:00:00Z","comments":[]}\\n' "$(cat "$GH_STATE")"
-    ;;
-  edit)
-    next=""
-    while [ $# -gt 0 ]; do
-      [ "$1" = "--add-label" ] && next="{\\"name\\":\\"$2\\"}"
-      shift
-    done
-    printf '%s' "$next" > "$GH_STATE"
-    ;;
-  comment) cat >> "$GH_COMMENT" ;;
-  list) echo '[{"name":"status: in progress"},{"name":"status: in review"},{"name":"status: done"}]' ;;
-esac
-exit 0
-`;
-
-const CONFIG = {
-  provider: 'github',
-  github: {
-    repo: 'o/r',
-    labels: {
-      'In Progress': 'status: in progress',
-      'In Review': 'status: in review',
-      Done: 'status: done',
-    },
-  },
-  states: {
-    ladder: ['Backlog', 'In Progress', 'In Review', 'Done'],
-    start: 'In Progress',
-    review: 'In Review',
-    done: 'Done',
-    abandon: 'Backlog',
-  },
-  branch: { pattern: '<ID>-<slug>', base: 'main', mode: 'worktree' },
-};
-
-/** The scaffold above, plus a config file and a `gh` that answers from disk. */
-async function withStubGh({ labels = '{"name":"status: in progress"}' } = {}) {
-  const s = await scaffold();
-  writeFileSync(join(s.repo, '.dev-workflow.json'), `${JSON.stringify(CONFIG, null, 2)}\n`);
-
-  const bin = join(s.root, 'bin');
-  mkdirSync(bin, { recursive: true });
-  writeFileSync(join(bin, 'gh'), GH_STUB);
-  chmodSync(join(bin, 'gh'), 0o755);
-
-  const paths = { log: join(s.root, 'gh.log'), state: join(s.root, 'gh.state'), comment: join(s.root, 'gh.comment') };
-  writeFileSync(paths.log, '');
-  writeFileSync(paths.state, labels);
-  writeFileSync(paths.comment, '');
-
-  const dev = (args, extraEnv = {}) =>
-    new Promise((done) => {
-      execFile(
-        process.execPath,
-        [join(REPO_ROOT, 'scripts', 'dev.mjs'), ...args],
-        {
-          cwd: s.repo,
-          env: {
-            ...process.env,
-            PATH: `${bin}:${process.env.PATH}`,
-            CLAUDE_PROJECT_DIR: s.repo,
-            GH_LOG: paths.log,
-            GH_STATE: paths.state,
-            GH_COMMENT: paths.comment,
-            ...extraEnv,
-          },
-        },
-        (err, stdout, stderr) => done({ code: err?.code ?? 0, stdout, stderr }),
-      );
-    });
-
-  const read = (k) => readFileSync(paths[k], 'utf8');
-  return { ...s, dev, read };
-}
 
 test('abandon refuses work in progress, and writes nothing at all', async () => {
   const { repo, wt, dev, read, vcs } = await withStubGh();
