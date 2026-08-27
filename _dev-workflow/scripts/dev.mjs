@@ -25,7 +25,7 @@ const USAGE = `usage: dev.mjs <command> [args]
 
   config [--json]                       print the effective workflow config
   fetch  <ISSUE-ID>                     print an issue as markdown
-  update <ISSUE-ID> state <start|review|done|abandon|"<ladder state>"> [COMMENT|@FILE]
+  update <ISSUE-ID> state <start|review|done|abandon|"<ladder state>"> [COMMENT|@FILE] [--criteria C]
   update <ISSUE-ID> comment <TEXT|@FILE>
   update <ISSUE-ID> raw "<command>" [COMMENT|@FILE]   backend-native, where supported
   create <SUMMARY> <DESCRIPTION> [TYPE] [PRIORITY]
@@ -33,7 +33,7 @@ const USAGE = `usage: dev.mjs <command> [args]
   start  <ISSUE-ID> [--type T] [--mode worktree|branch] [--repo PATH] [--print]
   resume [ISSUE-ID] [--repo PATH] [--print]
   abandon <ISSUE-ID> <REASON|@FILE> [--force] [--repo PATH]
-  land   [ISSUE-ID] [--apply] [--repo PATH]
+  land   [ISSUE-ID] [--apply] [--repo PATH] [--criteria first-pass|reworked]
   standup [--since 1d] [--stale 7d] [--repo PATH]
   sync   [--apply] [--since 30d] [--repo PATH] [--deep] [--limit N]
   version [--json] [--offline] [--upgrade]

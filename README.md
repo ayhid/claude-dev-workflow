@@ -35,7 +35,8 @@ ladder, branch naming, isolation mode and commit convention all come from one
 [Updating](#updating) &middot;
 [Configuration](#configuration) &middot;
 [Scripts](#scripts) &middot;
-[Keeping states honest](#keeping-states-honest)
+[Keeping states honest](#keeping-states-honest) &middot;
+[Measuring what happened](#measuring-what-actually-happened)
 
 ## Quick start
 
@@ -124,6 +125,7 @@ These are deliberate, and worth preserving in any fork.
 | `/dev-bug` files and stops. It never starts the fix, edits a file or switches branch, because the session may be mid-task on something else. | The `/dev-bug` skill contract |
 | `/dev-task` does not touch a file before the plan is approved, and does not close a ticket unasked. | The `/dev-task` skill contract |
 | `/dev-done` refuses to close a ticket whose acceptance criteria are unmet or whose suite fails, and reports the gap instead. | The `/dev-done` skill contract |
+| The transition log never leaves your machine, and never fails a ticket transition. | `dev.mjs` appends one JSON line locally; a log it cannot write produces a line on stderr and the ticket still moves. |
 | `/dev-standup` reports and never writes — not even the `sync --apply` it suggests. A command run first thing in the morning must be safe to run without thinking. | `dev.mjs standup` has no write path at all; every fix it names is a command for you to approve. |
 | `dev.mjs abandon` refuses while the branch has uncommitted changes or commits the base has not seen, and names each one. `--force` is the only thing that discards them. | The check runs before the first write, so a refusal really does leave everything as it was found. |
 | Nothing bypasses git hooks. No `--no-verify`, no `HUSKY=0`. | `lib/vcs.mjs` refuses to build the argv, so it holds for code added later too. |
@@ -306,6 +308,7 @@ Each command below is prefixed with `node _dev-workflow/scripts/dev.mjs`.
 | `abandon ABC-22 "why" --force` | the same, discarding uncommitted changes and unmerged commits | HTTP + git |
 | `land` | dry run: how this work would reach the base branch | git + GitHub CLI |
 | `land --apply` | opens the PR, or rebase + fast-forward + push | git + GitHub CLI |
+| `land --apply --criteria first-pass` | the same, recording whether the criteria passed first time | git + GitHub CLI |
 | `standup [--since 3d] [--stale 7d]` | what merged, what is in flight, what is stale, what is next | HTTP + git + GitHub CLI |
 | `sync` | dry run: report state drift | git + GitHub CLI |
 | `sync --apply --since 14d` | applies it, over a 14-day window | HTTP + git + GitHub CLI |
@@ -405,6 +408,32 @@ has drifted, and the commit hook is what pulls it back.
 Requires the [GitHub CLI](https://cli.github.com), authenticated. The repo is taken from
 `repos[].github` when set, otherwise from the `upstream` then `origin` remote. Set it explicitly
 when branches live on a fork but PRs are opened against the parent.
+
+## Measuring what actually happened
+
+Nothing in a workflow like this remembers. A ticket takes three days or three weeks, gets restarted
+twice, closes with its criteria met on the first pass or the fourth — and none of it survives the
+session that did the work.
+
+So every transition to **start**, **done** or **abandon** appends one JSON line to
+`.dev-workflow.metrics.jsonl`, beside your config:
+
+```json
+{"at":"2026-08-29T16:20:11.412Z","event":"done","id":"#28","state":"Done","provider":"github","elapsedMs":198011412,"starts":2,"criteria":"first-pass"}
+```
+
+It is **local**: no network, no telemetry, nothing sent anywhere, and it holds no secret.
+`"metrics": false` turns it off. Abandoned tickets are recorded like finished ones, because a log
+that counts only successes answers a question nobody asked, and `starts` is named after what it can
+actually see — restarts, not test runs.
+
+Two properties are deliberate. It hangs off **one wrapper** around `setState`, so every command that
+moves a ticket is instrumented and none of them knows the log exists. And it can never fail a
+command: an unwritable or half-written log produces a line on stderr and the ticket still moves.
+
+[Format and fields](docs/configuration.md#metrics--the-transition-log) &middot;
+**Add it to your `.gitignore`** — every developer appends to it, so a shared copy conflicts on every
+merge. The workflow says so the first time it writes the file rather than editing your `.gitignore`.
 
 ---
 

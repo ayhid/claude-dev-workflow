@@ -16,6 +16,7 @@ editor has a heading with the same name here.
 - [`commit` — the convention the hook enforces](#commit--the-convention-the-hook-enforces)
 - [`delivery` — how work lands](#delivery--how-work-lands)
 - [`repos` — more than one](#repos--more-than-one)
+- [`metrics` — the transition log](#metrics--the-transition-log)
 - [`notesFile` — durable project knowledge](#notesfile--durable-project-knowledge)
 - [Credentials (YouTrack)](#credentials-youtrack)
 - [Environment overrides (YouTrack)](#environment-overrides-youtrack)
@@ -215,6 +216,48 @@ is prepended to every command in that repo, and `remotes` lists everywhere branc
 `main` while another needs a PR — or lands on a different branch entirely, since `base` is part of
 that block like every other delivery field.
 
+## `metrics` — the transition log
+
+```json
+"metrics": true,
+"metricsFile": ".dev-workflow.metrics.jsonl"
+```
+
+Nothing in the workflow remembers how long anything took. This is the smallest thing that changes
+that: one JSON line appended locally whenever a ticket reaches the **start**, **done** or
+**abandon** rung. It is on by default, `"metrics": false` turns it off entirely, and it never
+touches the network.
+
+```json
+{"at":"2026-08-27T09:00:00.000Z","event":"start","id":"#28","state":"In Progress","provider":"github"}
+{"at":"2026-08-29T16:20:11.412Z","event":"done","id":"#28","state":"Done","provider":"github","elapsedMs":198011412,"starts":2,"criteria":"first-pass"}
+```
+
+- **`event`** is the rung, never a backend's state name, and it is read off the state the tracker
+  reported *after* the write — the same rule everything else here follows. A move to a state the
+  project has no rung for (parked in `Blocked`, moved by hand) is not recorded at all.
+- **`elapsedMs`** runs from the first `start` of the current cycle. A ticket reopened after being
+  closed starts a new one, so a fortnight of calendar time is not reported for two days of work.
+  It is `null` — never `0` — when no local start was ever recorded, which is what closing somebody
+  else's work through `sync` looks like.
+- **`starts`** counts how many times the ticket entered the start rung in that cycle. It is named
+  after what it measures: the log can see restarts, and cannot see how many times a test suite ran.
+- **`criteria`** is the one thing the tool cannot observe. `/dev-done` passes
+  `--criteria first-pass` or `--criteria reworked` on the close; with no flag the field is `null`,
+  meaning nobody said, rather than `false`.
+
+Abandoned tickets are recorded exactly like finished ones — a log that counts only successes
+answers a question nobody asked.
+
+> [!IMPORTANT]
+> **Add it to your `.gitignore`.** Every developer appends to it, so a shared copy conflicts on
+> every merge. The workflow says this once, the first time it creates the file, rather than editing
+> your `.gitignore` — it writes only to `_dev-workflow/` and `.claude/skills/dev-*`.
+
+Nothing may fail because of it. A log that cannot be written, or one a killed process left
+half-written, produces a line on stderr and the ticket still moves: an instrument that breaks what
+it measures is worse than no instrument.
+
 ## `notesFile` — durable project knowledge
 
 What a session learns dies with the session unless something writes it down. `dev.mjs note` appends
@@ -311,6 +354,8 @@ Useful for one-off runs against another instance, and for CI. There is no GitHub
   "priorities": ["Show-stopper", "Critical", "Major", "Normal", "Minor"],
   "defaultPriority": "Normal",
   "reviewer": "octocat",
+  "metrics": true,
+  "metricsFile": ".dev-workflow.metrics.jsonl",
   "repos": [
     {
       "path": "frontend",

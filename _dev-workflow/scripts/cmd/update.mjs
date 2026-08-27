@@ -22,19 +22,42 @@
  * '@'). The printed "State is now" line is read back after the write, never
  * echoed from the request.
  */
+import { parseCriteria } from '../../lib/metrics.mjs';
 import { context, must, readArg, UserError } from './common.mjs';
 
 const USAGE = `usage: dev.mjs update <ISSUE-ID> <VERB> [ARGS]
 
-  state <start|review|done|abandon|"<ladder state>"> [COMMENT|@FILE]
+  state <start|review|done|abandon|"<ladder state>"> [COMMENT|@FILE] [--criteria first-pass|reworked]
   comment <TEXT|@FILE>
   raw "<command>" [COMMENT|@FILE]        backend-native, where supported`;
 
-export async function run(args) {
+/**
+ * Pull `--criteria` out before the positionals are read.
+ *
+ * It is the one thing about a close that no command can observe for itself:
+ * whether the acceptance criteria passed on the first walk is known to
+ * `/dev-done` and to nobody else. Left off, the metrics field is null — an
+ * unanswered question, which is what it is.
+ */
+function takeCriteria(args) {
+  const rest = [];
+  let criteria;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--criteria') criteria = args[++i];
+    else rest.push(args[i]);
+  }
+  const parsed = parseCriteria(criteria);
+  if (!parsed.ok) throw new UserError(parsed.error);
+  return { criteria: parsed.criteria, rest };
+}
+
+export async function run(argv) {
+  const { criteria, rest: args } = takeCriteria(argv);
   const [issue, verb, ...rest] = args;
   if (!issue || !verb) throw new UserError(USAGE);
 
   const { provider } = await context();
+  if (criteria) provider.annotate({ criteria });
 
   if (verb === 'comment') {
     const text = rest[0] === undefined ? '' : readArg(rest[0], 'comment file');
@@ -94,7 +117,7 @@ export async function run(args) {
     process.stderr.write(
       `dev update: "${verb}" is the old command form — use: dev.mjs update ${issue} state <start|review|done>\n`,
     );
-    return run([issue, 'state', legacyState[1], ...rest]);
+    return run([issue, 'state', legacyState[1], ...rest, ...(criteria ? ['--criteria', criteria] : [])]);
   }
 
   throw new UserError(`unknown verb "${verb}"\n\n${USAGE}`);

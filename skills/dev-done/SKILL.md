@@ -150,8 +150,17 @@ exactly what landing will do. Ask whether to go ahead.
 
 ```bash
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" update <ISSUE-ID> comment "<summary>"
-node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" land --apply
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" land --apply --criteria <first-pass|reworked>
 ```
+
+`--criteria` is the one thing about a close that no command can work out for itself, and you are the
+only one who knows it: **`first-pass`** when every criterion in §3 was met on the first walk with no
+further changes, **`reworked`** when the walk sent you back to the code. It goes into the project's
+local transition log next to how long the ticket took.
+
+Answer it from what actually happened in this session, not from how it feels at the end. If the work
+spanned sessions and you cannot tell, **leave the flag off** — the field records that nobody said,
+which is true, and a guess would quietly poison the only number here that is not measured.
 
 `land` does whatever `delivery.mode` says — open the pull request, or rebase onto the base branch,
 fast-forward it, push, tear the worktree down and close the ticket. **That is a configuration
@@ -169,7 +178,7 @@ If the project genuinely has no delivery path for this work — a spike, or some
 by hand — apply the transition alone:
 
 ```bash
-node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" update <ISSUE-ID> state done "<summary>"
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" update <ISSUE-ID> state done "<summary>" --criteria <first-pass|reworked>
 ```
 
 Confirm the read-back line reports the expected state. If it reports anything else, the write did

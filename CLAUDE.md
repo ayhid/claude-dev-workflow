@@ -117,6 +117,21 @@ repository and the git rules testable without a network.
    ticket forward, so nothing will notice or correct a guess here, and the derived ladder's first
    entry is `In Progress`, the state the ticket is already in.
 
+## Instrumentation
+
+`lib/metrics.mjs` decides the format; the append is one wrapper around `setState` in
+`scripts/cmd/common.mjs`. That placement is the design, for the same reason `lib/vcs.mjs` puts its
+refusals in one `git()` call: six commands move tickets, and instrumenting them individually is six
+places for the seventh to be forgotten.
+
+1. **The state read back is what gets recorded**, never the rung requested — `sync` passes a ladder
+   state rather than a rung, so keying off the argument would miss every reconciled close.
+2. **It may never fail a command.** An unwritable or half-written log warns on stderr and the
+   transition still happens. An instrument that breaks what it measures is worse than none.
+3. **`starts`, not `retries`.** The field is named after what the log can observe. Renaming it to
+   something it cannot measure is how a number stops meaning anything.
+4. **Local, always.** No network, ever. The file holds no secret and is not meant to be committed.
+
 ## Security properties to preserve
 
 - The token is never written to disk and never appears in `argv`. Pass it in a `fetch` header;

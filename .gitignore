@@ -8,3 +8,9 @@ node_modules/
 # Worktree checkouts created by `dev.mjs start` in worktree mode. The installer
 # writes only _dev-workflow/ and .claude/skills/dev-*, so this line is ours to add.
 .worktrees/
+
+# The transition log `dev.mjs` appends to on every start, close and abandon.
+# Local and per-developer: a shared append-only log conflicts on every merge.
+# Same rule as .worktrees/ above — ours to add, because the installer writes
+# only _dev-workflow/ and .claude/skills/dev-*.
+.dev-workflow.metrics.jsonl

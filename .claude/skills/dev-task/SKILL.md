@@ -239,8 +239,12 @@ is not a helpful extra step — it is ignoring the configuration.
 
 ```bash
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" land          # dry run: what would happen
-node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" land --apply  # after the user confirms
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" land --apply --criteria <first-pass|reworked>
 ```
+
+`--criteria` records whether §7's walk passed on the first attempt (`first-pass`) or sent you back to
+the code (`reworked`). Leave it off if you genuinely cannot tell — the field then records that nobody
+said, which is better than a guess.
 
 It infers the issue from the branch, then follows the configured mode: `pr` pushes the branch, opens
 the pull request, requests the configured reviewer and reconciles the ticket to the review state;
