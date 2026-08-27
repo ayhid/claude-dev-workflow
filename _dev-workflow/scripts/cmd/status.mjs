@@ -89,21 +89,44 @@ async function collect({ config, main, vcs, opts }) {
     ? [resolveRepo(config, main, opts.repo).dir]
     : repoDirs(config, main);
 
+  return (await scanRepos({ config, vcs, dirs, cwd })).rows;
+}
+
+/**
+ * Every worktree in `dirs` as a row, plus every pull request seen along the way.
+ *
+ * Exported because `standup` asks the same question of the same repos and must
+ * not grow a second scanner: two of these would disagree about what "in flight"
+ * means the first time either is touched. It returns the raw PR list as well as
+ * the rows, since a merged PR's branch is usually gone — the row it would have
+ * been attached to no longer exists, and that is exactly what a standup reports.
+ *
+ * @returns {Promise<{rows: object[], prs: object[], prUnknown: boolean}>}
+ */
+export async function scanRepos({ config, vcs, dirs, cwd }) {
   const rows = [];
+  const prs = [];
+  let prUnknown = false;
+
   for (const dir of dirs) {
     // Each repo has its own worktrees and its own PRs; a second repo's branches
     // are not this one's, and matching them by name across repos would invent
     // relationships that do not exist.
-    const prs = await pullRequests(dir);
+    const listed = await listPullRequests(dir);
+    if (listed === PR_UNKNOWN) prUnknown = true;
+    else prs.push(...listed.map((pr) => ({ ...pr, dir })));
+
+    const byBranch = listed === PR_UNKNOWN ? PR_UNKNOWN : prsByBranch(listed);
     for (const entry of await vcs.listWorktreeEntries(dir)) {
-      rows.push(await rowFor({ config, vcs, entry, cwd, prs }));
+      rows.push(await rowFor({ config, vcs, entry, cwd, prs: byBranch }));
     }
   }
-  return rows;
+
+  return { rows, prs, prUnknown };
 }
 
 /** The configured repos as absolute directories, defaulting to the project root. */
-function repoDirs(config, main) {
+export function repoDirs(config, main) {
   const paths = (config.repos ?? []).map((r) => r.path).filter(Boolean);
   if (!paths.length) return [main];
   return paths.map((p) => (p === '.' ? main : resolve(main, p)));
@@ -125,28 +148,47 @@ async function rowFor({ config, vcs, entry, cwd, prs }) {
 const samePath = (path, cwd) => cwd === path || cwd.startsWith(`${path}/`);
 
 /**
- * Open and merged PRs by head branch, or PR_UNKNOWN when gh cannot answer.
+ * PRs by head branch, or PR_UNKNOWN when gh cannot answer.
  *
  * One call for the whole repo rather than one per branch: `--all` on a project
  * with six worktrees would otherwise be six round trips for information one
  * request already carries.
  */
 async function pullRequests(dir) {
+  const listed = await listPullRequests(dir);
+  return listed === PR_UNKNOWN ? PR_UNKNOWN : prsByBranch(listed);
+}
+
+/**
+ * Every recent pull request in `dir`, or PR_UNKNOWN when gh cannot answer.
+ *
+ * `title` and `mergedAt` are asked for on behalf of `standup`, which reports
+ * what merged and when. They cost nothing here — one request either way — and
+ * asking twice with different field lists is how the two commands would end up
+ * disagreeing about which PRs exist.
+ */
+export async function listPullRequests(dir) {
   if (!(await has('gh'))) return PR_UNKNOWN;
 
   const r = await shJson(
     'gh',
-    ['pr', 'list', '--state', 'all', '--limit', '100', '--json', 'number,headRefName,state,url'],
+    [
+      'pr', 'list',
+      '--state', 'all',
+      '--limit', '100',
+      '--json', 'number,headRefName,state,url,title,mergedAt,updatedAt',
+    ],
     { cwd: dir },
   );
   if (!r.ok) return PR_UNKNOWN;
+  return Array.isArray(r.data) ? r.data : [];
+}
 
+/** The newest PR per head branch. A reused branch otherwise reports a stale one. */
+export function prsByBranch(prs) {
   const byBranch = new Map();
-  for (const pr of Array.isArray(r.data) ? r.data : []) {
-    // Newest wins: `gh` lists most recent first, so only take the first PR seen
-    // for a branch. A reused branch name otherwise reports a stale closed PR.
-    if (!byBranch.has(pr.headRefName)) byBranch.set(pr.headRefName, pr);
-  }
+  // `gh` lists most recent first, so the first PR seen for a branch wins.
+  for (const pr of prs) if (!byBranch.has(pr.headRefName)) byBranch.set(pr.headRefName, pr);
   return byBranch;
 }
 

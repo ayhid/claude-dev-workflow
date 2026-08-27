@@ -12,7 +12,7 @@
 ![The install wizard verifying a token, listing the projects it can see, reading that project's real State values, and writing .dev-workflow.json](https://raw.githubusercontent.com/ayhid/claude-dev-workflow/main/.github/assets/wizard.gif)
 
 Ticket-driven development against your issue tracker, [YouTrack](https://www.jetbrains.com/youtrack/)
-or [GitHub Issues](docs/configuration.md#github-issues), as four Claude Code skills. It installs **per
+or [GitHub Issues](docs/configuration.md#github-issues), as five Claude Code skills. It installs **per
 project**: nothing is registered globally, so the skills exist only in repos that use a tracker.
 
 | Skill         | What it does |
@@ -21,6 +21,7 @@ project**: nothing is registered globally, so the skills exist only in repos tha
 | `/dev-task` | Takes an issue ID **or a plain sentence**, files the issue first when there is none, then agrees acceptance criteria, plans, moves it to *in progress*, checks it out in a worktree, and implements with ticket-referencing commits. |
 | `/dev-bug`     | Investigates the likely code path, checks for duplicates, drafts the issue in the project's language, files it on approval. **Never fixes.** |
 | `/dev-done`    | Re-reads the ticket, verifies each criterion with evidence, runs the checks, then lands the work the way the project delivers: pull request, or straight onto the base branch. |
+| `/dev-standup` | Everything in flight across every configured repo: what merged, what is checked out, what has stopped moving, and the one thing waiting on you. **Never writes.** |
 
 Nothing installed is project-specific: instance, project, ticket language, repo layout, state
 ladder, branch naming, isolation mode and commit convention all come from one
@@ -68,7 +69,7 @@ Then, in Claude Code, run `/dev-init`. It knows about label ladders and writes t
 > `op://Private/youtrack/credential` and it resolves through the `op` CLI at run time. It also
 > works offline. If the API is unreachable it says so and falls back to typed answers.
 
-Either way you now have the four skills. Start work:
+Either way you now have the five skills. Start work:
 
 ```
 /dev-task ABC-42
@@ -123,6 +124,7 @@ These are deliberate, and worth preserving in any fork.
 | `/dev-bug` files and stops. It never starts the fix, edits a file or switches branch, because the session may be mid-task on something else. | The `/dev-bug` skill contract |
 | `/dev-task` does not touch a file before the plan is approved, and does not close a ticket unasked. | The `/dev-task` skill contract |
 | `/dev-done` refuses to close a ticket whose acceptance criteria are unmet or whose suite fails, and reports the gap instead. | The `/dev-done` skill contract |
+| `/dev-standup` reports and never writes — not even the `sync --apply` it suggests. A command run first thing in the morning must be safe to run without thinking. | `dev.mjs standup` has no write path at all; every fix it names is a command for you to approve. |
 | `dev.mjs abandon` refuses while the branch has uncommitted changes or commits the base has not seen, and names each one. `--force` is the only thing that discards them. | The check runs before the first write, so a refusal really does leave everything as it was found. |
 | Nothing bypasses git hooks. No `--no-verify`, no `HUSKY=0`. | `lib/vcs.mjs` refuses to build the argv, so it holds for code added later too. |
 | Nothing force-resolves a merge conflict. `-X theirs` and `checkout --theirs` discard one side silently. | A rebase conflict aborts, leaves the branch untouched, and says which commits clashed. |
@@ -181,7 +183,7 @@ your-project/
     scripts/  lib/  hooks/
     _config/manifest.json         # version + a sha256 per installed file
   .claude/
-    skills/dev-task, dev-bug, dev-done, dev-init
+    skills/dev-task, dev-bug, dev-done, dev-init, dev-standup
     settings.json                 # the commit hook, merged in alongside your own
 ```
 
@@ -271,7 +273,7 @@ multi-repo routing, credentials and environment overrides. Two worked examples l
 They are ordinary CLI tools; the skills just call them. The three you will reach for by hand:
 
 ```bash
-node _dev-workflow/scripts/dev.mjs status                      # where this checkout stands
+node _dev-workflow/scripts/dev.mjs standup                     # the whole board, in standup order
 node _dev-workflow/scripts/dev.mjs start ABC-22                # branch or worktree, ticket to in progress
 node _dev-workflow/scripts/dev.mjs sync                        # dry run: report state drift
 ```
@@ -304,6 +306,7 @@ Each command below is prefixed with `node _dev-workflow/scripts/dev.mjs`.
 | `abandon ABC-22 "why" --force` | the same, discarding uncommitted changes and unmerged commits | HTTP + git |
 | `land` | dry run: how this work would reach the base branch | git + GitHub CLI |
 | `land --apply` | opens the PR, or rebase + fast-forward + push | git + GitHub CLI |
+| `standup [--since 3d] [--stale 7d]` | what merged, what is in flight, what is stale, what is next | HTTP + git + GitHub CLI |
 | `sync` | dry run: report state drift | git + GitHub CLI |
 | `sync --apply --since 14d` | applies it, over a 14-day window | HTTP + git + GitHub CLI |
 | `sync --deep` | also reads commit subjects | git + GitHub CLI |
@@ -315,8 +318,11 @@ Each command below is prefixed with `node _dev-workflow/scripts/dev.mjs`.
 | `version` | installed vs latest, and files you have edited | HTTP only |
 | `version --upgrade` | brings the payload up to date | git |
 
-`config`, `fetch`, `update` and `create` are plain HTTP. `start`, `resume`, `abandon`, `land` and
-`sync` additionally drive `git`, and `land` and `sync` the GitHub CLI. None of them depend on anything outside Node's standard library,
+`config`, `fetch`, `update` and `create` are plain HTTP. `start`, `resume`, `abandon`, `land`,
+`standup` and `sync` additionally drive `git`, and `land`, `standup` and `sync` the GitHub CLI —
+`standup` degrading to the git half rather than refusing when it is missing.
+
+None of them depend on anything outside Node's standard library,
 which is what lets `_dev-workflow/` sit in a project of any language with nothing to install.
 
 </details>
