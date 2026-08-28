@@ -177,7 +177,11 @@ export function resolveRepo(config, root, wanted) {
     );
   }
 
-  const path = wanted ?? paths[0];
+  // `||`, not `??`: an unspecified repo reaches here as `''` from a command
+  // whose flag defaults to the empty string, and `??` only catches null and
+  // undefined. The empty string then became the path, and the directory became
+  // `<root>/` — a repo that is nearly the right one, which is the worst kind.
+  const path = wanted || paths[0];
   return { path, dir: path === '.' ? root : `${root}/${path}` };
 }
 

@@ -1,3 +1,32 @@
+# [1.6.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.5.1...v1.6.0) (2026-08-28)
+
+
+### Features
+
+* **tools:** measure what a session costs, per ticket ([#33](https://github.com/ayhid/claude-dev-workflow/issues/33)) ([69555ed](https://github.com/ayhid/claude-dev-workflow/commit/69555ed2ac4927f2936a772bc95d69fcf77e1a1f)), closes [package.json#files](https://github.com/package.json/issues/files)
+
+## [1.5.1](https://github.com/ayhid/claude-dev-workflow/compare/v1.5.0...v1.5.1) (2026-08-28)
+
+
+### Bug Fixes
+
+* **assess:** decide the stage from what exists, not from history ([#29](https://github.com/ayhid/claude-dev-workflow/issues/29)) ([8e92c15](https://github.com/ayhid/claude-dev-workflow/commit/8e92c15dbb8f6ba6d4852744b9294237dcc0ecc8))
+
+# [1.5.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.4.0...v1.5.0) (2026-08-28)
+
+
+### Features
+
+* **ingest:** add dev.mjs assess and dev.mjs ingest ([#29](https://github.com/ayhid/claude-dev-workflow/issues/29)) ([2b82a4f](https://github.com/ayhid/claude-dev-workflow/commit/2b82a4f7d7bbd612abb876ce0999869786cbe9b8))
+* **ingest:** assess a project's stage, and model documentation as claims ([#29](https://github.com/ayhid/claude-dev-workflow/issues/29)) ([b282548](https://github.com/ayhid/claude-dev-workflow/commit/b2825481534c3da0726f7f48234741ad806b860d))
+
+# [1.4.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.3.0...v1.4.0) (2026-08-28)
+
+
+### Features
+
+* **no-ticket:** ask which issue tracker before anything else ([c89f356](https://github.com/ayhid/claude-dev-workflow/commit/c89f356f2bda4b89271cdfc9473cae72eb1cf0db))
+
 # [1.3.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.2.0...v1.3.0) (2026-08-28)
 
 

@@ -16,6 +16,7 @@ editor has a heading with the same name here.
 - [`commit` — the convention the hook enforces](#commit--the-convention-the-hook-enforces)
 - [`delivery` — how work lands](#delivery--how-work-lands)
 - [`repos` — more than one](#repos--more-than-one)
+- [`stage` — greenfield or brownfield](#stage--greenfield-or-brownfield)
 - [`metrics` — the transition log](#metrics--the-transition-log)
 - [`notesFile` — durable project knowledge](#notesfile--durable-project-knowledge)
 - [Credentials (YouTrack)](#credentials-youtrack)
@@ -218,6 +219,34 @@ is prepended to every command in that repo, and `remotes` lists everywhere branc
 `main` while another needs a PR — or lands on a different branch entirely, since `base` is part of
 that block like every other delivery field.
 
+## `stage` — greenfield or brownfield
+
+```json
+"stage": "brownfield"
+```
+
+Settled once by a person, never inferred later. `dev.mjs assess` *proposes* a verdict and shows
+every signal; a wrong stage would send `/dev-init` down the wrong branch with nothing downstream to
+notice it, so it is confirmed rather than applied. Unset means nobody has decided, which is
+different from either answer.
+
+What it measures, and in what order:
+
+| | Signal | Role |
+| --- | --- | --- |
+| **Decisive** | tracked source files, their total size, documentation size | is there already a system here? |
+| Corroborating | commits, age, contributors | has it been worked on? |
+
+The split is the rule, not an implementation detail. `git init` on a codebase somebody has been
+building for years produces one commit, one author and an age of zero — so a verdict that weighted
+those equally would call four hundred source files greenfield. History is evidence of activity,
+never of code, and it is consulted only in the narrow band where there is a little code and it
+could be either a generated scaffold or a young real project.
+
+On a brownfield project it is what tells a session there is existing documentation worth reading
+before starting work. `/dev-ingest-docs` turns that documentation into a verified map under
+`_dev-workflow/artifacts/documentation/` — and never edits the documentation itself.
+
 ## `metrics` — the transition log
 
 ```json
@@ -356,6 +385,7 @@ Useful for one-off runs against another instance, and for CI. There is no GitHub
   "priorities": ["Show-stopper", "Critical", "Major", "Normal", "Minor"],
   "defaultPriority": "Normal",
   "reviewer": "octocat",
+  "stage": "brownfield",
   "metrics": true,
   "metricsFile": ".dev-workflow.metrics.jsonl",
   "repos": [

@@ -42,7 +42,7 @@ test('planFiles covers the payload and the skills, and nothing else', () => {
 
 test('every skill is installed under its dev- name', () => {
   const files = [...planFiles(SOURCE_ROOT).keys()];
-  for (const skill of ['dev-task', 'dev-bug', 'dev-done', 'dev-init', 'dev-standup']) {
+  for (const skill of ['dev-task', 'dev-bug', 'dev-done', 'dev-init', 'dev-standup', 'dev-ingest-docs']) {
     assert.ok(
       files.includes(join('.claude', 'skills', skill, 'SKILL.md')),
       `${skill} should be installed`,
@@ -64,7 +64,7 @@ test('a fresh install writes the payload, the skills and the manifest', () => {
   const manifest = readManifest(dir);
   assert.equal(manifest.installation.version, '9.9.9');
   assert.deepEqual(manifest.skills.sort(), [
-    'dev-bug', 'dev-done', 'dev-init', 'dev-standup', 'dev-task',
+    'dev-bug', 'dev-done', 'dev-ingest-docs', 'dev-init', 'dev-standup', 'dev-task',
   ]);
   assert.ok(manifest.files.length > 10);
   assert.ok(manifest.files.every((f) => /^[0-9a-f]{64}$/.test(f.sha256)));
@@ -303,6 +303,7 @@ test('a co-installed tool in the same project is left completely untouched', () 
   assert.deepEqual(skills, [
     'dev-bug',
     'dev-done',
+    'dev-ingest-docs',
     'dev-init',
     'dev-standup',
     'dev-task',

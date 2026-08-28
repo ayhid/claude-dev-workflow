@@ -138,6 +138,29 @@ repository and the git rules testable without a network.
    ticket forward, so nothing will notice or correct a guess here, and the derived ladder's first
    entry is `In Progress`, the state the ticket is already in.
 
+## What a change to the workflow costs
+
+`tools/profile.mjs` reads Claude Code's own transcripts and reports spend per session and per
+ticket, joined to the transition log through the branch name. Repo-local, not shipped —
+`package.json#files` does not list `tools/`.
+
+Measure before optimising here, because the intuition is wrong in a specific way. Measured over a
+real session:
+
+1. **Cost is context multiplied by turns.** Cache reads and cache writes are ~90% of spend and
+   output ~10%. A token added early is paid for by every turn after it; the same token added late
+   is paid once.
+2. **So the lever is turn count, not prose length.** The whole installed surface — every SKILL.md
+   plus every `dev.mjs` command a skill runs at its top — is ~1.4% of a session's context.
+   Shortening it saves cents. Collapsing eight model turns into one command saves a whole context
+   read per turn removed, which is ~100x more.
+3. **Report cost-weighted tokens, never raw counts.** A cached read is worth 0.1 of an input token
+   and an output token 5, so raw counts rank the cheapest line item first.
+
+The consequence for design: when a skill tells the model to go and work something out, ask whether
+a command could hand it over instead. That is the same question `lib/vcs.mjs` and the metrics
+wrapper answer with a choke point — done once, in code, rather than re-derived per session.
+
 ## Instrumentation
 
 `lib/metrics.mjs` decides the format; the append is one wrapper around `setState` in
@@ -171,8 +194,8 @@ places for the seventh to be forgotten.
   `README.md` links into it, so a heading rename there breaks a link here.
 - `CONTRIBUTING.md` — how to verify a write path, for outside contributors. Repo-local; this file
   stays the architecture document.
-- `tests/`, `.github/`, `.husky/`, `commitlint.config.mjs`, `release.config.mjs` — repo-local
-  development only. Never referenced at runtime, never copied into a project. The
+- `tests/`, `tools/`, `.github/`, `.husky/`, `commitlint.config.mjs`, `release.config.mjs` —
+  repo-local development only. Never referenced at runtime, never copied into a project. The
   `devDependencies` they pull in are the *only* dependencies this repo may grow; `lib/` and
   `scripts/` stay on `node:` builtins, and `tests/version.test.mjs` fails if they do not.
 - `_dev-workflow/`, `.claude/skills/dev-*`, `.dev-workflow.json` — **installer output, not source.**
