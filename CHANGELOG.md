@@ -1,3 +1,10 @@
+# [1.10.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.9.0...v1.10.0) (2026-08-28)
+
+
+### Features
+
+* **docs:** scaffold a documentation skeleton from the claim ledger ([#41](https://github.com/ayhid/claude-dev-workflow/issues/41)) ([3675595](https://github.com/ayhid/claude-dev-workflow/commit/36755950af803080e2a7b7ccd862ba1f67c5cd34))
+
 # [1.9.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.8.0...v1.9.0) (2026-08-28)
 
 
