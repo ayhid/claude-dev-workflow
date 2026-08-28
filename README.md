@@ -383,10 +383,13 @@ provider's capabilities, so a GitHub project gets a usable error rather than a m
 >
 > - The commands API returns **200 for commands it did not apply**. `dev.mjs update` always reads
 >   the state back afterwards and prints what it actually found. Trust that line, not the exit code.
-> - Only values *containing a space* may be braced. Braces mark where a multi-word value ends, they
->   are not general quoting. Both directions bite: `Type {Bug} Priority {X}` parses as the single
->   value `{Bug} Priority` and 400s, and `State {Staging}` is rejected outright with
->   `expected: {Staging}`. Brace `{In Review}`, never `{Staging}`.
+> - Braces mark where a multi-word value **ends**, they are not general quoting, so only a
+>   multi-word value with another field/value pair after it takes them. Both directions bite:
+>   `Type {Bug} Priority {X}` parses as the single value `{Bug} Priority` and 400s, and
+>   `State {Staging}` is rejected outright with `expected: {Staging}`. Instances disagree about the
+>   last pair in a command — some apply `State In Review` and reject `State {In Review}`, some the
+>   reverse — so `dev.mjs update` tries both and keeps whichever actually moved the ticket. You do
+>   not need to know which kind yours is.
 
 ## Keeping states honest
 
