@@ -60,17 +60,31 @@ export const HOOK_COMMAND = `bash "$CLAUDE_PROJECT_DIR/${PAYLOAD_DIR}/hooks/chec
 export const ADR_HOOK_COMMAND = `bash "$CLAUDE_PROJECT_DIR/${PAYLOAD_DIR}/hooks/check-adr-immutable.sh"`;
 
 /**
- * Every hook we register, and the tool each one guards.
+ * The session greeting. Node rather than bash, and the only one of the three
+ * that is: it needs a portable timeout, and `timeout(1)` is not on a stock
+ * macOS. The hook's own header carries the full reasoning.
+ */
+export const SESSION_HOOK_COMMAND = `node "$CLAUDE_PROJECT_DIR/${PAYLOAD_DIR}/hooks/session-standup.mjs"`;
+
+/**
+ * Every hook we register: the event it fires on, the tool it matches, and the
+ * command that runs.
  *
- * A list rather than two hardcoded entries: the merge below is the only thing
- * that makes a hook actually apply, so a third hook must be one line here
- * rather than a second copy of the merge. The matchers differ on purpose —
- * the commit guard has to see every Bash call, the ADR guard only file writes,
- * and giving the latter a Bash matcher would put it on the hot path for no gain.
+ * A list rather than hardcoded entries: the merge below is the only thing that
+ * makes a hook actually apply, so a fourth hook must be one line here rather
+ * than a second copy of the merge. `event` joined the shape when the session
+ * greeting arrived — until then every hook was a `PreToolUse` one and the merge
+ * could assume it, which is exactly the assumption a list exists to avoid.
+ *
+ * The matchers differ on purpose: the commit guard has to see every Bash call,
+ * the ADR guard only file writes, and giving the latter a Bash matcher would
+ * put it on the hot path for no gain. `SessionStart` takes no matcher at all —
+ * it does not guard a tool — and an empty string is how that is spelled.
  */
 export const SHIPPED_HOOKS = [
-  { matcher: 'Bash', command: HOOK_COMMAND },
-  { matcher: 'Edit|Write', command: ADR_HOOK_COMMAND },
+  { event: 'PreToolUse', matcher: 'Bash', command: HOOK_COMMAND },
+  { event: 'PreToolUse', matcher: 'Edit|Write', command: ADR_HOOK_COMMAND },
+  { event: 'SessionStart', matcher: '', command: SESSION_HOOK_COMMAND },
 ];
 
 /** The skill-name prefix we claim. Anything else in .claude/skills/ is someone else's. */
@@ -161,33 +175,43 @@ export function planFiles(sourceRoot) {
 }
 
 /**
- * Add our PreToolUse hooks to the project's settings, preserving anything
- * already there.
+ * Add our hooks to the project's settings, preserving anything already there.
  *
  * Users have their own hooks; an install that overwrote `settings.json` would
  * silently delete them. Matching on the command string also makes a re-run a
  * no-op rather than appending a duplicate entry — and it is matched per hook,
  * so a project installed before a hook existed gains only the missing one and
- * keeps whatever the user did to the entry for the other.
+ * keeps whatever the user did to the entry for the others.
+ *
+ * The match is per command across that command's own event, not across the file:
+ * two hooks may legitimately share a command string on different events, and a
+ * global search would then install only the first of them.
  *
  * @returns {{settings: object, added: boolean, addedCommands: string[]}}
  */
 export function mergeHookIntoSettings(settings) {
   const next = settings && typeof settings === 'object' ? structuredClone(settings) : {};
   next.hooks ??= {};
-  let preToolUse = Array.isArray(next.hooks.PreToolUse) ? next.hooks.PreToolUse : [];
 
   const addedCommands = [];
-  for (const { matcher, command } of SHIPPED_HOOKS) {
-    const already = preToolUse.some((entry) =>
-      (entry?.hooks ?? []).some((h) => h?.command === command),
-    );
-    if (already) continue;
-    preToolUse = [...preToolUse, { matcher, hooks: [{ type: 'command', command }] }];
+  for (const { event, matcher, command } of SHIPPED_HOOKS) {
+    // A settings file may carry anything at all under an event key — this has
+    // to survive a hand-edit that left a string or a null there.
+    const existing = Array.isArray(next.hooks[event]) ? next.hooks[event] : [];
+
+    const already = existing.some((entry) => (entry?.hooks ?? []).some((h) => h?.command === command));
+    if (already) {
+      next.hooks[event] = existing;
+      continue;
+    }
+
+    // An empty matcher is omitted rather than written as "": SessionStart
+    // entries take no matcher, and an empty one is not the same as none.
+    const entry = { ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command }] };
+    next.hooks[event] = [...existing, entry];
     addedCommands.push(command);
   }
 
-  next.hooks.PreToolUse = preToolUse;
   return { settings: next, added: addedCommands.length > 0, addedCommands };
 }
 
