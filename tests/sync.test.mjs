@@ -3,14 +3,22 @@ import { test } from 'node:test';
 
 import {
   byIssueNumber,
+  commitObservations,
   cutoffFrom,
   decide,
   extractIssueIds,
+  LOG_SEP,
   parseSince,
   renderComment,
   slugFromRemoteUrl,
   strongestEvidence,
 } from '../lib/sync.mjs';
+
+/** One `git log --format=%H<sep>%s` line. */
+const logLine = (sha, subject) => `${sha}${LOG_SEP}${subject}`;
+
+const DONE = { syntax: null, rank: 2, state: 'Done', urlFor: (sha) => `https://gh/c/${sha}` };
+const gh = { regex: /#\d+/g, sample: '#42' };
 
 // --- --since -----------------------------------------------------------------
 
@@ -98,6 +106,100 @@ test('strongestEvidence keeps issues apart and skips idless rows', () => {
     { id: null, rank: 2, state: 'Done', url: 'c' },
   ]);
   assert.equal(ev.size, 2);
+});
+
+// --- commits that belong to no PR --------------------------------------------
+
+test('commitObservations reads an issue ID out of a landed commit subject', () => {
+  const log = [
+    logLine('aaa111', 'fix(router): 500 on nested slug (ABC-12)'),
+    logLine('bbb222', 'feat(api): pagination (ABC-13)'),
+  ].join('\n');
+
+  assert.deepEqual(commitObservations(log, { ...DONE, syntax: 'ABC' }), [
+    { id: 'ABC-12', rank: 2, state: 'Done', url: 'https://gh/c/aaa111' },
+    { id: 'ABC-13', rank: 2, state: 'Done', url: 'https://gh/c/bbb222' },
+  ]);
+});
+
+test('commitObservations skips a subject that names no issue', () => {
+  // The same convention-bounded coverage the PR pass has: a commit that names
+  // nothing is invisible, and that is the finding rather than a bug.
+  const log = [
+    logLine('aaa111', 'chore(no-ticket): tidy up the router'),
+    logLine('bbb222', 'fix(sync): a real one (ABC-1)'),
+  ].join('\n');
+
+  assert.deepEqual(
+    commitObservations(log, { ...DONE, syntax: 'ABC' }).map((o) => o.id),
+    ['ABC-1'],
+  );
+});
+
+test('commitObservations tolerates the shapes a git log actually has', () => {
+  // A trailing newline, an empty log, and a subject carrying the separator's
+  // near neighbours — tabs and spaces — which is why the format uses \x1f.
+  assert.deepEqual(commitObservations('', { ...DONE, syntax: 'ABC' }), []);
+  assert.deepEqual(commitObservations('  \n\n', { ...DONE, syntax: 'ABC' }), []);
+  assert.deepEqual(
+    commitObservations(`${logLine('aaa111', 'fix: a\tsubject with (ABC-9)')}\n`, {
+      ...DONE,
+      syntax: 'ABC',
+    }).map((o) => o.id),
+    ['ABC-9'],
+  );
+});
+
+test('commitObservations reads GitHub IDs with the provider syntax', () => {
+  assert.deepEqual(
+    commitObservations(logLine('aaa111', 'feat(adr): guard records (#38)'), {
+      ...DONE,
+      syntax: gh,
+    }),
+    [{ id: '#38', rank: 2, state: 'Done', url: 'https://gh/c/aaa111' }],
+  );
+});
+
+test('an issue whose only evidence is a landed commit still reaches done', () => {
+  // #19: `sync` took its evidence exclusively from pull requests, so a project
+  // on `delivery.mode: direct` — which never opens one — had every ticket
+  // stranded while the run reported "everything is in sync".
+  const observations = [
+    // ...and this is what the PR passes contribute for it: nothing at all.
+    ...commitObservations(logLine('5b79ec7', 'fix(hook): brace only multi-word values (#1)'), {
+      ...DONE,
+      syntax: gh,
+    }),
+  ];
+  const evidence = strongestEvidence(observations);
+  const ev = evidence.get('#1');
+  assert.ok(ev, 'the commit is the only thing that names #1');
+
+  const first = decide({ current: 'In Progress', currentRank: 1, targetRank: ev.rank, url: ev.url });
+  assert.equal(first.action, 'move');
+  assert.equal(first.why, 'https://gh/c/5b79ec7');
+
+  // Forward-only and idempotent on the second run, exactly as PR evidence is —
+  // which is the whole reason this evidence folds into `decide` rather than
+  // growing a path of its own.
+  assert.equal(
+    decide({ current: 'Done', currentRank: 3, targetRank: ev.rank, url: ev.url }).action,
+    'ahead',
+  );
+  assert.equal(
+    decide({ current: "Won't Fix", currentRank: -1, targetRank: ev.rank, url: ev.url }).action,
+    'off-ladder',
+  );
+});
+
+test('a merged PR outranks nothing and outlasts a commit saying the same thing', () => {
+  // Same rank, so `strongestEvidence` keeps the first — and the commit pass
+  // runs last precisely so the PR's URL is the one a reader gets.
+  const evidence = strongestEvidence([
+    { id: '#1', rank: 2, state: 'Done', url: 'https://gh/pr/4' },
+    ...commitObservations(logLine('5b79ec7', 'fix: landed (#1)'), { ...DONE, syntax: gh }),
+  ]);
+  assert.equal(evidence.get('#1').url, 'https://gh/pr/4');
 });
 
 // --- the safety rules --------------------------------------------------------
