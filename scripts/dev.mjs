@@ -14,6 +14,7 @@
  *   dev.mjs land   [ABC-22] [--apply]             open a PR, or rebase and push
  *   dev.mjs assess                                greenfield or brownfield, from signals
  *   dev.mjs ingest scan|next|record|answer|emit   absorb a codebase's documentation
+ *   dev.mjs adr new|accept|reject|supersede|list|index   decision records
  *   dev.mjs standup [--since 1d]                  what merged, what is in flight, what is stale
  *   dev.mjs sync [--apply] [--since 14d] [--deep] reconcile states against GitHub
  *   dev.mjs version [--upgrade]                   installed vs latest workflow version
@@ -38,6 +39,7 @@ const USAGE = `usage: dev.mjs <command> [args]
   land   [ISSUE-ID] [--apply] [--repo PATH] [--criteria first-pass|reworked]
   assess [--repo PATH] [--json]         greenfield or brownfield, proposed from signals
   ingest [scan|next|read|record|answer|emit]   absorb existing documentation, in steps
+  adr    [new|accept|reject|supersede|list|index]  architecture decision records
   standup [--since 1d] [--stale 7d] [--repo PATH]
   sync   [--apply] [--since 30d] [--repo PATH] [--deep] [--limit N]
   version [--json] [--offline] [--upgrade]
@@ -56,6 +58,7 @@ const COMMANDS = {
   land: () => import('./cmd/land.mjs'),
   assess: () => import('./cmd/assess.mjs'),
   ingest: () => import('./cmd/ingest.mjs'),
+  adr: () => import('./cmd/adr.mjs'),
   standup: () => import('./cmd/standup.mjs'),
   sync: () => import('./cmd/sync.mjs'),
   note: () => import('./cmd/note.mjs'),
