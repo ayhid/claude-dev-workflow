@@ -5,45 +5,53 @@
     "labels": {
       "In Progress": "status: in progress",
       "In Review": "status: in review",
-      "Done": "status: done"
+      "Done": "status: done",
+      "type": {
+        "Bug": "bug",
+        "Feature": "enhancement"
+      }
     }
   },
   "language": "English",
   "states": {
-    "ladder": ["Backlog", "In Progress", "In Review", "Done"],
     "start": "In Progress",
     "review": "In Review",
     "done": "Done",
-    "abandon": "Backlog"
+    "abandon": "Backlog",
+    "ladder": [
+      "Backlog",
+      "In Progress",
+      "In Review",
+      "Done"
+    ]
   },
   "branch": {
-    "pattern": "<ID>-<slug>",
-    "base": "main"
+    "pattern": "<type>/<ID>-<slug>",
+    "base": "main",
+    "mode": "worktree",
+    "types": {
+      "Bug": "fix",
+      "Feature": "feat"
+    }
+  },
+  "delivery": {
+    "mode": "direct"
   },
   "commit": {
     "pattern": "type(scope): description (<ID>)",
     "position": "suffix",
-    "noTicketEscape": "chore(no-ticket)",
-    "types": [
-      "build",
-      "chore",
-      "ci",
-      "docs",
-      "feat",
-      "fix",
-      "perf",
-      "refactor",
-      "revert",
-      "style",
-      "test"
-    ],
-    "enforce": true,
-    "requireType": true
+    "noTicketEscape": "chore(no-ticket)"
   },
+  "issueTypes": [
+    "Bug",
+    "Feature"
+  ],
   "repos": [
     {
       "path": ".",
-      "checks": ["npm test"]
+      "checks": [
+        "npm test"
+      ]
     }
   ],
   "notes": [
