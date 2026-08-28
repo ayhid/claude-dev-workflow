@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.6.3...v1.7.0) (2026-08-28)
+
+
+### Features
+
+* **updatecheck:** banner an available update from the session-opening commands ([#37](https://github.com/ayhid/claude-dev-workflow/issues/37)) ([940aa34](https://github.com/ayhid/claude-dev-workflow/commit/940aa34802b9d4164b7b19601a02b21af48a054d))
+
 ## [1.6.3](https://github.com/ayhid/claude-dev-workflow/compare/v1.6.2...v1.6.3) (2026-08-28)
 
 
