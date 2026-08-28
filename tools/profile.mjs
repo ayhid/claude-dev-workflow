@@ -87,9 +87,21 @@ export function weigh(usage = {}) {
  * ever question it.
  */
 export function costOf(usage, model) {
-  const rate = INPUT_USD_PER_M[model];
+  const rate = INPUT_USD_PER_M[priceKey(model)];
   if (!rate) return null;
   return (weigh(usage) * rate) / 1_000_000;
+}
+
+/**
+ * The price-table key for a model id.
+ *
+ * Claude Code records whatever id the request used, and some are dated
+ * snapshots: `claude-sonnet-4-5-20250929` is the same model, at the same price,
+ * as `claude-sonnet-4-5`. An exact-match lookup reports those as unpriced,
+ * which is a blank in a cost report for no reason at all.
+ */
+export function priceKey(model) {
+  return String(model ?? '').replace(/-\d{8}$/, '');
 }
 
 const emptyTotals = () => ({
@@ -116,7 +128,7 @@ export function foldSession(records) {
   let branch = null;
   let first = null;
   let last = null;
-  let unknownModel = false;
+  const unknownModels = new Set();
 
   for (const r of records) {
     if (r.gitBranch && r.gitBranch !== 'HEAD') branch = r.gitBranch;
@@ -140,7 +152,7 @@ export function foldSession(records) {
     if (r.isSidechain) sidechainTurns++;
     if (msg.model) {
       model ??= msg.model;
-      if (!INPUT_USD_PER_M[msg.model]) unknownModel = true;
+      if (!INPUT_USD_PER_M[priceKey(msg.model)]) unknownModels.add(msg.model);
     }
     for (const field of Object.keys(totals)) totals[field] += usage[field] ?? 0;
   }
@@ -153,7 +165,7 @@ export function foldSession(records) {
     branch,
     first,
     last,
-    unknownModel,
+    unknownModels: [...unknownModels].sort(),
     tools: [...tools.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])),
     weighted: weigh(totals),
     usd: costOf(totals, model),
@@ -382,8 +394,12 @@ export async function main(argv = process.argv.slice(2)) {
   const view = views[opts.by];
   if (!view) return fail(`unknown --by "${opts.by}" — expected ${Object.keys(views).join(', ')}`);
 
-  if (sessions.some((s) => s.unknownModel)) {
-    process.stderr.write('note: a session used a model with no price here; its cost reads "-" rather than a guess.\n');
+  const unpriced = [...new Set(sessions.flatMap((s) => s.unknownModels))].sort();
+  if (unpriced.length) {
+    process.stderr.write(
+      `note: no price known for ${unpriced.join(', ')} — those rows read "-" rather than a guess.\n` +
+        'Add it to INPUT_USD_PER_M in tools/profile.mjs to price them.\n',
+    );
   }
   return print(view().join('\n'));
 }

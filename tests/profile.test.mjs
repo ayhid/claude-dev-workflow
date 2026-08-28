@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { DEFAULTS, deepMerge } from '../lib/config.mjs';
-import { byTicket, costOf, cutoffFor, foldSession, transcriptDirFor, weigh, WEIGHTS } from '../tools/profile.mjs';
+import { byTicket, costOf, cutoffFor, foldSession, priceKey, transcriptDirFor, weigh, WEIGHTS } from '../tools/profile.mjs';
 
 const config = deepMerge(DEFAULTS, { provider: 'github', github: { repo: 'o/r' } });
 
@@ -110,10 +110,24 @@ test('a turn with no usage block is not counted as a turn', () => {
   assert.equal(s.turns, 1);
 });
 
-test('an unknown model is flagged rather than priced', () => {
+test('an unknown model is named, not merely flagged', () => {
+  // A blank in a cost report is only actionable if it says what it could not
+  // price — otherwise the reader cannot fix it.
   const s = foldSession([assistant({ message: { model: 'mystery', usage: usage({ output_tokens: 1 }) } })]);
-  assert.equal(s.unknownModel, true);
+  assert.deepEqual(s.unknownModels, ['mystery']);
   assert.equal(s.usd, null);
+});
+
+test('a dated snapshot is the same model at the same price', () => {
+  // Claude Code records whatever id the request used. Exact-match lookup
+  // reported `claude-sonnet-4-5-20250929` as unpriced — a blank for no reason.
+  assert.equal(priceKey('claude-sonnet-4-5-20250929'), 'claude-sonnet-4-5');
+  assert.equal(priceKey('claude-opus-5'), 'claude-opus-5');
+  assert.equal(priceKey(null), '');
+  assert.equal(costOf(usage({ input_tokens: 1_000_000 }), 'claude-opus-5-20260101'), 5);
+
+  const s = foldSession([assistant({ message: { model: 'claude-opus-5-20260101', usage: usage() } })]);
+  assert.deepEqual(s.unknownModels, [], 'and it is not reported as unknown');
 });
 
 // --- attribution --------------------------------------------------------------------
