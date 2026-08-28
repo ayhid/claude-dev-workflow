@@ -19,8 +19,13 @@
  * spells it out for that reason.
  *
  * `--update` exists because updating used to mean answering the whole wizard
- * again — impossible on a GitHub Issues project, since the wizard is YouTrack-only
- * and demands an instance URL such a project does not have.
+ * again: a dozen questions to change nothing but the version, and no way through
+ * at all where there is no TTY.
+ *
+ * The first question is which issue tracker the project uses, because that
+ * answer decides every question after it. Until it existed the wizard opened on
+ * `YouTrack instance URL` and hardcoded the provider, so a GitHub Issues project
+ * met a mandatory URL it could not supply and no sign another tracker existed.
  */
 import { execFileSync, execFile } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -33,7 +38,9 @@ import c from 'picocolors';
 
 import { listProjects, projectFieldValues, whoami } from '../lib/youtrack.mjs';
 import { baseBranch, commitIdPosition, describeRepo, findRepos } from './lib/detect.mjs';
+import { createLabelCommand, ghAuthStatus, ghLabels, ghRepoView, ghVersion } from './lib/gh.mjs';
 import { PAYLOAD_DIR, installPayload, readManifest } from './lib/payload.mjs';
+import { buildConfig, pickDefaultPriority, proposeProvider } from './lib/wizard-config.mjs';
 
 const execFileAsync = promisify(execFile);
 /** The distribution we copy out of — this checkout, or the npx cache. */
@@ -58,10 +65,11 @@ const opt = (name, fallback) => {
 
 if (flag('--help') || flag('-h')) {
   console.log(`
-${c.bold('dev-workflow')} — set up the YouTrack ticket workflow for a project
+${c.bold('dev-workflow')} — set up the ticket workflow for a project
 
-For a project that uses GitHub Issues, install with this and then run ${c.cyan('/dev-init')},
-which configures the label ladder GitHub needs.
+Asks which issue tracker the project uses — YouTrack or GitHub Issues — and
+configures that one. To amend an existing config from inside Claude Code, or to
+talk it through rather than click, run ${c.cyan('/dev-init')} instead.
 
 Installs into the project itself: the runtime under ${c.cyan(PAYLOAD_DIR + '/')}, the four
 skills under ${c.cyan('.claude/skills/dev-*')}, and the commit hook into
@@ -185,10 +193,10 @@ if (!existsSync(targetDir)) {
 }
 
 // --- 0. the update path ------------------------------------------------------
-// Deliberately *before the first prompt*. An update must not require answering
-// the wizard again: the wizard is YouTrack-only and its instance URL is
-// mandatory, so a GitHub Issues project could not get through it at all. It also
-// makes the installer usable where there is no TTY.
+// Deliberately *before the first prompt*. Two properties depend on it: updating
+// must never mean answering the whole wizard again just to change the version,
+// and the installer must work where there is no TTY at all — CI, a container, a
+// pipe. A prompt added above this line silently removes both.
 //
 // An existing manifest is not required — `--update` on a fresh project is a
 // payload install with no config, which is exactly what a project configured by
@@ -215,9 +223,14 @@ if (existsSync(configPath) && !flag('--print')) {
     p.log.warn(`${c.yellow('.dev-workflow.json exists but is not valid JSON')} — it will be replaced.`);
   }
   if (existing && !flag('--force')) {
-    p.log.info(
-      `Found an existing config: ${c.cyan(existing.project ?? '?')} on ${c.cyan(existing.baseUrl ?? '?')}`,
-    );
+    // Said in the terms of whichever tracker it is for: a GitHub config has no
+    // project key and no instance URL, and printing `? on ?` at somebody is not
+    // a report that a config was found.
+    const summary =
+      existing.provider === 'github'
+        ? `${existing.github?.issuesRepo ?? existing.github?.repo ?? '?'} on GitHub Issues`
+        : `${existing.project ?? '?'} on ${existing.baseUrl ?? '?'}`;
+    p.log.info(`Found an existing config: ${c.cyan(summary)}`);
     const go = bail(
       await p.confirm({ message: 'Reconfigure it? Current values become the defaults.', initialValue: true }),
     );
@@ -228,172 +241,420 @@ if (existsSync(configPath) && !flag('--print')) {
   }
 }
 
-// --- 1. instance -------------------------------------------------------------
-const baseUrl = bail(
-  await p.text({
-    message: 'YouTrack instance URL',
-    placeholder: 'https://acme.youtrack.cloud',
-    initialValue: existing?.baseUrl ?? process.env.YOUTRACK_BASE_URL ?? '',
-    validate: (v) => {
-      if (!v) return 'Required.';
-      try {
-        const u = new URL(v);
-        if (!/^https?:$/.test(u.protocol)) return 'Must be an http(s) URL.';
-      } catch {
-        return 'Not a valid URL.';
-      }
-    },
-  }),
-).replace(/\/+$/, '');
+// --- 1. which issue tracker --------------------------------------------------
+//
+// First, and before anything else is asked, because the answer decides every
+// question below it: a GitHub project has no instance URL to give, and a
+// YouTrack project has no label ladder to map.
+//
+// The repo proposes an answer and never decides one. A `github.com` origin is a
+// strong hint, and a hint is all it is — like everything `detect.mjs` returns,
+// a wrong guess here costs a keystroke.
+const candidates = findRepos(targetDir).map(describeRepo);
+const detectedSlug = candidates.find((r) => r.githubRepo)?.githubRepo ?? null;
 
-// --- 2. token ----------------------------------------------------------------
-const hasOp = has('op');
-const tokenChoice = bail(
+const provider = bail(
   await p.select({
-    message: 'Where should the token come from?',
-    initialValue: existing?.tokenOpRef ? '1password' : process.env.YOUTRACK_TOKEN ? 'env' : hasOp ? '1password' : 'env',
+    message: 'Which issue tracker does this project use?',
+    initialValue: proposeProvider({ existing, detectedSlug }),
     options: [
       {
-        value: '1password',
-        label: '1Password reference',
-        hint: hasOp ? 'op://Vault/item/credential — nothing stored on disk' : '`op` CLI not found on PATH',
+        value: 'github',
+        label: 'GitHub Issues',
+        hint: detectedSlug ? `origin is ${detectedSlug}` : 'gh does the auth — there is no token to configure',
       },
-      {
-        value: 'env',
-        label: '$YOUTRACK_TOKEN',
-        hint: process.env.YOUTRACK_TOKEN ? 'detected in this shell' : 'you export it yourself',
-      },
+      { value: 'youtrack', label: 'YouTrack', hint: 'a JetBrains instance and a project key' },
     ],
   }),
 );
 
-let tokenOpRef = null;
-let token = process.env.YOUTRACK_TOKEN ?? '';
+// --- 2. the tracker itself ---------------------------------------------------
+//
+// One branch per backend, each returning the same shape, so every step after
+// this one is provider-agnostic — the same reason `lib/provider.mjs` exists.
+// What differs between the two is exactly what each backend requires and no
+// more: YouTrack needs a URL, a token and a project; GitHub needs a repository
+// and a label per ladder rung.
+//
+//   { identity        the config block naming the tracker, spread verbatim
+//     stateValues     what start/review/done/abandon are chosen from
+//     ladder          written to states.ladder
+//     issueTypes      [] when the tracker has no notion of one
+//     priorities      null likewise — GitHub reports capabilities.priorities false
+//     labels          the repository's real labels, for the typed-branch step
+//     labelHints      commands the user must run; the wizard runs none of them
+//     summary }       the outro line
 
-if (tokenChoice === '1password') {
-  tokenOpRef = bail(
+/**
+ * YouTrack: instance, token, verification, project, and the project's own field
+ * values. The states, types and priorities are read off the live project rather
+ * than proposed, which is the whole reason this path talks to the API at all.
+ */
+async function configureYouTrack() {
+  // --- instance --------------------------------------------------------------
+  const baseUrl = bail(
     await p.text({
-      message: '1Password secret reference',
-      placeholder: 'op://Private/youtrack/credential',
-      initialValue: existing?.tokenOpRef ?? process.env.YOUTRACK_TOKEN_OP_REF ?? '',
-      validate: (v) => (v?.startsWith('op://') ? undefined : 'Must start with op://'),
+      message: 'YouTrack instance URL',
+      placeholder: 'https://acme.youtrack.cloud',
+      initialValue: existing?.baseUrl ?? process.env.YOUTRACK_BASE_URL ?? '',
+      validate: (v) => {
+        if (!v) return 'Required.';
+        try {
+          const u = new URL(v);
+          if (!/^https?:$/.test(u.protocol)) return 'Must be an http(s) URL.';
+        } catch {
+          return 'Not a valid URL.';
+        }
+      },
     }),
-  );
-  if (hasOp) {
-    const s = p.spinner();
-    s.start('Reading the token from 1Password');
-    const result = await opRead(tokenOpRef);
-    if (typeof result === 'string' && result) {
-      token = result;
-      s.stop('Token read from 1Password.');
-    } else {
-      s.stop(c.yellow('Could not read it — is your 1Password session unlocked?'));
-      p.log.warn(result?.error ?? 'op returned nothing');
-    }
-  }
-} else if (!token) {
-  token = bail(
-    await p.password({
-      message: 'Paste a YouTrack token (used only to verify — never written to disk)',
-      validate: (v) => (v ? undefined : 'Required, or Ctrl-C to abort.'),
-    }),
-  );
-}
+  ).replace(/\/+$/, '');
 
-// --- 3. verify, and use the live instance to fill in the rest -----------------
-let online = false;
-let projects = [];
-
-if (token) {
-  const s = p.spinner();
-  s.start(`Verifying against ${baseUrl}`);
-  const me = await whoami(baseUrl, token);
-  if (me.ok) {
-    const list = await listProjects(baseUrl, token);
-    if (list.ok) {
-      projects = (list.data ?? []).filter((x) => x.shortName);
-      online = true;
-      s.stop(`Authenticated as ${c.green(me.data)} — ${projects.length} project(s) visible.`);
-    } else {
-      s.stop(c.yellow(`Authenticated, but the project list failed: ${list.error}`));
-    }
-  } else {
-    s.stop(c.yellow(`Could not authenticate: ${me.error}`));
-  }
-} else {
-  p.log.warn('No token available — continuing offline; values will be typed by hand.');
-}
-
-if (!online) {
-  const go = bail(
-    await p.confirm({
-      message: 'Continue without the API? States and project key will not be validated.',
-      initialValue: true,
-    }),
-  );
-  if (!go) {
-    p.cancel('Aborted — fix the token and run again.');
-    process.exit(1);
-  }
-}
-
-// --- 4. project --------------------------------------------------------------
-let project;
-let projectId = null;
-
-if (online && projects.length) {
-  const sorted = projects.slice().sort((a, b) => a.shortName.localeCompare(b.shortName));
-  project = bail(
+  // --- token -----------------------------------------------------------------
+  const hasOp = has('op');
+  const tokenChoice = bail(
     await p.select({
-      message: 'Which project?',
-      initialValue: sorted.find((x) => x.shortName === existing?.project)?.shortName ?? sorted[0].shortName,
-      options: sorted.map((x) => ({ value: x.shortName, label: x.shortName, hint: x.name })),
-      maxItems: 12,
+      message: 'Where should the token come from?',
+      initialValue: existing?.tokenOpRef ? '1password' : process.env.YOUTRACK_TOKEN ? 'env' : hasOp ? '1password' : 'env',
+      options: [
+        {
+          value: '1password',
+          label: '1Password reference',
+          hint: hasOp ? 'op://Vault/item/credential — nothing stored on disk' : '`op` CLI not found on PATH',
+        },
+        {
+          value: 'env',
+          label: '$YOUTRACK_TOKEN',
+          hint: process.env.YOUTRACK_TOKEN ? 'detected in this shell' : 'you export it yourself',
+        },
+      ],
     }),
   );
-  projectId = projects.find((x) => x.shortName === project)?.id ?? null;
-} else {
-  project = bail(
-    await p.text({
-      message: 'Project key (the prefix in issue IDs, e.g. ABC)',
-      initialValue: existing?.project ?? '',
-      validate: (v) => (/^[A-Za-z][A-Za-z0-9]*$/.test(v ?? '') ? undefined : 'Letters and digits, starting with a letter.'),
-    }),
-  );
-}
 
-// --- 5. states, from the project's real field values -------------------------
-let stateValues = [];
-let typeValues = existing?.issueTypes ?? ['Bug', 'Feature', 'Task', 'Epic', 'Improvement'];
-let priorityValues = existing?.priorities ?? ['Show-stopper', 'Critical', 'Major', 'Normal', 'Minor'];
+  let tokenOpRef = null;
+  let token = process.env.YOUTRACK_TOKEN ?? '';
 
-if (online && projectId) {
-  const s = p.spinner();
-  s.start(`Reading the field values of ${project}`);
-  const fields = await projectFieldValues(baseUrl, token, projectId);
-  if (fields.ok) {
-    stateValues = (fields.data.State ?? []).map((v) => v.name);
-    if (fields.data.Type?.length) typeValues = fields.data.Type.map((v) => v.name);
-    if (fields.data.Priority?.length) priorityValues = fields.data.Priority.map((v) => v.name);
-    s.stop(
-      stateValues.length
-        ? `States: ${c.dim(stateValues.join(' → '))}`
-        : c.yellow('No State field found — you will type the state names.'),
+  if (tokenChoice === '1password') {
+    tokenOpRef = bail(
+      await p.text({
+        message: '1Password secret reference',
+        placeholder: 'op://Private/youtrack/credential',
+        initialValue: existing?.tokenOpRef ?? process.env.YOUTRACK_TOKEN_OP_REF ?? '',
+        validate: (v) => (v?.startsWith('op://') ? undefined : 'Must start with op://'),
+      }),
     );
-  } else {
-    s.stop(c.yellow(`Could not read the field values: ${fields.error}`));
+    if (hasOp) {
+      const s = p.spinner();
+      s.start('Reading the token from 1Password');
+      const result = await opRead(tokenOpRef);
+      if (typeof result === 'string' && result) {
+        token = result;
+        s.stop('Token read from 1Password.');
+      } else {
+        s.stop(c.yellow('Could not read it — is your 1Password session unlocked?'));
+        p.log.warn(result?.error ?? 'op returned nothing');
+      }
+    }
+  } else if (!token) {
+    token = bail(
+      await p.password({
+        message: 'Paste a YouTrack token (used only to verify — never written to disk)',
+        validate: (v) => (v ? undefined : 'Required, or Ctrl-C to abort.'),
+      }),
+    );
   }
+
+  // --- verify, and use the live instance to fill in the rest -----------------
+  let online = false;
+  let projects = [];
+
+  if (token) {
+    const s = p.spinner();
+    s.start(`Verifying against ${baseUrl}`);
+    const me = await whoami(baseUrl, token);
+    if (me.ok) {
+      const list = await listProjects(baseUrl, token);
+      if (list.ok) {
+        projects = (list.data ?? []).filter((x) => x.shortName);
+        online = true;
+        s.stop(`Authenticated as ${c.green(me.data)} — ${projects.length} project(s) visible.`);
+      } else {
+        s.stop(c.yellow(`Authenticated, but the project list failed: ${list.error}`));
+      }
+    } else {
+      s.stop(c.yellow(`Could not authenticate: ${me.error}`));
+    }
+  } else {
+    p.log.warn('No token available — continuing offline; values will be typed by hand.');
+  }
+
+  if (!online) {
+    const go = bail(
+      await p.confirm({
+        message: 'Continue without the API? States and project key will not be validated.',
+        initialValue: true,
+      }),
+    );
+    if (!go) {
+      p.cancel('Aborted — fix the token and run again.');
+      process.exit(1);
+    }
+  }
+
+  // --- project ---------------------------------------------------------------
+  let project;
+  let projectId = null;
+
+  if (online && projects.length) {
+    const sorted = projects.slice().sort((a, b) => a.shortName.localeCompare(b.shortName));
+    project = bail(
+      await p.select({
+        message: 'Which project?',
+        initialValue: sorted.find((x) => x.shortName === existing?.project)?.shortName ?? sorted[0].shortName,
+        options: sorted.map((x) => ({ value: x.shortName, label: x.shortName, hint: x.name })),
+        maxItems: 12,
+      }),
+    );
+    projectId = projects.find((x) => x.shortName === project)?.id ?? null;
+  } else {
+    project = bail(
+      await p.text({
+        message: 'Project key (the prefix in issue IDs, e.g. ABC)',
+        initialValue: existing?.project ?? '',
+        validate: (v) => (/^[A-Za-z][A-Za-z0-9]*$/.test(v ?? '') ? undefined : 'Letters and digits, starting with a letter.'),
+      }),
+    );
+  }
+
+  // --- states, from the project's real field values --------------------------
+  let stateValues = [];
+  let typeValues = existing?.issueTypes ?? ['Bug', 'Feature', 'Task', 'Epic', 'Improvement'];
+  let priorityValues = existing?.priorities ?? ['Show-stopper', 'Critical', 'Major', 'Normal', 'Minor'];
+
+  if (online && projectId) {
+    const s = p.spinner();
+    s.start(`Reading the field values of ${project}`);
+    const fields = await projectFieldValues(baseUrl, token, projectId);
+    if (fields.ok) {
+      stateValues = (fields.data.State ?? []).map((v) => v.name);
+      if (fields.data.Type?.length) typeValues = fields.data.Type.map((v) => v.name);
+      if (fields.data.Priority?.length) priorityValues = fields.data.Priority.map((v) => v.name);
+      s.stop(
+        stateValues.length
+          ? `States: ${c.dim(stateValues.join(' → '))}`
+          : c.yellow('No State field found — you will type the state names.'),
+      );
+    } else {
+      s.stop(c.yellow(`Could not read the field values: ${fields.error}`));
+    }
+  }
+
+  return {
+    identity: {
+      baseUrl,
+      project,
+      ...(projectId ? { projectId } : {}),
+      ...(tokenOpRef ? { tokenOpRef } : {}),
+    },
+    stateValues,
+    ladder: stateValues.length ? stateValues : (existing?.states?.ladder ?? []),
+    issueTypes: typeValues,
+    priorities: priorityValues,
+    defaultPriority: pickDefaultPriority(priorityValues, existing?.defaultPriority),
+    labels: [],
+    labelHints: [],
+    tokenOpRef,
+    summary: `${project} on ${baseUrl}`,
+  };
 }
 
-const pickState = async (message, hint, fallback) => {
-  if (stateValues.length) {
-    const guess = stateValues.find((s) => s.toLowerCase() === String(fallback).toLowerCase());
+/**
+ * GitHub Issues: the repository, and a label for every ladder rung but the first.
+ *
+ * Two rules from `lib/github.mjs` drive the whole shape of this, and neither is
+ * a preference:
+ *
+ *   - the ladder must be explicit and its **first rung is what an issue carrying
+ *     no ladder label is**. Derive it and every untouched issue reads as started.
+ *   - the rung → label mapping is required, never inferred. A label named after
+ *     its rung is a guess that is right often enough to be dangerous, so the
+ *     repository's real labels are read and mapped onto.
+ *
+ * Nothing here writes to the repository. A label that does not exist yet is
+ * collected and printed as the exact `gh label create` command — adding labels
+ * to somebody's repo is a visible, permanent change, and it is not this
+ * installer's to make.
+ */
+async function configureGitHub() {
+  const repo = bail(
+    await p.text({
+      message: 'Which GitHub repository holds the issues?',
+      placeholder: 'owner/name',
+      initialValue: existing?.github?.issuesRepo ?? existing?.github?.repo ?? detectedSlug ?? '',
+      validate: (v) => (/^[\w.-]+\/[\w.-]+$/.test(v ?? '') ? undefined : 'owner/name, as GitHub spells it.'),
+    }),
+  );
+
+  // --- verify ----------------------------------------------------------------
+  // The same bargain the YouTrack path strikes: talk to the real thing before
+  // writing a config that claims it works. `gh` carries the authentication, so
+  // there is no token to ask for — only whether it is there and can write.
+  let online = false;
+  let labels = [];
+
+  {
+    const s = p.spinner();
+    s.start(`Verifying ${repo} with gh`);
+
+    // In order, and each only worth asking if the last one held: an old `gh`
+    // cannot tell declined work from shipped, an unauthenticated one cannot
+    // answer at all, and read-only access produces a config that fails on its
+    // first write. Whichever fails is the one reported — never a generic
+    // "could not verify" over the sentence that named the problem.
+    const version = await ghVersion();
+    const auth = version.ok ? await ghAuthStatus() : null;
+    const view = auth?.ok ? await ghRepoView(repo) : null;
+    const failed = [version, auth, view].find((r) => r && !r.ok);
+
+    if (failed) {
+      s.stop(c.yellow(failed.error));
+    } else {
+      online = true;
+      s.stop(
+        `gh ${version.data}${auth.data ? `, authenticated as ${c.green(auth.data)}` : ''} — ${c.green(view.data.viewerPermission)} on ${view.data.nameWithOwner}.`,
+      );
+    }
+  }
+
+  if (online) {
+    const s = p.spinner();
+    s.start(`Reading the labels of ${repo}`);
+    const list = await ghLabels(repo);
+    if (list.ok) {
+      labels = list.data;
+      s.stop(`${labels.length} label(s) found.`);
+    } else {
+      s.stop(c.yellow(`Could not read the labels: ${list.error}`));
+    }
+  } else {
+    const go = bail(
+      await p.confirm({
+        message: 'Continue without gh? The repository and its labels will not be validated.',
+        initialValue: true,
+      }),
+    );
+    if (!go) {
+      p.cancel('Aborted — fix gh and run again.');
+      process.exit(1);
+    }
+  }
+
+  // --- the ladder ------------------------------------------------------------
+  const ladder = bail(
+    await p.text({
+      message: `The states this project moves through, first to last ${c.dim('(comma-separated)')}`,
+      placeholder: 'Backlog, In Progress, In Review, Done',
+      initialValue: (existing?.states?.ladder?.length ? existing.states.ladder : ['Backlog', 'In Progress', 'In Review', 'Done']).join(', '),
+      validate: (v) => {
+        const rungs = String(v ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+        if (rungs.length < 2) return 'At least two: one meaning untouched, one meaning finished.';
+        if (new Set(rungs.map((r) => r.toLowerCase())).size !== rungs.length) return 'Each rung once.';
+        return undefined;
+      },
+    }),
+  )
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+  p.log.info(
+    `${c.cyan(ladder[0])} needs no label — it is what an issue carrying none of the others ${c.bold('is')}.`,
+  );
+
+  // --- a label per rung, from the ones the repository really has --------------
+  const TYPE_IT = '__type_it';
+  const labelFor = {};
+  const labelHints = [];
+
+  for (const rung of ladder.slice(1)) {
+    const previous = existing?.github?.labels?.[rung];
+    const suggested = previous ?? `status: ${rung.toLowerCase()}`;
+    let chosen;
+
+    if (labels.length) {
+      const known = labels.includes(suggested) ? suggested : (labels.find((l) => l.toLowerCase() === rung.toLowerCase()) ?? null);
+      chosen = bail(
+        await p.select({
+          message: `Which label marks ${c.cyan(rung)}?`,
+          initialValue: known ?? TYPE_IT,
+          options: [
+            ...labels.map((l) => ({ value: l, label: l })),
+            { value: TYPE_IT, label: 'Something else…', hint: 'a name this repo does not have yet' },
+          ],
+          maxItems: 12,
+        }),
+      );
+    } else {
+      chosen = TYPE_IT;
+    }
+
+    if (chosen === TYPE_IT) {
+      chosen = bail(
+        await p.text({
+          message: `Label name for ${c.cyan(rung)}`,
+          placeholder: suggested,
+          initialValue: suggested,
+          validate: (v) => (v?.trim() ? undefined : 'Required — every rung but the first needs one.'),
+        }),
+      ).trim();
+    }
+
+    labelFor[rung] = chosen;
+    // Only a label the repository is known to be missing. With no label list
+    // read, nothing is known, so nothing is claimed.
+    if (labels.length && !labels.includes(chosen)) labelHints.push(createLabelCommand(chosen, repo));
+  }
+
+  return {
+    identity: { github: { repo, labels: labelFor } },
+    stateValues: ladder,
+    ladder,
+    // GitHub has no type field and no ordered priority. Types appear only if the
+    // project maps them onto labels, which the typed-branch step asks about.
+    issueTypes: [],
+    priorities: null,
+    defaultPriority: null,
+    labels,
+    labelHints,
+    tokenOpRef: null,
+    summary: `${repo} on GitHub Issues`,
+  };
+}
+
+const tracker = provider === 'github' ? await configureGitHub() : await configureYouTrack();
+
+// --- 3. the ladder rungs that mean something ---------------------------------
+const pickState = async (message, hint, fallback, values, { allowNone = false } = {}) => {
+  if (values.length) {
+    const guess = values.find((s) => s.toLowerCase() === String(fallback ?? '').toLowerCase());
     return bail(
       await p.select({
         message: `${message} ${c.dim(`(${hint})`)}`,
-        initialValue: guess ?? fallback,
-        options: stateValues.map((s) => ({ value: s, label: s })),
+        initialValue: guess ?? (allowNone ? '' : fallback),
+        options: [
+          ...values.map((s) => ({ value: s, label: s })),
+          ...(allowNone ? [{ value: '', label: 'None', hint: 'leave it unset' }] : []),
+        ],
         maxItems: 12,
+      }),
+    );
+  }
+  if (allowNone) {
+    return bail(
+      await p.text({
+        message: `${message} ${c.dim(`(${hint})`)}`,
+        initialValue: fallback ?? '',
+        defaultValue: '',
+        placeholder: 'none',
       }),
     );
   }
@@ -401,13 +662,22 @@ const pickState = async (message, hint, fallback) => {
 };
 
 const states = {
-  start: await pickState('State meaning "started"', '/task moves here', existing?.states?.start ?? 'In Progress'),
-  review: await pickState('State meaning "in review"', 'set when a PR opens', existing?.states?.review ?? 'In Review'),
-  done: await pickState('State meaning "finished"', '/done moves here', existing?.states?.done ?? 'Done'),
-  ladder: stateValues.length ? stateValues : (existing?.states?.ladder ?? []),
+  start: await pickState('State meaning "started"', '/dev-task moves here', existing?.states?.start ?? 'In Progress', tracker.stateValues),
+  review: await pickState('State meaning "in review"', 'set when a PR opens', existing?.states?.review ?? 'In Review', tracker.stateValues),
+  done: await pickState('State meaning "finished"', '/dev-done moves here', existing?.states?.done ?? 'Done', tracker.stateValues),
+  // The one state with no default anywhere. Everything else in this tool moves a
+  // ticket forward, so nothing would notice or correct a wrong value here — it
+  // is offered, with the first rung preselected, and never assumed.
+  abandon: await pickState(
+    'State a ticket goes back to when its work is thrown away',
+    'dev.mjs abandon; None to leave it unset',
+    existing?.states?.abandon ?? tracker.stateValues[0] ?? '',
+    tracker.stateValues,
+    { allowNone: true },
+  ),
+  ladder: tracker.ladder,
 };
-
-// --- 6. ticket language ------------------------------------------------------
+// --- 4. ticket language ------------------------------------------------------
 const commonLanguages = ['English', 'French', 'German', 'Spanish', 'Italian', 'Portuguese', 'Dutch'];
 let language = bail(
   await p.select({
@@ -422,8 +692,9 @@ if (language === '__other') {
   );
 }
 
-// --- 7. repos ----------------------------------------------------------------
-const candidates = findRepos(targetDir).map(describeRepo);
+// --- 5. repos ----------------------------------------------------------------
+// `candidates` was gathered before the tracker question, which needed the same
+// scan to spot a github.com origin.
 let repos = [];
 
 if (candidates.length) {
@@ -498,11 +769,12 @@ if (candidates.length) {
   }
 }
 
-// --- 8. commit convention ----------------------------------------------------
+// --- 6. commit convention ----------------------------------------------------
+const sampleId = provider === 'github' ? '#123' : 'ABC-123';
 const rootRepo = candidates.find((r) => r.path === '.') ?? candidates[0];
 const detectedTypes = candidates.map((r) => r.types).find((t) => t?.length);
 const conventionSource = candidates.find((r) => r.types?.length)?.conventionSource;
-const detectedPosition = rootRepo ? commitIdPosition(rootRepo.dir) : null;
+const detectedPosition = rootRepo ? commitIdPosition(rootRepo.dir, provider) : null;
 
 if (conventionSource) {
   p.log.success(`Commit types read from ${c.cyan(conventionSource)}: ${c.dim(detectedTypes.join(', '))}`);
@@ -516,8 +788,11 @@ const position = bail(
     message: 'Where does the issue ID go in a commit subject?',
     initialValue: existing?.commit?.position ?? detectedPosition ?? 'suffix',
     options: [
-      { value: 'suffix', label: 'Suffix', hint: 'feat(api): add thing (ABC-123)  — commitlint-safe' },
-      { value: 'prefix', label: 'Prefix', hint: 'ABC-123 feat(api): add thing' },
+      // Shown in the ID shape this project will actually commit: `#123` for
+      // GitHub, `ABC-123` for YouTrack. `lib/issueid.mjs` derives that from the
+      // provider alone, so there is no pattern to configure here.
+      { value: 'suffix', label: 'Suffix', hint: `feat(api): add thing (${sampleId})  — commitlint-safe` },
+      { value: 'prefix', label: 'Prefix', hint: `${sampleId} feat(api): add thing` },
       { value: 'any', label: 'Anywhere', hint: 'only require that an ID appears' },
     ],
   }),
@@ -566,7 +841,7 @@ function branchTypeMap(issueTypes, commitTypes) {
   return out;
 }
 
-// --- 9. isolation and delivery -----------------------------------------------
+// --- 7. isolation and delivery -----------------------------------------------
 //
 // Two working-style questions, asked in working-style terms. Both have real
 // consequences — one decides which directory every later command runs in, the
@@ -606,12 +881,60 @@ const deliveryMode = bail(
 
 const useTypedBranches = bail(
   await p.confirm({
-    message: `Prefix branches with the change type? ${c.dim('(feat/ABC-1-slug rather than ABC-1-slug)')}`,
-    initialValue: (existing?.branch?.pattern ?? '<type>/<ID>-<slug>').includes('<type>'),
+    message: `Prefix branches with the change type? ${c.dim(`(feat/${sampleId.replace('#', '')}-slug rather than ${sampleId.replace('#', '')}-slug)`)}`,
+    // Off by default on GitHub unless the project already does it: the type has
+    // to come from somewhere, and on GitHub that means labels the project may
+    // not keep. Without them every branch would render the `chore` fallback.
+    initialValue: existing?.branch?.pattern
+      ? existing.branch.pattern.includes('<type>')
+      : provider !== 'github',
   }),
 );
 
-// --- 10. reviewer ------------------------------------------------------------
+// A branch carries a type only if the tracker can say what an issue's type is.
+// YouTrack has a Type field; GitHub has one only where the project maps types
+// onto labels, which is exactly what `github.labels.type` records and what
+// `capabilities.types` is read off. Asked here rather than as a step of its own,
+// so a project that does not want typed branches is never asked at all.
+let issueTypes = tracker.issueTypes;
+let typeLabels = null;
+
+if (provider === 'github' && useTypedBranches) {
+  const DEFAULT_TYPE_LABELS = { Bug: 'bug', Feature: 'enhancement' };
+  const previous = existing?.github?.labels?.type ?? null;
+  const proposed = previous ?? DEFAULT_TYPE_LABELS;
+  const known = tracker.labels.length ? tracker.labels : null;
+
+  const answer = bail(
+    await p.text({
+      message: `Which labels mean which issue type? ${c.dim('(Type=label, comma-separated; blank for none)')}`,
+      initialValue: Object.entries(proposed)
+        .filter(([, label]) => !known || known.includes(label))
+        .map(([type, label]) => `${type}=${label}`)
+        .join(', '),
+      defaultValue: '',
+      placeholder: 'none',
+    }),
+  );
+
+  const parsed = {};
+  for (const pair of answer.split(',')) {
+    const [type, label] = pair.split('=').map((x) => x.trim());
+    if (type && label) parsed[type] = label;
+  }
+
+  if (Object.keys(parsed).length) {
+    typeLabels = parsed;
+    issueTypes = Object.keys(parsed);
+    for (const label of Object.values(parsed)) {
+      if (known && !known.includes(label)) tracker.labelHints.push(createLabelCommand(label, tracker.identity.github.repo));
+    }
+  } else {
+    p.log.info(`No type labels — branches will use ${c.cyan('branch.fallbackType')} for their prefix.`);
+  }
+}
+
+// --- 8. reviewer -------------------------------------------------------------
 // Only meaningful with a pull request in the picture; a reviewer on a `direct`
 // project is a field nothing will ever read.
 const reviewer =
@@ -626,54 +949,40 @@ const reviewer =
       )
     : '';
 
-// --- 11. assemble ------------------------------------------------------------
-const idPattern = position === 'prefix' ? '<ID> type(scope): description' : 'type(scope): description (<ID>)';
-
-const config = {
-  // Written explicitly rather than left to the default, so the file says which
-  // tracker it is for. This wizard only configures YouTrack; a GitHub project
-  // is set up by /dev-init, which knows about label ladders.
-  provider: 'youtrack',
-  baseUrl,
-  project,
-  ...(projectId ? { projectId } : {}),
-  ...(tokenOpRef ? { tokenOpRef } : {}),
+// --- 9. assemble -------------------------------------------------------------
+// The shape itself lives in `bin/lib/wizard-config.mjs`, as a pure function of
+// these answers: a script full of prompts cannot be run without a TTY, so
+// nothing could assert what the wizard emitted while it was inline here.
+const config = buildConfig({
+  provider,
+  identity: tracker.identity,
   language,
   states,
-  branch: {
-    pattern: useTypedBranches ? '<type>/<ID>-<slug>' : '<ID>-<slug>',
-    base,
-    mode: branchMode,
-    ...(existing?.branch?.worktreeDir ? { worktreeDir: existing.branch.worktreeDir } : {}),
-    // The issue types are the ones read off this very project a few steps ago,
-    // mapped onto the commit types detected from its commitlint config. Only
-    // types that exist on both sides are written: a mapping to a commit type
-    // the project does not have would be refused at branch time.
-    ...(useTypedBranches
-      ? { types: branchTypeMap(typeValues, detectedTypes ?? DEFAULT_COMMIT_TYPES) }
-      : {}),
-  },
-  delivery: {
-    mode: deliveryMode,
-    ...(existing?.delivery?.remote ? { remote: existing.delivery.remote } : {}),
-  },
-  commit: {
-    pattern: requireType ? idPattern : position === 'prefix' ? '<ID>: description' : 'description (<ID>)',
-    position,
-    noTicketEscape: existing?.commit?.noTicketEscape ?? 'chore(no-ticket)',
-    ...(detectedTypes?.length ? { types: detectedTypes } : {}),
-    ...(requireType ? {} : { requireType: false }),
-    ...(enforce ? {} : { enforce: false }),
-  },
-  issueTypes: typeValues,
-  priorities: priorityValues,
-  defaultPriority: priorityValues.includes(existing?.defaultPriority)
-    ? existing.defaultPriority
-    : (priorityValues.find((v) => /normal|medium/i.test(v)) ?? priorityValues[Math.floor(priorityValues.length / 2)] ?? 'Normal'),
-  ...(reviewer ? { reviewer } : {}),
-  ...(repos.length ? { repos } : {}),
-  ...(existing?.notes ? { notes: existing.notes } : {}),
-};
+  branchMode,
+  base,
+  worktreeDir: existing?.branch?.worktreeDir ?? null,
+  useTypedBranches,
+  // The issue types are the ones this project really has — read off the YouTrack
+  // project, or mapped onto GitHub labels a step ago — put against the commit
+  // types detected from its commitlint config. Only types that exist on both
+  // sides are written: a mapping to a commit type the project does not have
+  // would be refused at branch time.
+  branchTypes: branchTypeMap(issueTypes, detectedTypes ?? DEFAULT_COMMIT_TYPES),
+  deliveryMode,
+  deliveryRemote: existing?.delivery?.remote ?? null,
+  position,
+  requireType,
+  enforce,
+  commitTypes: detectedTypes ?? null,
+  noTicketEscape: existing?.commit?.noTicketEscape ?? 'chore(no-ticket)',
+  issueTypes,
+  priorities: tracker.priorities,
+  defaultPriority: tracker.defaultPriority,
+  reviewer,
+  repos,
+  notes: existing?.notes ?? null,
+  typeLabels,
+});
 
 const json = JSON.stringify(config, null, 2) + '\n';
 
@@ -689,13 +998,13 @@ if (write) {
   writeFileSync(configPath, json, 'utf8');
   p.log.success(`Wrote ${configPath}`);
   p.log.info(
-    `It holds no secret${tokenOpRef ? ' — tokenOpRef is a 1Password reference, not a token' : ''}, so it is safe to commit.`,
+    `It holds no secret${tracker.tokenOpRef ? ' — tokenOpRef is a 1Password reference, not a token' : ''}, so it is safe to commit.`,
   );
 } else {
   p.log.warn('Skipped — no config written.');
 }
 
-// --- 11. install the workflow into the project -------------------------------
+// --- 10. install the workflow into the project -------------------------------
 // Everything lands inside the project: nothing is registered globally, so the
 // skill names are only claimed where they were actually installed.
 const existingManifest = readManifest(targetDir);
@@ -714,8 +1023,9 @@ if (doInstall) installIntoProject({ force: flag('--force') });
 else p.log.warn('Skipped — the skills and runtime were not installed.');
 
 // --- done --------------------------------------------------------------------
+const pad = ' '.repeat(Math.max(0, 'ABC-123'.length - sampleId.length));
 const nextSteps = [
-  `${c.cyan('/dev-task ABC-123')}   start work on an issue`,
+  `${c.cyan(`/dev-task ${sampleId}`)}${pad}   start work on an issue`,
   `${c.cyan('/dev-bug it broke')}   file one without losing your place`,
   `${c.cyan('/dev-done')}           verify and close out`,
   '',
@@ -725,8 +1035,19 @@ const nextSteps = [
   c.dim('Update later with:'),
   c.cyan(UPDATE_COMMAND),
 ];
-if (!tokenOpRef) {
+if (provider === 'youtrack' && !tracker.tokenOpRef) {
   nextSteps.push('', c.dim('Remember to export $YOUTRACK_TOKEN in the shell Claude Code runs in.'));
 }
 p.note(nextSteps.join('\n'), 'Next');
-p.outro(`${c.green('Ready.')} ${c.dim(`${project} on ${baseUrl}`)}`);
+
+// Labels the repository does not have yet. Printed, never created: adding a
+// label is a visible, permanent change to somebody's repo, and the adapter
+// refuses to make one silently for the same reason.
+if (tracker.labelHints.length) {
+  p.note(
+    [...new Set(tracker.labelHints)].join('\n'),
+    c.yellow('Run these first — the ladder needs labels this repo does not have yet'),
+  );
+}
+
+p.outro(`${c.green('Ready.')} ${c.dim(tracker.summary)}`);

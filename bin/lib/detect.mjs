@@ -162,6 +162,22 @@ export function remotes(dir) {
   return out ? out.split('\n').filter(Boolean) : [];
 }
 
+/**
+ * The `owner/name` this repo's `origin` points at on github.com, or null.
+ *
+ * A proposal for the wizard's tracker question, never a decision: a repo hosted
+ * anywhere else returns null rather than a slug that would be wrong, and the
+ * answer is shown for confirmation like everything else here.
+ */
+export function githubRepo(dir) {
+  const url = git(dir, ['remote', 'get-url', 'origin']);
+  if (!url) return null;
+  // git@github.com:owner/name.git, https://github.com/owner/name(.git),
+  // ssh://git@github.com/owner/name — one shape covers all three.
+  const m = /(?:^|@|\/\/)github\.com[:/]([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(url);
+  return m ? `${m[1]}/${m[2]}` : null;
+}
+
 /** The default branch, from origin/HEAD, then a guess among the usual names. */
 export function baseBranch(dir) {
   const head = git(dir, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
@@ -173,16 +189,30 @@ export function baseBranch(dir) {
   return git(dir, ['branch', '--show-current']) || 'main';
 }
 
-/** How issue IDs actually appear in this project's history so far. */
-export function commitIdPosition(dir) {
+/**
+ * How issue IDs actually appear in this project's history so far.
+ *
+ * The shape being looked for depends on the tracker — `ABC-123` is YouTrack's,
+ * `#123` is GitHub's — so the provider is passed in rather than assumed. A
+ * GitHub project scanned for the YouTrack shape finds nothing and falls through
+ * to the default without ever having looked at its own history.
+ */
+export function commitIdPosition(dir, provider = 'youtrack') {
   const log = git(dir, ['log', '--oneline', '--no-merges', '-50', '--format=%s']);
   if (!log) return null;
+
+  // Anchored variants of the same shape: anywhere, at the start, at the end.
+  const [anywhere, atStart, atEnd] =
+    provider === 'github'
+      ? [/#\d+/, /^#\d+/, /#\d+\)?\s*$/]
+      : [/[A-Z][A-Z0-9]*-\d+/, /^[A-Z][A-Z0-9]*-\d+/, /[A-Z][A-Z0-9]*-\d+\)?\s*$/];
+
   let prefix = 0;
   let suffix = 0;
   for (const subject of log.split('\n')) {
-    if (!/[A-Z][A-Z0-9]*-\d+/.test(subject)) continue;
-    if (/^[A-Z][A-Z0-9]*-\d+/.test(subject)) prefix += 1;
-    else if (/[A-Z][A-Z0-9]*-\d+\)?\s*$/.test(subject)) suffix += 1;
+    if (!anywhere.test(subject)) continue;
+    if (atStart.test(subject)) prefix += 1;
+    else if (atEnd.test(subject)) suffix += 1;
   }
   if (prefix === 0 && suffix === 0) return null;
   return prefix > suffix ? 'prefix' : 'suffix';
@@ -234,6 +264,7 @@ export function describeRepo({ path, dir }) {
     checks: checkCommands(dir),
     env: envPins(dir),
     remotes: remotes(dir),
+    githubRepo: githubRepo(dir),
     scopes: conv.scopes,
     types: conv.types,
     conventionSource: conv.source,
