@@ -112,6 +112,15 @@ run_case 'the default dir no longer applies once moved'     0 accepted \
   --cfg '{"docs":{"decisionsDir":"adr"}}'
 run_case 'docs.enforce:false disables the guard'            0 accepted \
   --cfg '{"docs":{"enforce":false}}'
+run_case 'hooks.adrImmutable:false disables the guard'      0 accepted \
+  --cfg '{"hooks":{"adrImmutable":false}}'
+# The older spelling can only ever disable. Letting the newer key switch a guard
+# back on would mean a config saying "off" in one place and "on" in another, and
+# a precedence rule nobody can predict from reading either line.
+run_case 'the newer key cannot re-enable what the older turned off' 0 accepted \
+  --cfg '{"hooks":{"adrImmutable":true},"docs":{"enforce":false}}'
+run_case 'both keys absent leaves the guard on'             2 accepted \
+  --cfg '{"hooks":{}}'
 run_case 'invalid json falls back to the default dir'       2 accepted --cfg '{not json'
 
 # Degradation.

@@ -47,6 +47,9 @@ run_case() {
 
 CFG_PREFIX='{"commit":{"position":"prefix"}}'
 CFG_OFF='{"commit":{"enforce":false}}'
+CFG_HOOKS_OFF='{"hooks":{"commitTicket":false}}'
+CFG_HOOKS_CONFLICT='{"hooks":{"commitTicket":true},"commit":{"enforce":false}}'
+CFG_HOOKS_EMPTY='{"hooks":{}}'
 CFG_NOTYPE='{"commit":{"requireType":false}}'
 CFG_TYPES='{"commit":{"types":["feat","fix"]}}'
 CFG_ESCAPE='{"commit":{"noTicketEscape":"chore(skip)"}}'
@@ -102,6 +105,12 @@ run_case 'prefix: rejects a suffix id'          2 'git commit -m "feat(api): add
 
 # --- config switches ----------------------------------------------------------
 run_case 'enforce:false disables the hook'      0 'git commit -m "whatever"'            "$CFG_OFF"
+run_case 'hooks.commitTicket:false disables it' 0 'git commit -m "whatever"'            "$CFG_HOOKS_OFF"
+# The older spelling can only ever disable. Letting the newer key switch the
+# guard back on would mean a config saying "off" in one place and "on" in
+# another, and a precedence rule nobody can predict from reading either line.
+run_case 'the newer key cannot re-enable it'    0 'git commit -m "whatever"'            "$CFG_HOOKS_CONFLICT"
+run_case 'an empty hooks block leaves it on'    2 'git commit -m "whatever"'            "$CFG_HOOKS_EMPTY"
 run_case 'requireType:false keeps the id check' 0 'git commit -m "add endpoint (ABC-1)"' "$CFG_NOTYPE"
 run_case 'requireType:false still needs an id'  2 'git commit -m "add endpoint"'         "$CFG_NOTYPE"
 run_case 'honours a narrowed type list'         0 'git commit -m "fix(api): thing (ABC-1)"' "$CFG_TYPES"
