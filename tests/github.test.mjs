@@ -53,6 +53,32 @@ function fakeGh({ fail = false, labels = ['status: in progress', 'status: review
     if (fail) return fail0;
 
     if (args[0] === 'api' && args[1] === 'user') return out('ayoub');
+
+    // The batched read. Answers by exact number, and — like the real API —
+    // reports a number that does not exist as an `errors` entry alongside the
+    // issues that do, with `gh` exiting non-zero for the whole response.
+    if (args[0] === 'api' && args[1] === 'graphql') {
+      const query = args.find((a) => String(a).startsWith('query=')) ?? '';
+      const asked = [...String(query).matchAll(/issue\(number: (\d+)\)/g)].map((m) => Number(m[1]));
+      const repository = {};
+      const errors = [];
+      for (const n of asked) {
+        const i = issues.get(n);
+        // Verified against the real API: a missing number comes back as an
+        // explicit null alias plus a NOT_FOUND, not as an absent key.
+        if (!i) { repository[`i${n}`] = null; errors.push({ type: 'NOT_FOUND', path: ['repository', `i${n}`] }); continue; }
+        repository[`i${n}`] = {
+          number: i.number,
+          state: i.state,
+          stateReason: i.stateReason,
+          labels: { nodes: i.labels.map((l) => ({ name: l.name })) },
+        };
+      }
+      const body = JSON.stringify(errors.length ? { data: { repository }, errors } : { data: { repository } });
+      return errors.length
+        ? { ok: false, code: 1, stdout: body, stderr: 'gh: Could not resolve to an Issue' }
+        : out(body);
+    }
     if (args[0] === 'repo' && args[1] === 'view') {
       return out({ nameWithOwner: 'acme/api', name: 'api', url: 'https://github.com/acme/api', viewerPermission: 'WRITE' });
     }
@@ -64,7 +90,13 @@ function fakeGh({ fail = false, labels = ['status: in progress', 'status: review
         const i = issues.get(n);
         return i ? out(i) : { ok: false, code: 1, stdout: '', stderr: 'not found' };
       }
-      if (args[1] === 'list') return out([...issues.values()]);
+      // Newest first, capped at --limit: what `gh issue list` actually does.
+      // Nothing calls this any more, and that is the point — the cap is why it
+      // could not be the batched read.
+      if (args[1] === 'list') {
+        const limit = Number(args[args.indexOf('--limit') + 1] || 30);
+        return out([...issues.values()].sort((a, b) => b.number - a.number).slice(0, limit));
+      }
       if (args[1] === 'edit') {
         const i = issues.get(n);
         if (!i) return { ok: false, code: 1, stdout: '', stderr: 'not found' };
@@ -168,12 +200,16 @@ test('reads go out as argument arrays, never a shell string', async () => {
   ]);
 });
 
+const graphqlCalls = (calls) => calls.filter((c) => c.args[0] === 'api' && c.args[1] === 'graphql');
+
 test('getStates is one call for the whole batch', async () => {
   const { provider, calls } = build();
   await provider.getStates(['#1', '#2']);
-  const lists = calls.filter((c) => c.args[1] === 'list');
-  assert.equal(lists.length, 1, 'a per-issue loop would be a process spawn each');
-  assert.ok(lists[0].args.includes('--state') && lists[0].args.includes('all'));
+  const reads = graphqlCalls(calls);
+  assert.equal(reads.length, 1, 'a per-issue loop would be a process spawn each');
+  const query = reads[0].args.find((a) => String(a).startsWith('query='));
+  assert.match(query, /issue\(number: 1\)/);
+  assert.match(query, /issue\(number: 2\)/, 'both numbers in the one query');
 });
 
 test('a long comment goes via stdin, not argv', async () => {
@@ -317,7 +353,52 @@ test('an open issue carrying two rung labels is drift', async () => {
 test('checkRepresentation is one call for the whole batch', async () => {
   const { provider, calls } = build();
   await provider.checkRepresentation(['#1', '#2']);
-  assert.equal(calls.filter((c) => c.args[1] === 'list').length, 1);
+  assert.equal(graphqlCalls(calls).length, 1);
+});
+
+// The batched read used to be `gh issue list --limit N`, which answers with the
+// N most recently *created* issues rather than the N asked about. On any
+// repository with more issues than the window, an old one fell out of the
+// answer, `getStates` reported UNKNOWN and the reconciler skipped it in silence
+// — the same class of stranded ticket this whole path exists to repair, and
+// worst in exactly the case that needs it: hunting a label stranded long ago.
+
+test('an issue far older than any recency window is still answered', async () => {
+  const { provider, calls, issues } = build();
+  for (let n = 3; n <= 400; n += 1) {
+    issues.set(n, { number: n, state: 'OPEN', stateReason: null, labels: [] });
+  }
+
+  assert.equal((await provider.getStates(['#1'])).get('#1'), 'In Progress');
+  assert.equal(
+    calls.filter((c) => c.args[1] === 'list').length,
+    0,
+    'a windowed list is not a read of the numbers asked about',
+  );
+});
+
+test('a number that does not exist does not blank the rest of the batch', async () => {
+  // GitHub answers a missing alias with a NOT_FOUND in `errors`, and `gh` exits
+  // non-zero for the whole response. Throwing the body away with it would let
+  // one deleted issue hide forty-nine live ones.
+  const { provider } = build();
+  const states = await provider.getStates(['#1', '#404']);
+  assert.equal(states.get('#1'), 'In Progress');
+  assert.equal(states.get('#404'), UNKNOWN, 'unread, not defaulted');
+});
+
+test('a batch larger than one query is still answered in full', async () => {
+  const { provider, calls, issues } = build();
+  const ids = [];
+  for (let n = 1; n <= 120; n += 1) {
+    if (!issues.has(n)) issues.set(n, { number: n, state: 'OPEN', stateReason: null, labels: [] });
+    ids.push(`#${n}`);
+  }
+
+  const states = await provider.getStates(ids);
+  assert.equal(states.size, 120);
+  assert.ok(![...states.values()].includes(UNKNOWN), 'every id asked about got a real answer');
+  assert.equal(graphqlCalls(calls).length, 3, '120 issues is three queries, not 120 spawns');
 });
 
 test('repairRepresentation relabels without opening or closing anything', async () => {
