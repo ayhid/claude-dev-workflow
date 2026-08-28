@@ -374,13 +374,22 @@ Transitions rot. A PR merges on a Friday, nobody is in a session, and the ticket
 until someone notices. The usual fix is a webhook that fires on merge, but an event that fires
 while the runner is down is simply lost, and the ticket is wrong forever.
 
-`dev.mjs sync` reconciles instead of reacting. It asks *given the PRs that exist right now, where
+`dev.mjs sync` reconciles instead of reacting. It asks *given what has been pushed right now, where
 should each ticket be?* and advances whatever has fallen behind:
 
 | Evidence | Target |
 | --- | --- |
 | an open PR references the issue | `states.review` |
 | a merged PR references the issue | `states.done` |
+| a commit on the base branch references the issue | `states.done` |
+
+That third row is what makes the reconciler work on a project that does not open pull requests at
+all. `delivery.mode: direct` is the recommended mode for a solo project, and PR evidence about one
+does not exist and never will — so before it existed, `sync` reported "everything is in sync" about
+a board where nothing had moved since the day it was filed. A commit reachable from the base branch
+has landed, which is the same fact a merged PR carries. On a `pr` project it covers everything that
+bypasses `land`: a hand-pushed fix, a hotfix, a rebase landing three commits at once, work done
+outside a session.
 
 ```mermaid
 stateDiagram-v2
@@ -394,6 +403,7 @@ stateDiagram-v2
     inprog --> inreview: land --apply opens a PR
     inreview --> finished: sync sees the PR merged
     inprog --> finished: land --apply, delivery.mode direct
+    inprog --> finished: sync sees the commit on the base branch
     inprog --> offladder: moved by hand
     offladder --> inprog: moved by hand
     inprog --> Backlog: dev.mjs abandon
@@ -427,14 +437,22 @@ carrying **no** ladder label is never backfilled: it never entered the ladder, a
 would invent history it does not have. On a tracker that owns its own states there is only one copy
 and nothing to repair, so this costs a YouTrack project nothing.
 
-It matches PRs to issues through the **branch name and PR title**. `--deep` additionally reads each
-unmatched PR's commit subjects, which is where a `type(scope): description (ABC-1)` convention puts
-the ID. That is slower, one extra API call per PR, but it finds work whose branch was named
-freehand.
+It matches PRs to issues through the **branch name and PR title**, and landed work through the
+**commit subject**, which is where a `type(scope): description (ABC-1)` convention puts the ID. The
+commits it reads are those on `delivery.base` (falling back to `branch.base`) — preferring the
+`upstream` then `origin` copy of that branch over the local one, because a local branch can be
+stale, or hold commits nobody has pushed, and neither of those has landed. Merge commits are
+skipped: GitHub titles its own `Merge pull request #38 from …`, and that number is a pull request's,
+not an issue's. This scan is local, costs no API call, and is always on.
 
-Coverage is bounded by the convention, not the tool: a PR that names no issue anywhere is invisible
-to it. If a run reports far fewer issues than you expect, that is the finding. The branch naming
-has drifted, and the commit hook is what pulls it back.
+`--deep` is the other half and reaches somewhere different: it reads the commit subjects of each PR
+whose **branch and title** named nothing, which finds an unmerged PR on a freehand branch. That
+costs one extra API call per PR. What it does not reach is a commit belonging to no PR — no amount
+of PR scanning can see one — which is what the base-branch scan is for.
+
+Coverage is bounded by the convention, not the tool: work that names no issue in a branch, a title
+or a commit subject is invisible to it. If a run reports far fewer issues than you expect, that is
+the finding. The branch naming has drifted, and the commit hook is what pulls it back.
 
 Requires the [GitHub CLI](https://cli.github.com), authenticated. The repo is taken from
 `repos[].github` when set, otherwise from the `upstream` then `origin` remote. Set it explicitly
