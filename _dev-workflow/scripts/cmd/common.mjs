@@ -2,8 +2,8 @@
  * Shared plumbing for the command modules: config + provider in one step, and
  * the `@file` argument convention.
  */
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { appendFileSync, existsSync, readFileSync, realpathSync } from 'node:fs';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { findIssueCheckouts } from '../../lib/branch.mjs';
 import { loadConfig } from '../../lib/config.mjs';
@@ -156,6 +156,57 @@ export function readArg(value, what = 'file') {
   }
 }
 
+/** The directory a configured repo path names. `.` is the project root itself. */
+function repoDirOf(root, path) {
+  return path === '.' ? root : `${root}/${path}`;
+}
+
+/**
+ * `resolve`, but through symlinks when the path exists.
+ *
+ * Both spellings of one directory turn up in normal use and they are not equal
+ * as strings: the project root arrives from `CLAUDE_PROJECT_DIR` exactly as it
+ * was written, while `process.cwd()` is always resolved — so a project under a
+ * symlinked path (`/tmp` on macOS, a home directory on a network mount) has a
+ * working directory that no prefix test can place inside its own repos.
+ *
+ * Falls back for a path that does not exist, which is what a unit test passes.
+ */
+function realpath(p) {
+  try {
+    return realpathSync(resolve(p));
+  } catch {
+    return resolve(p);
+  }
+}
+
+/** Is `child` `parent` itself, or somewhere inside it? */
+function contains(parent, child) {
+  const rel = relative(realpath(parent), realpath(child));
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+/**
+ * The configured repo the caller is standing in, or null.
+ *
+ * Path containment alone, and that is enough: `branch.worktreeDir` is relative
+ * to the repo it belongs to (`lib/branch.mjs`), so a worktree is always *inside*
+ * the repo it was cut from and resolves to it by prefix. Asking git instead
+ * would make this async and untestable without a repository, for an answer the
+ * paths already hold.
+ *
+ * Most specific wins. A project listing both `frontend` and `.` has two answers
+ * for anything under `frontend/`, and the root is the wrong one — it is the
+ * fallback, not the match.
+ */
+function repoContaining(paths, root, cwd) {
+  const matches = paths
+    .map((path) => ({ path, dir: repoDirOf(root, path) }))
+    .filter((r) => contains(r.dir, cwd))
+    .sort((a, b) => realpath(b.dir).length - realpath(a.dir).length);
+  return matches[0] ?? null;
+}
+
 /**
  * Which repo a command acts on, and where it is on disk.
  *
@@ -166,17 +217,29 @@ export function readArg(value, what = 'file') {
  *
  * Refusing an unknown `--repo` rather than falling back to the root is
  * deliberate: silently working on the wrong repo is worse than stopping.
+ *
+ * With several repos and no flag, the working directory answers the question
+ * before the refusal does. It has to: worktree mode puts the branch in a
+ * directory *under* a repo, and `--repo` takes only the literal paths in
+ * `repos`, which by construction never include a worktree — so `land` could
+ * never be pointed at the branch it was meant to land (#15). Standing inside a
+ * checkout is not a guess about which repo is meant, it is the answer.
  */
-export function resolveRepo(config, root, wanted) {
+export function resolveRepo(config, root, wanted, cwd = process.cwd()) {
   const paths = config.repos?.length ? config.repos.map((r) => r.path) : ['.'];
 
   if (wanted && !paths.includes(wanted)) {
     throw new UserError(`--repo "${wanted}" is not configured (have: ${paths.join(', ')})`);
   }
   if (!wanted && paths.length > 1) {
-    throw new UserError(
-      `this project configures ${paths.length} repos (${paths.join(', ')}) — pass --repo <path>`,
-    );
+    const here = repoContaining(paths, root, cwd);
+    if (!here) {
+      throw new UserError(
+        `this project configures ${paths.length} repos (${paths.join(', ')}) — ` +
+          'pass --repo <path>, or run this from inside one of them',
+      );
+    }
+    return here;
   }
 
   // `||`, not `??`: an unspecified repo reaches here as `''` from a command
@@ -184,7 +247,7 @@ export function resolveRepo(config, root, wanted) {
   // undefined. The empty string then became the path, and the directory became
   // `<root>/` — a repo that is nearly the right one, which is the worst kind.
   const path = wanted || paths[0];
-  return { path, dir: path === '.' ? root : `${root}/${path}` };
+  return { path, dir: repoDirOf(root, path) };
 }
 
 /** Unwrap a { ok, data, error } result or throw its message. */

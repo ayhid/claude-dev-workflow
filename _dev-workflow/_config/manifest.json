@@ -1,8 +1,8 @@
 {
   "installation": {
-    "version": "1.8.0",
+    "version": "1.10.0",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-28T20:11:49.094Z"
+    "lastUpdated": "2026-08-28T20:20:01.021Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -118,7 +118,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/common.mjs",
-      "sha256": "b1a15a5f9896ada85cc166d0ddc8cd7c7a54d416a9ba135efbad01809693a13a"
+      "sha256": "2f2ae23fd518f763fde2aafd8e28dbb71239e9d7c566cc2a124a62347eb9821c"
     },
     {
       "path": "_dev-workflow/scripts/cmd/config.mjs",
@@ -142,7 +142,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/land.mjs",
-      "sha256": "f923747e4ce3cf8344689d1766d95234e47be88f22bc9db32d84746f08478f8e"
+      "sha256": "3d214c1e3580a589992b99f4fdb94de98808f9c50369949804390e593a2150b9"
     },
     {
       "path": "_dev-workflow/scripts/cmd/note.mjs",

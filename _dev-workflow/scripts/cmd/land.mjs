@@ -23,7 +23,7 @@ import { deliveryBase, deliveryFor } from '../../lib/config.mjs';
 import { parseCriteria } from '../../lib/metrics.mjs';
 import { sh } from '../../lib/sh.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
-import { context, resolveRepo, UserError } from './common.mjs';
+import { context, locateWork, resolveRepo, UserError } from './common.mjs';
 
 function parseArgs(args) {
   const opts = { apply: false };
@@ -66,6 +66,10 @@ export function missingTargetError({ base, remote, repoDir, fromDeliveryBase }) 
 /** Open the PR and report what actually landed on it, not what was requested. */
 async function openPullRequest({ workDir, branch, base, issue, reviewer, remote, apply, L }) {
   L.push(`action:   open a pull request ${branch} → ${base}`);
+  // Printed on the plan, not only after the fact: a reviewer that never reaches
+  // the PR is the failure this command already warns about below, and a dry run
+  // that omits the name cannot be checked against the config before the push.
+  L.push(`reviewer: ${reviewer || '(none configured)'}`);
   if (!apply) return { ok: true };
 
   const push = await sh('git', ['-C', workDir, 'push', '--set-upstream', remote, branch]);
@@ -136,7 +140,22 @@ export async function run(args) {
   // branch it forks from and never asked to land at all.
   const delivery = deliveryFor(config, repo.path);
   const base = deliveryBase(config, delivery);
-  if (branch === base) throw new UserError(`already on ${base} — there is nothing to land`);
+  if (branch === base) {
+    // In worktree mode this is the ordinary case rather than a mistake: the repo
+    // root is exactly where the base stays checked out, so a `--repo` that names
+    // the repo lands the caller here every time. Reporting an empty hand made
+    // that a dead end (#15) — say where the work actually is. `locateWork`
+    // refuses an ambiguous ticket, and its refusal must not replace this one.
+    const found = await locateWork({ config, vcs, repoDir, id }).catch(() => null);
+    throw new UserError(
+      `already on ${base} — there is nothing to land.\n` +
+        (found?.path
+          ? `${id} is checked out in ${found.path} — run land from there:\ncd ${found.path}`
+          : found
+            ? `${id} is on branch ${found.branch} — check it out first.`
+            : `Nothing here carries ${id}.`),
+    );
+  }
 
   // A target that does not exist is a config error, and it must surface here
   // rather than as a git or `gh` failure after the branch has been pushed. The
