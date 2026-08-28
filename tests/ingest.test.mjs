@@ -55,9 +55,28 @@ test('prose is a document; code, generated files and our own output are not', ()
   // both copies reads every one twice and manufactures a contradiction between
   // a file and itself — found the first time this was run against this repo.
   assert.equal(classifyPath('.claude/skills/dev-task/SKILL.md'), 'other');
-  // A skill the user wrote is genuinely their documentation. Same boundary
-  // `isOwnedPath` draws: the `dev-` prefix, not the directory.
-  assert.equal(classifyPath('.claude/skills/release/SKILL.md'), 'doc');
+});
+
+test('an agent-skill payload is instructions for an agent, not prose about the project', () => {
+  // The rule is the directory, not the `dev-` prefix it used to be. A repo that
+  // vendors third-party packs tracks them, so `git ls-files` hands every file to
+  // the classifier: 72% of one affected corpus (#34).
+  assert.equal(classifyPath('.claude/skills/release/SKILL.md'), 'other');
+  assert.equal(classifyPath('.claude/skills/some-pack/references/api.md'), 'other');
+  assert.equal(classifyPath('.agents/skills/vendored/SKILL.md'), 'other');
+  assert.equal(classifyPath('.gemini/skills/vendored/references/usage.md'), 'other');
+  assert.equal(classifyPath('.claude/plugins/marketplace/README.md'), 'other');
+
+  // A pack's own source is excluded for being a payload, not for its extension —
+  // so the source rule must not be what happens to catch it.
+  assert.equal(classifyPath('.claude/skills/some-pack/scripts/run.mjs'), 'other');
+
+  // The exclusion is scoped to the payload directories and nothing above them.
+  // `.claude/` also holds a project's own hand-written config and hooks, and
+  // CLAUDE.md at the root stays the document it has always been.
+  assert.equal(classifyPath('CLAUDE.md'), 'doc');
+  assert.equal(classifyPath('docs/architecture.md'), 'doc');
+  assert.equal(classifyPath('skills/authoring.md'), 'doc');
 });
 
 // --- the refusals ---------------------------------------------------------------
