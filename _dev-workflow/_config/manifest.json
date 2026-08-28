@@ -1,8 +1,8 @@
 {
   "installation": {
-    "version": "1.10.0",
+    "version": "1.10.1",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-28T20:30:14.836Z"
+    "lastUpdated": "2026-08-28T21:54:48.827Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -18,11 +18,15 @@
   "files": [
     {
       "path": "_dev-workflow/hooks/check-adr-immutable.sh",
-      "sha256": "72f3c10e44fa4b575b8c922b8c57048f17beae1e32bbce3b31b29b8ea61dcdc7"
+      "sha256": "a289a8dd306eea6b92d42dcf7537fe3719a03909fd7847d292c2b212ff00592f"
     },
     {
       "path": "_dev-workflow/hooks/check-commit-ticket.sh",
-      "sha256": "6263637ee4409a7bc175694fdbae12a2efee142539cb47f2eb2672910fed9dec"
+      "sha256": "b5d99c3c7302be4aa82b6dc2edb16cba120277c0d2b29276f4e4c49624056d99"
+    },
+    {
+      "path": "_dev-workflow/hooks/session-standup.mjs",
+      "sha256": "a3be5fa5f449cbc48225f77f241c354e26e167af69011cbf933434f66f402bb3"
     },
     {
       "path": "_dev-workflow/lib/adr.mjs",
@@ -34,7 +38,7 @@
     },
     {
       "path": "_dev-workflow/lib/config.mjs",
-      "sha256": "0da358ad6ade60877d031dbcc28d4c98e372b10cf3aa049c81da3c643d6ffa39"
+      "sha256": "32851defc5f6416411a7fc4b211e7e2fc01619b04d17c6db90dda82f0caecf8b"
     },
     {
       "path": "_dev-workflow/lib/docset.mjs",
@@ -46,7 +50,7 @@
     },
     {
       "path": "_dev-workflow/lib/ingest.mjs",
-      "sha256": "70bc34dc07329e9cb474f1055eff26e357565ef6b9fcacfe3bfd1886ae6e0b77"
+      "sha256": "6bfa865e112a89bade8470fb237c79050d39aa0286a897470a607463ab95268e"
     },
     {
       "path": "_dev-workflow/lib/issueid.mjs",
@@ -118,7 +122,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/common.mjs",
-      "sha256": "2f2ae23fd518f763fde2aafd8e28dbb71239e9d7c566cc2a124a62347eb9821c"
+      "sha256": "062270945c127e667608fb0582df6507b7b2e318d869a0d5593b7f64bbe825e6"
     },
     {
       "path": "_dev-workflow/scripts/cmd/config.mjs",
@@ -138,11 +142,11 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/ingest.mjs",
-      "sha256": "b736af927c83037060917ea4dce5fb5dd9df33921bcbcf7fe1b1b0e23a731468"
+      "sha256": "91d92b9fb10e96d64c666155cec811cdeb499a982736ac63f080e430ba27bf06"
     },
     {
       "path": "_dev-workflow/scripts/cmd/land.mjs",
-      "sha256": "3d214c1e3580a589992b99f4fdb94de98808f9c50369949804390e593a2150b9"
+      "sha256": "f923747e4ce3cf8344689d1766d95234e47be88f22bc9db32d84746f08478f8e"
     },
     {
       "path": "_dev-workflow/scripts/cmd/note.mjs",
@@ -178,7 +182,7 @@
     },
     {
       "path": "_dev-workflow/scripts/dev.mjs",
-      "sha256": "5dacc6cf6c6fb91a1d142a89f04f03bf4e9e1a62cf00a5c81707b3f9c46276f7"
+      "sha256": "36f4e66ec5a2fe5242afb7841a32d69ba99917e6712fa9fd2673d281fc8e5be7"
     },
     {
       "path": ".claude/skills/dev-adr/SKILL.md",

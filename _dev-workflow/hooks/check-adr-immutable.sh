@@ -65,9 +65,13 @@ project_root="${CLAUDE_PROJECT_DIR:-$PWD}"
 
 if cfg=$(_find_cfg) && jq -e . "$cfg" >/dev/null 2>&1; then
   project_root=$(dirname "$cfg")
-  # Hook disabled outright. `// true` would be wrong: jq's alternative operator
-  # treats `false` as empty, so an explicit false would read as true.
-  [ "$(jq -r 'if .docs.enforce == false then "off" else "on" end' "$cfg")" = "off" ] && exit 0
+  # Hook disabled outright, in either spelling — `hooks.adrImmutable` is the
+  # current one, `docs.enforce` is what this hook shipped with. See the same
+  # comment in check-commit-ticket.sh for why both stay.
+  #
+  # `// true` would be wrong: jq's alternative operator treats `false` as empty,
+  # so an explicit false would read as true.
+  [ "$(jq -r 'if .hooks.adrImmutable == false or .docs.enforce == false then "off" else "on" end' "$cfg")" = "off" ] && exit 0
   v=$(jq -r '.docs.decisionsDir // empty' "$cfg"); [ -n "$v" ] && decisions_dir="$v"
 fi
 
