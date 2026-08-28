@@ -1,3 +1,10 @@
+## [1.6.3](https://github.com/ayhid/claude-dev-workflow/compare/v1.6.2...v1.6.3) (2026-08-28)
+
+
+### Bug Fixes
+
+* **sync:** repair a ladder label stranded by GitHub's own close ([#30](https://github.com/ayhid/claude-dev-workflow/issues/30)) ([99a5831](https://github.com/ayhid/claude-dev-workflow/commit/99a583183076220ef562a2540b5e826b4b993ed5))
+
 ## [1.6.2](https://github.com/ayhid/claude-dev-workflow/compare/v1.6.1...v1.6.2) (2026-08-28)
 
 
