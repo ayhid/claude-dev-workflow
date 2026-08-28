@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/ayhid/claude-dev-workflow/compare/v1.6.0...v1.6.1) (2026-08-28)
+
+
+### Bug Fixes
+
+* **tools:** name the models the profiler cannot price ([#33](https://github.com/ayhid/claude-dev-workflow/issues/33)) ([68a461d](https://github.com/ayhid/claude-dev-workflow/commit/68a461dd5da4c288e1ae64a92d812aa01c15566b))
+
 # [1.6.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.5.1...v1.6.0) (2026-08-28)
 
 
