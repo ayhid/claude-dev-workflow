@@ -1,3 +1,11 @@
+# [1.5.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.4.0...v1.5.0) (2026-08-28)
+
+
+### Features
+
+* **ingest:** add dev.mjs assess and dev.mjs ingest ([#29](https://github.com/ayhid/claude-dev-workflow/issues/29)) ([2b82a4f](https://github.com/ayhid/claude-dev-workflow/commit/2b82a4f7d7bbd612abb876ce0999869786cbe9b8))
+* **ingest:** assess a project's stage, and model documentation as claims ([#29](https://github.com/ayhid/claude-dev-workflow/issues/29)) ([b282548](https://github.com/ayhid/claude-dev-workflow/commit/b2825481534c3da0726f7f48234741ad806b860d))
+
 # [1.4.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.3.0...v1.4.0) (2026-08-28)
 
 
