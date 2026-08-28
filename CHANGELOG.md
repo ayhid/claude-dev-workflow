@@ -1,3 +1,10 @@
+# [1.12.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.11.0...v1.12.0) (2026-08-28)
+
+
+### Features
+
+* **install:** name both update modes, and carry a new config key across ([#39](https://github.com/ayhid/claude-dev-workflow/issues/39)) ([86f2241](https://github.com/ayhid/claude-dev-workflow/commit/86f2241198f196cb51ad44cc2095f435842d3fcb))
+
 # [1.11.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.10.2...v1.11.0) (2026-08-28)
 
 
