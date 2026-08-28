@@ -415,7 +415,7 @@ GitHub close the issue at merge, before anything relabels it, leaving `status: i
 ticket that reads as done. Forward-only movement is the right answer about its state and the reason
 nothing was ever fixed. `sync` now reports that separately and puts the label right:
 
-```
+```text
 ISSUE        CURRENT          SHOULD BE        WHY
 #12          Done             relabel          labelled "status: in review", but the issue is Done
 ```
