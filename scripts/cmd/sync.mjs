@@ -297,6 +297,7 @@ export async function run(argv) {
   // Repairs run after the moves, and never through setState: nothing here
   // transitions, and recording one would put a second close in the metrics log
   // for work that was closed once.
+  let relabelled = 0;
   for (const { id } of repairs) {
     const result = await provider.repairRepresentation(id);
     if (!result.ok) {
@@ -304,6 +305,7 @@ export async function run(argv) {
       failed = true;
       continue;
     }
+    if (result.repaired) relabelled += 1;
     // `repaired: false` means the drift was gone by the time we wrote — someone
     // else fixed it, or it was never there. Say which happened rather than
     // reporting a repair that did not occur.
@@ -318,7 +320,10 @@ export async function run(argv) {
 
   const done = [
     planned.length ? `${planned.length} issue(s) reconciled` : null,
-    repairs.length ? `${repairs.length} relabelled` : null,
+    // What was attempted is not what happened: a strand someone else fixed
+    // between the read and the write reports `repaired: false` above, and
+    // counting it here would make the summary contradict the lines over it.
+    relabelled ? `${relabelled} relabelled` : null,
   ].filter(Boolean);
   process.stdout.write(`\nDone. ${done.join(', ')}.\n`);
   return 0;

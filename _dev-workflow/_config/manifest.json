@@ -1,8 +1,8 @@
 {
   "installation": {
-    "version": "1.4.0",
+    "version": "1.6.0",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-28T10:49:48.821Z"
+    "lastUpdated": "2026-08-28T12:02:21.988Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -28,7 +28,7 @@
     },
     {
       "path": "_dev-workflow/lib/github.mjs",
-      "sha256": "29690c843e0b497e525c51c36ecbbef2d9fbf0b88c283d4b3def12847146964a"
+      "sha256": "40efba1eb43fd1f01b95afadab38ec40923778b8bb3bf548d4b8838e5248d402"
     },
     {
       "path": "_dev-workflow/lib/ingest.mjs",
@@ -140,7 +140,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/sync.mjs",
-      "sha256": "ab9729f47e05d744f45e08b9e8887f735669fbc1de886b2d70b171b3b64d3450"
+      "sha256": "83f19141beeff9731d59340e48b29ea7991358f18e55728f39452fdc485a00b1"
     },
     {
       "path": "_dev-workflow/scripts/cmd/update.mjs",
