@@ -465,3 +465,91 @@ test('--update installs with no prompts, and --print writes nothing', async () =
   // The config is the wizard's business, not the updater's.
   assert.ok(!existsSync(join(dir, '.dev-workflow.json')), '--update must not touch the config');
 });
+
+// --- what express mode does to the config ------------------------------------
+//
+// Two more process-level cases, for the same reason as the one above: whether
+// the installer prompts, and whether it exits on its own, cannot be observed
+// from a library. Both run with stdin closed, which is the no-TTY path — the
+// one that must ask nothing.
+
+const runInstaller = (args) =>
+  new Promise((resolve) => {
+    const child = spawn(process.execPath, [join(SOURCE_ROOT, 'bin', 'install.mjs'), ...args], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 30_000,
+    });
+    let out = '';
+    child.stdout.on('data', (d) => (out += d));
+    child.stderr.on('data', (d) => (out += d));
+    child.on('close', (code, signal) => resolve({ code, signal, out }));
+  });
+
+/** A config with every key the registry knows about, in a formatting of its own. */
+const completeConfig = () =>
+  JSON.stringify(
+    {
+      provider: 'github',
+      github: { repo: 'acme/api', labels: { 'In Progress': 'status: in progress', Done: 'status: done' } },
+      language: 'English',
+      states: { start: 'In Progress', review: 'In Review', done: 'Done', ladder: ['Backlog', 'In Progress', 'Done'] },
+      branch: { pattern: '<ID>-<slug>', base: 'main', mode: 'worktree' },
+      delivery: { mode: 'pr' },
+      commit: { pattern: 'type(scope): description (<ID>)', position: 'suffix', noTicketEscape: 'chore(no-ticket)' },
+    },
+    null,
+    4,
+  ) + '\n';
+
+test('an express update leaves a complete config byte-identical', async () => {
+  const dir = scratch();
+  const before = completeConfig();
+  writeFileSync(join(dir, '.dev-workflow.json'), before);
+
+  const real = await runInstaller(['--update', '--dir', dir]);
+  assert.equal(real.signal, null, `--update did not exit on its own: ${real.out}`);
+  assert.equal(real.code, 0, real.out);
+
+  // Not "equivalent JSON": the same bytes. Nothing is rewritten, reordered or
+  // reindented, because with nothing missing nothing is written at all.
+  assert.equal(readFileSync(join(dir, '.dev-workflow.json'), 'utf8'), before);
+});
+
+test('an express update adds a key the config does not have, and says so', async () => {
+  const dir = scratch();
+  const config = JSON.parse(completeConfig());
+  delete config.language;
+  delete config.commit.noTicketEscape;
+  writeFileSync(join(dir, '.dev-workflow.json'), JSON.stringify(config, null, 2) + '\n');
+
+  const real = await runInstaller(['--update', '--dir', dir]);
+  assert.equal(real.signal, null, `--update blocked on a prompt with no TTY: ${real.out}`);
+  assert.equal(real.code, 0, real.out);
+
+  const written = readJson(join(dir, '.dev-workflow.json'));
+  assert.equal(written.language, 'English');
+  assert.equal(written.commit.noTicketEscape, 'chore(no-ticket)');
+
+  // The choice has to be visible in the log, since nobody was asked.
+  assert.match(real.out, /language = English/);
+  assert.match(real.out, /commit\.noTicketEscape = chore\(no-ticket\)/);
+
+  // Every answer that was already there survives, in the order it was in.
+  assert.deepEqual(written.states, JSON.parse(completeConfig()).states);
+  assert.equal(written.branch.pattern, '<ID>-<slug>');
+  assert.deepEqual(Object.keys(written.commit), ['pattern', 'position', 'noTicketEscape']);
+});
+
+test('an express dry run reports the new keys and writes nothing', async () => {
+  const dir = scratch();
+  const config = JSON.parse(completeConfig());
+  delete config.language;
+  const before = JSON.stringify(config, null, 2) + '\n';
+  writeFileSync(join(dir, '.dev-workflow.json'), before);
+
+  const dry = await runInstaller(['--update', '--print', '--dir', dir]);
+  assert.equal(dry.signal, null, `--update --print did not exit on its own: ${dry.out}`);
+  assert.equal(dry.code, 0, dry.out);
+  assert.match(dry.out, /language = English/);
+  assert.equal(readFileSync(join(dir, '.dev-workflow.json'), 'utf8'), before);
+});

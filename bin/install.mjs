@@ -2,10 +2,11 @@
 /**
  * Interactive installer for the dev-workflow Claude Code skills.
  *
- *   npx claude-dev-workflow@latest            # configure the project in the cwd
- *   npx claude-dev-workflow@latest --update   # refresh the files only, no prompts
- *   npx claude-dev-workflow@latest --dir ..   # …somewhere else
- *   npx claude-dev-workflow@latest --print    # show the config, write nothing
+ *   npx claude-dev-workflow@latest                          # configure the project in the cwd
+ *   npx claude-dev-workflow@latest --update                 # express: refresh the files
+ *   npx claude-dev-workflow@latest --update --reconfigure   # …and then change the config
+ *   npx claude-dev-workflow@latest --dir ..                 # …somewhere else
+ *   npx claude-dev-workflow@latest --print                  # show the config, write nothing
  *
  * Two things happen here: `.dev-workflow.json` is written for the target project,
  * and the plugin itself is registered with Claude Code. Both are optional and
@@ -20,7 +21,17 @@
  *
  * `--update` exists because updating used to mean answering the whole wizard
  * again: a dozen questions to change nothing but the version, and no way through
- * at all where there is no TTY.
+ * at all where there is no TTY. It has two modes, both named:
+ *
+ *   express        `--update` — refresh the files, keep every value already
+ *                  answered. Its one concession to the config is a setting the
+ *                  incoming version has and the project's file does not: that
+ *                  was never answered, so asking about it is not re-asking. With
+ *                  no TTY it writes the default and prints what it chose, which
+ *                  is what keeps the path usable in CI, a container or a pipe.
+ *   change config  `--update --reconfigure` — the same refresh, then the whole
+ *                  wizard with the current values as its defaults. It existed
+ *                  before, spelled as the bare command, and nothing said so.
  *
  * The first question is which issue tracker the project uses, because that
  * answer decides every question after it. Until it existed the wizard opened on
@@ -37,6 +48,12 @@ import * as p from '@clack/prompts';
 import c from 'picocolors';
 
 import { listProjects, projectFieldValues, whoami } from '../lib/youtrack.mjs';
+import {
+  defaultForKey,
+  describeValue,
+  missingConfigKeys,
+  setConfigKey,
+} from './lib/config-keys.mjs';
 import { baseBranch, commitIdPosition, describeRepo, findRepos } from './lib/detect.mjs';
 import { createLabelCommand, ghAuthStatus, ghLabels, ghRepoView, ghVersion } from './lib/gh.mjs';
 import { PAYLOAD_DIR, installPayload, readManifest } from './lib/payload.mjs';
@@ -75,21 +92,29 @@ Installs into the project itself: the runtime under ${c.cyan(PAYLOAD_DIR + '/')}
 skills under ${c.cyan('.claude/skills/dev-*')}, and the commit hook into
 ${c.cyan('.claude/settings.json')}. Nothing is installed globally.
 
-To update an already-configured project, skip the wizard entirely:
+Updating an already-configured project has two modes:
 
-  ${c.cyan('npx claude-dev-workflow@latest --update')}           refresh the files, keep the config
-  ${c.cyan('npx claude-dev-workflow@latest --update --print')}   show what would change
+  ${c.cyan('npx claude-dev-workflow@latest --update')}                 ${c.bold('express')} — refresh the files,
+                                                         keep every value you answered
+  ${c.cyan('npx claude-dev-workflow@latest --update --reconfigure')}   ${c.bold('change config')} — refresh, then
+                                                         the wizard, current values as defaults
+  ${c.cyan('npx claude-dev-workflow@latest --update --print')}         show what would change
+
+Express asks nothing, with one exception: a setting this version has that your
+config does not. That was never answered, so it is asked — labelled as new, and
+on its own. With no TTY it writes the default and prints which key it added.
 
 Files you have edited are reported and left alone unless you pass ${c.cyan('--force')}.
 
 Always spell it ${c.cyan('@latest')}: npx caches by the literal spec string, so a bare
 ${c.cyan('npx claude-dev-workflow')} keeps re-running whatever version it cached first.
 
-  --update       install/refresh the files only — no prompts, config untouched
-  --dir <path>   target project directory (default: cwd)
-  --print        print the resulting config instead of writing it
-  --force        overwrite an existing .dev-workflow.json, and any edited payload file
-  --help         this message
+  --update        express update: install/refresh the files, keep the config
+  --reconfigure   with --update, walk the wizard afterwards to change values
+  --dir <path>    target project directory (default: cwd)
+  --print         print the resulting config instead of writing it
+  --force         overwrite an existing .dev-workflow.json, and any edited payload file
+  --help          this message
 `);
   process.exit(0);
 }
@@ -117,6 +142,9 @@ const has = (bin) => {
 
 /** The one command that reliably fetches a newer version. Printed, never guessed at. */
 const UPDATE_COMMAND = 'npx claude-dev-workflow@latest --update';
+
+/** The same update, plus the wizard. The mode nothing used to name. */
+const RECONFIGURE_COMMAND = `${UPDATE_COMMAND} --reconfigure`;
 
 /**
  * Copy the payload and skills into the project, and report what happened.
@@ -176,6 +204,90 @@ function installIntoProject({ force = false, dryRun = false } = {}) {
   }
 }
 
+/** One registry entry, rendered as the prompt it describes. */
+async function askConfigKey(entry, fallback) {
+  const message = `${c.yellow('New setting')} ${c.dim(`(${entry.key})`)} — ${entry.message}`;
+
+  if (entry.type === 'select') {
+    return bail(
+      await p.select({
+        message,
+        initialValue: fallback,
+        options: entry.options,
+        maxItems: 12,
+      }),
+    );
+  }
+
+  // The default as a placeholder rather than as `initialValue`: clack puts an
+  // initial value in the buffer with the cursor after it, so anything typed is
+  // appended to it — `English` plus `Deutsch` is `EnglishDeutsch`. A key nobody
+  // has ever answered is the one prompt most likely to be typed over, so Enter
+  // takes the default and a keystroke replaces it.
+  const shown = entry.render ? entry.render(fallback) : String(fallback);
+  const answer = bail(await p.text({ message, placeholder: shown, defaultValue: shown }));
+  return entry.parse ? entry.parse(answer) : String(answer).trim();
+}
+
+/**
+ * Express mode's only business with `.dev-workflow.json`: add the settings this
+ * version knows about that the project's file does not.
+ *
+ * The narrow rule this relaxes is "the config is the wizard's business, not the
+ * updater's". What it keeps is the reason that rule existed — an update must
+ * never re-ask a question already answered, and must work where there is no TTY
+ * at all. A key absent from the file was never answered, so asking is not
+ * re-asking; and with no TTY nothing is asked, the default is written, and the
+ * keys it added are printed so the choice is visible in the log rather than
+ * lost. That is why `--update` still exits on its own with stdin closed.
+ *
+ * It only ever **adds**. A key already in the file is never rewritten, reordered
+ * or removed, and a config that has them all is left untouched byte for byte —
+ * nothing is written at all in that case.
+ */
+async function addNewConfigKeys({ dryRun = false } = {}) {
+  // No config is not an old config: a project with none has answered nothing,
+  // and inventing one behind `--update` is the wizard's job, or /dev-init's.
+  if (!existsSync(configPath)) return;
+
+  let config;
+  try {
+    config = JSON.parse(readFileSync(configPath, 'utf8'));
+  } catch {
+    p.log.warn(`${c.yellow('.dev-workflow.json is not valid JSON')} — leaving it exactly as it is.`);
+    return;
+  }
+
+  const missing = missingConfigKeys(config);
+  if (!missing.length) return;
+
+  const interactive = Boolean(process.stdin.isTTY) && !dryRun;
+  const added = [];
+
+  for (const entry of missing) {
+    // The default is computed against the config as it stands, so a key derived
+    // from one answered a moment ago sees that answer.
+    const fallback = defaultForKey(entry, config);
+    const value = interactive ? await askConfigKey(entry, fallback) : fallback;
+    setConfigKey(config, entry.key, value);
+    added.push(`${entry.key} = ${describeValue(value)}`);
+  }
+
+  if (dryRun) {
+    p.note(added.join('\n'), `${added.length} new setting(s) this version adds`);
+    p.log.info('Dry run — the config was not written.');
+    return;
+  }
+
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  p.note(
+    added.join('\n'),
+    interactive
+      ? 'Added to .dev-workflow.json'
+      : c.yellow('Added to .dev-workflow.json — defaults, with no TTY to ask on'),
+  );
+}
+
 /** Read a secret out of 1Password without it ever touching the terminal. */
 async function opRead(ref) {
   try {
@@ -195,36 +307,57 @@ if (!existsSync(targetDir)) {
 }
 
 // --- 0. the update path ------------------------------------------------------
-// Deliberately *before the first prompt*. Two properties depend on it: updating
-// must never mean answering the whole wizard again just to change the version,
-// and the installer must work where there is no TTY at all — CI, a container, a
-// pipe. A prompt added above this line silently removes both.
+// Deliberately *before the first wizard prompt*. Two properties depend on it:
+// updating must never mean answering the whole wizard again just to change the
+// version, and the installer must work where there is no TTY at all — CI, a
+// container, a pipe. A wizard question added above this line silently removes
+// both.
+//
+// `--reconfigure` is the *other* mode, asked for explicitly: the same refresh,
+// and then the wizard. It falls through rather than exiting, which is the only
+// reason the block below is a fallthrough and not a `process.exit`.
 //
 // An existing manifest is not required — `--update` on a fresh project is a
 // payload install with no config, which is exactly what a project configured by
 // /dev-init wants.
+const reconfigure = flag('--reconfigure');
+
 if (flag('--update')) {
   const ok = installIntoProject({ force: flag('--force'), dryRun: flag('--print') });
   if (!ok) {
     p.outro(c.yellow('Nothing was updated.'));
     process.exit(1);
   }
-  p.outro(
-    flag('--print')
-      ? `${c.green('Planned only.')} ${c.dim(`v${VERSION} would be installed in ${targetDir}`)}`
-      : `${c.green('Up to date.')} ${c.dim(`v${VERSION} in ${targetDir}`)}`,
-  );
-  process.exit(0);
+
+  if (!reconfigure) {
+    // Express. The only question it may ask is about a key that was never
+    // answered, and with no TTY it does not ask that one either.
+    await addNewConfigKeys({ dryRun: flag('--print') });
+    p.outro(
+      flag('--print')
+        ? `${c.green('Planned only.')} ${c.dim(`v${VERSION} would be installed in ${targetDir}`)}`
+        : `${c.green('Up to date.')} ${c.dim(`v${VERSION} in ${targetDir}`)}`,
+    );
+    process.exit(0);
+  }
+
+  p.log.step(`${c.bold('Change config')} — the wizard, with your current values as its defaults.`);
 }
 
 let existing = null;
-if (existsSync(configPath) && !flag('--print')) {
+if (existsSync(configPath)) {
   try {
     existing = JSON.parse(readFileSync(configPath, 'utf8'));
   } catch {
-    p.log.warn(`${c.yellow('.dev-workflow.json exists but is not valid JSON')} — it will be replaced.`);
+    p.log.warn(
+      `${c.yellow('.dev-workflow.json exists but is not valid JSON')} — ${flag('--print') ? 'its values cannot be used as defaults.' : 'it will be replaced.'}`,
+    );
   }
-  if (existing && !flag('--force')) {
+  // Read even under `--print`, so what is printed is the config this project
+  // would actually get. The confirmation, though, is only worth asking when
+  // something would be written — and `--reconfigure` already answered it on the
+  // command line.
+  if (existing && !flag('--force') && !flag('--print') && !reconfigure) {
     // Said in the terms of whichever tracker it is for: a GitHub config has no
     // project key and no instance URL, and printing `? on ?` at somebody is not
     // a report that a config was found.
@@ -1009,20 +1142,26 @@ if (write) {
 // --- 10. install the workflow into the project -------------------------------
 // Everything lands inside the project: nothing is registered globally, so the
 // skill names are only claimed where they were actually installed.
-const existingManifest = readManifest(targetDir);
-const verb = existingManifest ? 'Update' : 'Install';
+// `--update --reconfigure` refreshed them first, before the wizard: asking a
+// second time would be asking whether to redo what was already done.
+if (flag('--update')) {
+  p.log.info(`The workflow files were refreshed before the questions — ${c.cyan(`v${VERSION}`)}.`);
+} else {
+  const existingManifest = readManifest(targetDir);
+  const verb = existingManifest ? 'Update' : 'Install';
 
-const doInstall = bail(
-  await p.confirm({
-    message: existingManifest
-      ? `${verb} the workflow files in this project (currently ${existingManifest.installation?.version ?? 'unknown'})?`
-      : `Install the workflow into ${c.cyan(PAYLOAD_DIR + '/')} and ${c.cyan('.claude/skills/')}?`,
-    initialValue: true,
-  }),
-);
+  const doInstall = bail(
+    await p.confirm({
+      message: existingManifest
+        ? `${verb} the workflow files in this project (currently ${existingManifest.installation?.version ?? 'unknown'})?`
+        : `Install the workflow into ${c.cyan(PAYLOAD_DIR + '/')} and ${c.cyan('.claude/skills/')}?`,
+      initialValue: true,
+    }),
+  );
 
-if (doInstall) installIntoProject({ force: flag('--force') });
-else p.log.warn('Skipped — the skills and runtime were not installed.');
+  if (doInstall) installIntoProject({ force: flag('--force') });
+  else p.log.warn('Skipped — the skills and runtime were not installed.');
+}
 
 // --- done --------------------------------------------------------------------
 const pad = ' '.repeat(Math.max(0, 'ABC-123'.length - sampleId.length));
@@ -1034,8 +1173,12 @@ const nextSteps = [
   // Printed even on a fresh install: this line, and the README, are the only
   // channels that reach a project once it is installed. Nothing inside the
   // payload can tell a version that predates the update check that it is stale.
+  //
+  // Both modes, named, because the second was undiscoverable while only the
+  // first was ever printed.
   c.dim('Update later with:'),
-  c.cyan(UPDATE_COMMAND),
+  `${c.cyan(UPDATE_COMMAND)}                 ${c.dim('files only, config untouched')}`,
+  `${c.cyan(RECONFIGURE_COMMAND)}   ${c.dim('…and change these answers')}`,
 ];
 if (provider === 'youtrack' && !tracker.tokenOpRef) {
   nextSteps.push('', c.dim('Remember to export $YOUTRACK_TOKEN in the shell Claude Code runs in.'));

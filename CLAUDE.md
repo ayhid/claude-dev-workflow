@@ -43,14 +43,33 @@ re-resolved. The `github:` form has no version to compare at all — bust it by 
 (`#v2.1.0`, a sha), not by clearing the cache. `tests/updatecheck.test.mjs` fails if the two places
 that print the command drift.
 
-**Updating must never route through the wizard.** `bin/install.mjs --update` runs `installPayload`
-and exits *before the first prompt*, deliberately: updating must not mean re-answering twenty
-questions to change nothing but the version, and the installer must work where there is no TTY at
-all — CI, a container, a pipe. Adding a prompt above that early exit silently removes both
-properties, and `tests/install.test.mjs` spawns `--update` with stdin closed to prove it has not
-been. (The reason used to be that the wizard was YouTrack-only and its instance URL mandatory; the
-wizard now asks which tracker first and configures either, but the rule outlived its original
-justification.)
+**Updating has two modes, and only one of them may reach the wizard.** `--update` is *express*:
+`installPayload`, and out before the wizard's first question. `--update --reconfigure` is *change
+config*: the same refresh, then the whole wizard with the current values as defaults — the mode
+that used to exist only as the bare command, where nothing named it and nobody found it.
+
+Express is the mode with the invariants. Two properties depend on it: updating must not mean
+re-answering twenty questions to change nothing but the version, and the installer must work where
+there is no TTY at all — CI, a container, a pipe. A wizard question added above that early exit
+silently removes both, and `tests/install.test.mjs` spawns `--update` with stdin closed to prove
+one has not been. (The reason used to be that the wizard was YouTrack-only and its instance URL
+mandatory; the wizard now asks which tracker first and configures either, but the rule outlived its
+original justification.)
+
+**Express may add a config key, and may do nothing else to the config.** A version that introduces
+a key used to leave every updated project without it, silently and for ever. `bin/lib/config-keys.mjs`
+is the registry that makes the question answerable at all — key, default, and the prompt for it —
+because `buildConfig` knows only whole configs. Absent means *never answered*, so asking is not
+re-asking; with no TTY nothing is asked, the default is written, and the added keys are printed so
+the choice is visible in the log. Only ever **added**: a key already in the file is never rewritten,
+reordered or removed, and a complete config is byte-identical after an express update because
+nothing is written at all.
+
+Both halves of that are load-bearing. Only keys `buildConfig` writes **unconditionally** may go in
+the registry: for the ones it omits when the answer is blank — `reviewer`, `notes`, and above all
+`states.abandon` — absent means *answered, with silence*, and asking again every update is exactly
+the re-asking express exists to avoid. `tests/config-keys.test.mjs` checks the registry against
+`buildConfig`'s real output rather than trusting the distinction to be remembered.
 
 `bin/lib/payload.mjs` owns that, and records a sha256 per file in
 `_dev-workflow/_config/manifest.json`. That manifest is what makes a re-run an *update*: unchanged

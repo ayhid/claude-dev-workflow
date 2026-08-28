@@ -212,14 +212,30 @@ your-project/
 
 ## Updating
 
+Updating has two modes. Both refresh the files; they differ in what happens to your config.
+
 ```bash
-npx claude-dev-workflow@latest --update           # refresh the files, keep your config
-npx claude-dev-workflow@latest --update --print   # show what would change, write nothing
-npx claude-dev-workflow@latest --update --force   # and overwrite files you have edited
+npx claude-dev-workflow@latest --update                 # express: refresh the files, keep your config
+npx claude-dev-workflow@latest --update --reconfigure   # change config: refresh, then the wizard
+npx claude-dev-workflow@latest --update --print         # show what would change, write nothing
+npx claude-dev-workflow@latest --update --force         # and overwrite files you have edited
 ```
 
-`--update` skips the wizard entirely: it touches `_dev-workflow/`, `.claude/skills/dev-*` and the
-hook entry in `.claude/settings.json`, and never reads or writes `.dev-workflow.json`.
+**Express** — `--update` — skips the wizard: it touches `_dev-workflow/`, `.claude/skills/dev-*`
+and the hook entry in `.claude/settings.json`, and leaves every value you have answered exactly as
+it is. It asks one kind of question and no other: a **setting this version has that your config
+does not**. That one was never answered, so it is asked — labelled as new, on its own, with a
+default — and appended. Nothing already in `.dev-workflow.json` is rewritten, reordered or removed,
+so a config that has every setting comes out byte-identical.
+
+Where there is no terminal to ask on — CI, a container, a pipe, `dev.mjs version --upgrade` — it
+asks nothing at all: each new setting gets its default and the run prints which keys it added and
+with what value, so the choice is in the log rather than lost. Express never blocks on a prompt.
+
+**Change config** — `--update --reconfigure` — does the same refresh and then runs the whole
+wizard, with your current config as the initial answer to every question. It is the way to update
+*and* change a value in one go; a bare `npx claude-dev-workflow@latest` on a configured project
+offers the same wizard without the refresh.
 
 The installer compares each file against the hash recorded at install time: untouched files are
 replaced, files you have edited are reported and left alone, and files a newer version no longer
