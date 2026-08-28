@@ -16,6 +16,16 @@
  *   open PR referencing the issue    -> states.review
  *   merged PR referencing the issue  -> states.done
  *
+ * It also repairs the case that looks like nothing: an issue in the right state
+ * whose *representation* of that state is stale. GitHub closes an issue by
+ * itself when a PR says `Closes #12`, so the ticket reads as done while still
+ * carrying the `in review` label — correctly `ahead`, and stranded forever.
+ * `provider.checkRepresentation` is what makes that visible here; the rung ->
+ * label mapping stays in the adapter, where the config for it lives.
+ *
+ * Both passes are bounded by the same window: this reconciles issues referenced
+ * by PRs since `--since`, so a strand older than that needs one wider run.
+ *
  * The decision rules live in lib/sync.mjs and are unit-tested; this file is the
  * I/O around them. It is the one command that drives external tools (gh, git)
  * rather than plain HTTP.
@@ -210,8 +220,13 @@ export async function run(argv) {
   // round trip, so the loop must not do it per issue.
   const ids = [...evidence.keys()].sort(byIssueNumber);
   const states = await provider.getStates(ids);
+  // The second question of the same read: which of these say something other
+  // than the state they are in? A backend whose state is its own
+  // representation answers null for every id and this costs nothing.
+  const stale = await provider.checkRepresentation(ids);
 
   const planned = [];
+  const repairs = [];
   for (const id of ids) {
     const { rank: targetRank, state: targetState, url } = evidence.get(id);
     const current = states.get(id) ?? UNKNOWN;
@@ -220,24 +235,35 @@ export async function run(argv) {
       currentRank: rankOf(config, current),
       targetRank,
       url,
+      stale: stale.get(id) ?? null,
     });
 
     if (action === 'move') {
       process.stdout.write(`${row(id, current, targetState, why)}\n`);
       planned.push({ id, targetState, url });
+    } else if (action === 'repair') {
+      // The state is right, so SHOULD BE is not another state — it is the
+      // representation catching up with the one the issue is already in.
+      process.stdout.write(`${row(id, current, 'relabel', why)}\n`);
+      repairs.push({ id, why });
     } else {
       const shown = action === 'unreadable' ? targetState : '-';
       process.stdout.write(`${row(id, action === 'unreadable' ? '?' : current, shown, why)}\n`);
     }
   }
 
-  if (planned.length === 0) {
+  if (planned.length === 0 && repairs.length === 0) {
     process.stdout.write('\nEverything is in sync.\n');
     return 0;
   }
 
+  const summary = [
+    planned.length ? `${planned.length} issue(s) would move` : null,
+    repairs.length ? `${repairs.length} would be relabelled` : null,
+  ].filter(Boolean);
+
   if (!opts.apply) {
-    process.stdout.write(`\n${planned.length} issue(s) would move. Re-run with --apply to do it.\n`);
+    process.stdout.write(`\n${summary.join(', ')}. Re-run with --apply to do it.\n`);
     return 0;
   }
 
@@ -268,8 +294,32 @@ export async function run(argv) {
     }
   }
 
+  // Repairs run after the moves, and never through setState: nothing here
+  // transitions, and recording one would put a second close in the metrics log
+  // for work that was closed once.
+  for (const { id } of repairs) {
+    const result = await provider.repairRepresentation(id);
+    if (!result.ok) {
+      process.stdout.write(`  ${id.padEnd(12)} !! ${result.error}\n`);
+      failed = true;
+      continue;
+    }
+    // `repaired: false` means the drift was gone by the time we wrote — someone
+    // else fixed it, or it was never there. Say which happened rather than
+    // reporting a repair that did not occur.
+    process.stdout.write(
+      result.repaired
+        ? `  ${id.padEnd(12)} ~> ${result.state}  (labels repaired)\n`
+        : `  ${id.padEnd(12)} -- nothing to repair (${result.why})\n`,
+    );
+  }
+
   if (failed) throw new UserError('some transitions did not apply — see above');
 
-  process.stdout.write(`\nDone. ${planned.length} issue(s) reconciled.\n`);
+  const done = [
+    planned.length ? `${planned.length} issue(s) reconciled` : null,
+    repairs.length ? `${repairs.length} relabelled` : null,
+  ].filter(Boolean);
+  process.stdout.write(`\nDone. ${done.join(', ')}.\n`);
   return 0;
 }

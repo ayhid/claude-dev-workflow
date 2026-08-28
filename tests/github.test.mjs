@@ -254,6 +254,132 @@ test('the highest label wins when stale ones linger', async () => {
   assert.equal(await provider.getState('#1'), 'In Review');
 });
 
+// --- state vs. its representation ---------------------------------------------
+//
+// The strand this closes: `Closes #12` in a PR body makes GitHub close the
+// issue at merge, before anything relabels it. The state reads Done and the
+// `in review` label stays on it forever, because `ahead` is the correct answer
+// and there was nowhere to say "right state, wrong label".
+
+test('a closed issue carrying a stale rung label is drift', async () => {
+  const { provider, issues } = build();
+  issues.get(1).state = 'CLOSED';
+  issues.get(1).stateReason = 'COMPLETED';
+  issues.get(1).labels = [{ name: 'status: review' }];
+
+  const why = (await provider.checkRepresentation(['#1'])).get('#1');
+  assert.match(why, /status: review/, 'the reason names the label actually on the issue');
+  assert.match(why, /Done/, 'and the state it contradicts');
+});
+
+test('an issue whose label agrees with its state is not drift', async () => {
+  const { provider, issues } = build();
+  issues.get(1).state = 'CLOSED';
+  issues.get(1).stateReason = 'COMPLETED';
+  issues.get(1).labels = [{ name: 'status: done' }];
+  assert.equal((await provider.checkRepresentation(['#1'])).get('#1'), null);
+});
+
+test('a closed issue with no ladder label is left alone, never backfilled', async () => {
+  // Imported and bot-filed issues never entered the ladder. Labelling one
+  // `done` because it happens to be closed would invent history it never had.
+  const { provider, issues } = build();
+  issues.get(1).state = 'CLOSED';
+  issues.get(1).stateReason = 'COMPLETED';
+  issues.get(1).labels = [{ name: 'bug' }];
+  assert.equal((await provider.checkRepresentation(['#1'])).get('#1'), null);
+});
+
+test('closed as NOT_PLANNED is off-ladder, so its label is not repaired either', async () => {
+  const { provider, issues } = build();
+  issues.get(1).state = 'CLOSED';
+  issues.get(1).stateReason = 'NOT_PLANNED';
+  issues.get(1).labels = [{ name: 'status: review' }];
+  assert.equal(
+    (await provider.checkRepresentation(['#1'])).get('#1'),
+    null,
+    'declined work was parked deliberately — the reconciler keeps its hands off it',
+  );
+});
+
+test('an open issue carrying two rung labels is drift', async () => {
+  const { provider, issues } = build();
+  issues.get(1).labels = [{ name: 'status: in progress' }, { name: 'status: review' }];
+  const why = (await provider.checkRepresentation(['#1'])).get('#1');
+  assert.match(why, /status: in progress/);
+  assert.match(why, /In Review/, 'the higher label is the state; the lower one is the stale half');
+  assert.ok(
+    !why.includes('"status: review"'),
+    'the reason names only the labels that disagree — the correct one is not part of the problem',
+  );
+});
+
+test('checkRepresentation is one call for the whole batch', async () => {
+  const { provider, calls } = build();
+  await provider.checkRepresentation(['#1', '#2']);
+  assert.equal(calls.filter((c) => c.args[1] === 'list').length, 1);
+});
+
+test('repairRepresentation relabels without opening or closing anything', async () => {
+  const { provider, calls, issues } = build();
+  issues.get(1).state = 'CLOSED';
+  issues.get(1).stateReason = 'COMPLETED';
+  issues.get(1).labels = [{ name: 'status: review' }];
+
+  const r = await provider.repairRepresentation('#1');
+  assert.ok(r.ok, r.error);
+  assert.equal(r.repaired, true);
+  assert.equal(r.state, 'Done');
+  assert.deepEqual(
+    issues.get(1).labels.map((l) => l.name),
+    ['status: done'],
+  );
+  assert.equal(issues.get(1).state, 'CLOSED', 'the issue itself must not move');
+  assert.ok(
+    !calls.some((c) => c.args[1] === 'close' || c.args[1] === 'reopen'),
+    'a repair is not a transition — it must never open or close an issue',
+  );
+});
+
+test('a repair only names labels the issue actually carries', async () => {
+  // `gh` fails the whole edit on a label the repository does not have, and the
+  // repair has just read the issue, so it has no reason to guess at siblings.
+  const { provider, calls, issues } = build();
+  issues.get(1).state = 'CLOSED';
+  issues.get(1).stateReason = 'COMPLETED';
+  issues.get(1).labels = [{ name: 'status: review' }];
+
+  await provider.repairRepresentation('#1');
+  const edit = calls.find((c) => c.args[1] === 'edit');
+  const removed = edit.args.filter((a, i) => edit.args[i - 1] === '--remove-label');
+  assert.deepEqual(removed, ['status: review']);
+});
+
+test('repairing an issue whose labels already agree changes nothing', async () => {
+  const { provider, calls, issues } = build();
+  issues.get(1).state = 'CLOSED';
+  issues.get(1).stateReason = 'COMPLETED';
+  issues.get(1).labels = [{ name: 'status: done' }];
+
+  const r = await provider.repairRepresentation('#1');
+  assert.ok(r.ok, r.error);
+  assert.equal(r.repaired, false);
+  assert.ok(!calls.some((c) => c.args[1] === 'edit'), 'no drift means no write');
+});
+
+test('a repair reads back, and a repeat finds nothing left to do', async () => {
+  const { provider, issues } = build();
+  issues.get(1).state = 'CLOSED';
+  issues.get(1).stateReason = 'COMPLETED';
+  issues.get(1).labels = [{ name: 'status: in progress' }, { name: 'status: review' }];
+
+  const first = await provider.repairRepresentation('#1');
+  const second = await provider.repairRepresentation('#1');
+  assert.equal(first.repaired, true);
+  assert.equal(second.repaired, false, 'rule 3: applying it twice converges');
+  assert.equal((await provider.checkRepresentation(['#1'])).get('#1'), null);
+});
+
 test('a label missing from the repo fails loudly with the fix', async () => {
   // Creating a label in someone's repo is a visible side effect; it needs
   // consent rather than happening as a side effect of a state change.

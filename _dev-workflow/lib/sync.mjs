@@ -103,12 +103,29 @@ export const UNKNOWN = 'unknown';
  * left alone; a ticket already at or past the target is a no-op, which is what
  * makes running this twice safe.
  *
- * @returns {{action: 'unreadable'|'off-ladder'|'ahead'|'move', why: string}}
+ * `stale` is the fifth answer, and the reason there is one: on a backend that
+ * *models* the ladder rather than owning it, an issue can be in the right state
+ * while its representation of that state disagrees. GitHub closes an issue by
+ * itself when a PR says `Closes #12`, which leaves the `in review` label behind
+ * forever — the state reads as done, so `ahead` is correct and yet nothing is
+ * ever repaired. It arrives from `provider.checkRepresentation` as the reason
+ * string to print, or null when the representation agrees; a backend whose state
+ * IS its representation always passes null and never sees this branch.
+ *
+ * Only reachable at or past the target. Behind it, `move` rewrites the
+ * representation on its way past, so a repair there would be a second write
+ * saying the same thing.
+ *
+ * @returns {{action: 'unreadable'|'off-ladder'|'ahead'|'repair'|'move', why: string}}
  */
-export function decide({ current, currentRank, targetRank, url }) {
+export function decide({ current, currentRank, targetRank, url, stale = null }) {
   if (current === UNKNOWN) return { action: 'unreadable', why: 'could not read — skipped' };
   if (currentRank < 0) return { action: 'off-ladder', why: 'off-ladder, left alone' };
-  if (currentRank >= targetRank) return { action: 'ahead', why: 'already there or ahead' };
+  if (currentRank >= targetRank) {
+    return stale
+      ? { action: 'repair', why: stale }
+      : { action: 'ahead', why: 'already there or ahead' };
+  }
   return { action: 'move', why: url };
 }
 

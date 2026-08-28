@@ -124,6 +124,45 @@ test('decide skips an issue whose state could not be read', () => {
   assert.equal(decide({ current: 'unknown', currentRank: -1, targetRank: 2 }).action, 'unreadable');
 });
 
+// --- right state, stale representation ---------------------------------------
+
+test('decide repairs a ticket in the right state that says otherwise', () => {
+  // The strand: GitHub closes the issue itself at merge, so it reads Done while
+  // still carrying `in review`. `ahead` is the correct answer about its state
+  // and the reason nothing was ever repaired.
+  const d = decide({ current: 'Done', currentRank: 3, targetRank: 3, stale: 'labelled "in review"' });
+  assert.equal(d.action, 'repair');
+  assert.equal(d.why, 'labelled "in review"', 'the adapter owns the wording; decide only passes it on');
+});
+
+test('decide repairs a ticket that is past the target too', () => {
+  assert.equal(
+    decide({ current: 'Done', currentRank: 3, targetRank: 1, stale: 'stale' }).action,
+    'repair',
+  );
+});
+
+test('a ticket that is behind moves rather than being repaired', () => {
+  // `move` rewrites the representation on its way past, so repairing here would
+  // be a second write saying the same thing.
+  assert.equal(
+    decide({ current: 'Open', currentRank: 0, targetRank: 2, url: 'u', stale: 'stale' }).action,
+    'move',
+  );
+});
+
+test('an off-ladder or unreadable ticket is never repaired', () => {
+  // Both were parked or lost deliberately; drift is not a reason to touch them.
+  assert.equal(decide({ current: "Won't Fix", currentRank: -1, targetRank: 2, stale: 'x' }).action, 'off-ladder');
+  assert.equal(decide({ current: 'unknown', currentRank: -1, targetRank: 2, stale: 'x' }).action, 'unreadable');
+});
+
+test('a backend with no second copy of its state never sees the repair branch', () => {
+  // `checkRepresentation` answers null there, and null must read as "in sync".
+  assert.equal(decide({ current: 'Done', currentRank: 3, targetRank: 3, stale: null }).action, 'ahead');
+  assert.equal(decide({ current: 'Done', currentRank: 3, targetRank: 3 }).action, 'ahead');
+});
+
 // --- comments ----------------------------------------------------------------
 
 test('renderComment fills the template placeholders', () => {

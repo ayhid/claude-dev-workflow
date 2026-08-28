@@ -48,6 +48,8 @@ export function runContractSuite(label, h) {
       'setState',
       'comment',
       'create',
+      'checkRepresentation',
+      'repairRepresentation',
     ]) {
       assert.equal(typeof p[m], 'function', `${m} must be implemented`);
     }
@@ -128,6 +130,54 @@ export function runContractSuite(label, h) {
     const p = await h.make();
     const batch = await p.getStates([]);
     assert.equal(batch.size, 0);
+  });
+
+  // --- state vs. its representation -------------------------------------------
+  //
+  // Every adapter answers these, including one whose state is its own
+  // representation and can never be stale — that adapter says so by answering
+  // null for everything, which is why no caller needs a capability branch.
+
+  t('checkRepresentation answers for every id it was asked about', async () => {
+    const p = await h.make();
+    const ids = [h.issueId, h.otherIssueId, 'NOPE-99999'];
+    const drift = await p.checkRepresentation(ids);
+
+    assert.ok(drift instanceof Map);
+    for (const id of ids) assert.ok(drift.has(id), `${id} missing from the drift result`);
+    for (const [id, why] of drift) {
+      assert.ok(why === null || typeof why === 'string', `${id} must answer null or a reason`);
+      if (typeof why === 'string') assert.ok(why.length > 0, 'a reason must say something');
+    }
+    assert.equal(drift.get('NOPE-99999'), null, 'an issue we could not read is not drift');
+  });
+
+  t('checkRepresentation of nothing is an empty map, not an error', async () => {
+    const p = await h.make();
+    assert.equal((await p.checkRepresentation([])).size, 0);
+  });
+
+  t('repairRepresentation reports whether it changed anything', async () => {
+    const p = await h.make();
+    const r = await p.repairRepresentation(h.issueId);
+    assert.equal(typeof r.ok, 'boolean');
+    if (r.ok) assert.equal(typeof r.repaired, 'boolean', 'a repair must say whether it repaired');
+    else assert.ok(r.error?.length > 0, 'a failure must say why');
+  });
+
+  t('repairRepresentation converges', async () => {
+    const p = await h.make();
+    const first = await p.repairRepresentation(h.issueId);
+    const second = await p.repairRepresentation(h.issueId);
+    assert.equal(first.ok, second.ok);
+    if (second.ok) assert.equal(second.repaired, false, 'a repeat must find nothing left to repair');
+  });
+
+  t('a failing transport never makes repairRepresentation throw', async () => {
+    const p = await h.makeFailing();
+    const r = await p.repairRepresentation(h.issueId);
+    assert.equal(typeof r.ok, 'boolean');
+    if (!r.ok) assert.equal(typeof r.error, 'string');
   });
 
   // --- rule 3: writes read back and converge ----------------------------------
