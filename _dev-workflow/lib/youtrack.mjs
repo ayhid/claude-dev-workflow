@@ -482,6 +482,27 @@ export function createYouTrackProvider({ config, fetch: fetchImpl, onWarn }) {
       return out;
     },
 
+    /**
+     * Nothing here can be stale, and that is a statement about YouTrack rather
+     * than a stub.
+     *
+     * The representation pair exists for backends that *model* the ladder on
+     * top of something else and so keep two copies of a ticket's state — see
+     * lib/provider.mjs. YouTrack keeps one: the State field is both the state
+     * and its representation, and reading it is `getState`. So both members
+     * answer honestly with no network call, and no caller needs to know which
+     * kind of backend it is talking to.
+     *
+     * @returns {Promise<Map<string, ?string>>}
+     */
+    async checkRepresentation(ids) {
+      return new Map((ids ?? []).map((id) => [id, null]));
+    },
+
+    async repairRepresentation(id) {
+      return { ok: true, repaired: false, why: `${id}: the State field is its own representation` };
+    },
+
     async search(keywords, { limit = 15 } = {}) {
       return withToken(async (token) => {
         const r = await call(token, 'api/issues', {

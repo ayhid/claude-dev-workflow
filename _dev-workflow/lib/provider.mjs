@@ -35,6 +35,25 @@
  * 4. **Output is stable.** Adapters return sorted, fully-rendered values with no
  *    wall-clock in them, so the same inputs print the same bytes.
  *
+ * ## State, and the representation of state
+ *
+ * A tracker that owns its own transitions has one copy of a ticket's state, and
+ * `getState` / `setState` are the whole story. A backend that *models* the
+ * ladder on top of something else has two, and they can disagree: GitHub closes
+ * an issue by itself when a PR says `Closes #12`, so the issue reads as done
+ * while still carrying the `in review` label nothing removed.
+ *
+ * That is not a transition — the state is already right — so it is not
+ * `setState`'s job, and recording it as one would put a second close in the
+ * metrics log for work that was closed once. It is its own read/write pair:
+ * `checkRepresentation` (batched, like `getStates`) and `repairRepresentation`
+ * (one issue, reads back, like `setState`).
+ *
+ * Every adapter implements both, and there is deliberately no capability flag
+ * for it: a backend whose state IS its representation answers "nothing is
+ * stale" and the caller needs no branch at all. A flag would only be a place to
+ * forget the else.
+ *
  * Adding a backend means one new file plus a `case` here, and passing
  * `tests/provider.contract.mjs` unchanged. If a change to the core is needed to
  * add a backend, the abstraction is wrong — fix it here rather than special-
@@ -62,6 +81,13 @@ export const PROVIDERS = ['youtrack', 'github'];
  * @property {Array<{author: string, at: ?string, body: string}>} comments
  *   `at` is ISO-8601, so no adapter leaks an epoch or a locale format.
  * @property {{closed: boolean, closeReason: ?string, labels: string[]}} meta
+ */
+
+/**
+ * @typedef {Object} RepairResult
+ * @property {boolean} repaired  did anything actually change?
+ * @property {string}  [state]   the state read back afterwards (rule 3)
+ * @property {string}  [why]     what was stale, or why nothing was
  */
 
 /**

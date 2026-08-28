@@ -1,8 +1,8 @@
 {
   "installation": {
-    "version": "1.4.0",
+    "version": "1.6.0",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-28T10:25:53.032Z"
+    "lastUpdated": "2026-08-28T15:24:21.218Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -28,7 +28,7 @@
     },
     {
       "path": "_dev-workflow/lib/github.mjs",
-      "sha256": "383464d669f6143ec79c8f9a8d76efad57dff5cb15b4690fc1fceeafd04e2827"
+      "sha256": "40efba1eb43fd1f01b95afadab38ec40923778b8bb3bf548d4b8838e5248d402"
     },
     {
       "path": "_dev-workflow/lib/ingest.mjs",
@@ -52,7 +52,7 @@
     },
     {
       "path": "_dev-workflow/lib/provider.mjs",
-      "sha256": "0cb07ba23ae72ffc4ca7663d4221ab085cf1a0839855f52a4b9d585d8bed5fe3"
+      "sha256": "2978d0151ed1e09800b63faeba66138a0b5695bb68ae83ffba124236d2435282"
     },
     {
       "path": "_dev-workflow/lib/sh.mjs",
@@ -72,7 +72,7 @@
     },
     {
       "path": "_dev-workflow/lib/sync.mjs",
-      "sha256": "f1cd3a9ede38fa92ae5578f48e1e3f8e9176e9116ae4c26d8a9a85326f15a2c7"
+      "sha256": "1bc6fbf9e19864ab7eef07e3a70c40a33f669155b2f6dfd1e1d93b3ad9c7cf6b"
     },
     {
       "path": "_dev-workflow/lib/token.mjs",
@@ -84,7 +84,7 @@
     },
     {
       "path": "_dev-workflow/lib/youtrack.mjs",
-      "sha256": "a59fd7871d628a1a6d96425f37caeb5476ae6b4afd759965b19573d8aeb2a1f4"
+      "sha256": "9877c045f307841e5dd6a009025c8208ad65c7922af6ebfc2a085dd4da8a38b9"
     },
     {
       "path": "_dev-workflow/scripts/cmd/abandon.mjs",
@@ -140,7 +140,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/sync.mjs",
-      "sha256": "dd8e8903bdced525a4eaf6406e58c0cd4f39f16351fc32801d3369b3341d6a03"
+      "sha256": "a95e3f5cb942dcfd1d88f7909fad29e4bc6de49fa40f67b7b831f1f24c2a7058"
     },
     {
       "path": "_dev-workflow/scripts/cmd/update.mjs",

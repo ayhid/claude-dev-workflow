@@ -53,6 +53,32 @@ function fakeGh({ fail = false, labels = ['status: in progress', 'status: review
     if (fail) return fail0;
 
     if (args[0] === 'api' && args[1] === 'user') return out('ayoub');
+
+    // The batched read. Answers by exact number, and — like the real API —
+    // reports a number that does not exist as an `errors` entry alongside the
+    // issues that do, with `gh` exiting non-zero for the whole response.
+    if (args[0] === 'api' && args[1] === 'graphql') {
+      const query = args.find((a) => String(a).startsWith('query=')) ?? '';
+      const asked = [...String(query).matchAll(/issue\(number: (\d+)\)/g)].map((m) => Number(m[1]));
+      const repository = {};
+      const errors = [];
+      for (const n of asked) {
+        const i = issues.get(n);
+        // Verified against the real API: a missing number comes back as an
+        // explicit null alias plus a NOT_FOUND, not as an absent key.
+        if (!i) { repository[`i${n}`] = null; errors.push({ type: 'NOT_FOUND', path: ['repository', `i${n}`] }); continue; }
+        repository[`i${n}`] = {
+          number: i.number,
+          state: i.state,
+          stateReason: i.stateReason,
+          labels: { nodes: i.labels.map((l) => ({ name: l.name })) },
+        };
+      }
+      const body = JSON.stringify(errors.length ? { data: { repository }, errors } : { data: { repository } });
+      return errors.length
+        ? { ok: false, code: 1, stdout: body, stderr: 'gh: Could not resolve to an Issue' }
+        : out(body);
+    }
     if (args[0] === 'repo' && args[1] === 'view') {
       return out({ nameWithOwner: 'acme/api', name: 'api', url: 'https://github.com/acme/api', viewerPermission: 'WRITE' });
     }
@@ -64,7 +90,13 @@ function fakeGh({ fail = false, labels = ['status: in progress', 'status: review
         const i = issues.get(n);
         return i ? out(i) : { ok: false, code: 1, stdout: '', stderr: 'not found' };
       }
-      if (args[1] === 'list') return out([...issues.values()]);
+      // Newest first, capped at --limit: what `gh issue list` actually does.
+      // Nothing calls this any more, and that is the point — the cap is why it
+      // could not be the batched read.
+      if (args[1] === 'list') {
+        const limit = Number(args[args.indexOf('--limit') + 1] || 30);
+        return out([...issues.values()].sort((a, b) => b.number - a.number).slice(0, limit));
+      }
       if (args[1] === 'edit') {
         const i = issues.get(n);
         if (!i) return { ok: false, code: 1, stdout: '', stderr: 'not found' };
@@ -168,12 +200,16 @@ test('reads go out as argument arrays, never a shell string', async () => {
   ]);
 });
 
+const graphqlCalls = (calls) => calls.filter((c) => c.args[0] === 'api' && c.args[1] === 'graphql');
+
 test('getStates is one call for the whole batch', async () => {
   const { provider, calls } = build();
   await provider.getStates(['#1', '#2']);
-  const lists = calls.filter((c) => c.args[1] === 'list');
-  assert.equal(lists.length, 1, 'a per-issue loop would be a process spawn each');
-  assert.ok(lists[0].args.includes('--state') && lists[0].args.includes('all'));
+  const reads = graphqlCalls(calls);
+  assert.equal(reads.length, 1, 'a per-issue loop would be a process spawn each');
+  const query = reads[0].args.find((a) => String(a).startsWith('query='));
+  assert.match(query, /issue\(number: 1\)/);
+  assert.match(query, /issue\(number: 2\)/, 'both numbers in the one query');
 });
 
 test('a long comment goes via stdin, not argv', async () => {
@@ -252,6 +288,177 @@ test('the highest label wins when stale ones linger', async () => {
   const { provider, issues } = build();
   issues.get(1).labels = [{ name: 'status: in progress' }, { name: 'status: review' }];
   assert.equal(await provider.getState('#1'), 'In Review');
+});
+
+// --- state vs. its representation ---------------------------------------------
+//
+// The strand this closes: `Closes #12` in a PR body makes GitHub close the
+// issue at merge, before anything relabels it. The state reads Done and the
+// `in review` label stays on it forever, because `ahead` is the correct answer
+// and there was nowhere to say "right state, wrong label".
+
+test('a closed issue carrying a stale rung label is drift', async () => {
+  const { provider, issues } = build();
+  issues.get(1).state = 'CLOSED';
+  issues.get(1).stateReason = 'COMPLETED';
+  issues.get(1).labels = [{ name: 'status: review' }];
+
+  const why = (await provider.checkRepresentation(['#1'])).get('#1');
+  assert.match(why, /status: review/, 'the reason names the label actually on the issue');
+  assert.match(why, /Done/, 'and the state it contradicts');
+});
+
+test('an issue whose label agrees with its state is not drift', async () => {
+  const { provider, issues } = build();
+  issues.get(1).state = 'CLOSED';
+  issues.get(1).stateReason = 'COMPLETED';
+  issues.get(1).labels = [{ name: 'status: done' }];
+  assert.equal((await provider.checkRepresentation(['#1'])).get('#1'), null);
+});
+
+test('a closed issue with no ladder label is left alone, never backfilled', async () => {
+  // Imported and bot-filed issues never entered the ladder. Labelling one
+  // `done` because it happens to be closed would invent history it never had.
+  const { provider, issues } = build();
+  issues.get(1).state = 'CLOSED';
+  issues.get(1).stateReason = 'COMPLETED';
+  issues.get(1).labels = [{ name: 'bug' }];
+  assert.equal((await provider.checkRepresentation(['#1'])).get('#1'), null);
+});
+
+test('closed as NOT_PLANNED is off-ladder, so its label is not repaired either', async () => {
+  const { provider, issues } = build();
+  issues.get(1).state = 'CLOSED';
+  issues.get(1).stateReason = 'NOT_PLANNED';
+  issues.get(1).labels = [{ name: 'status: review' }];
+  assert.equal(
+    (await provider.checkRepresentation(['#1'])).get('#1'),
+    null,
+    'declined work was parked deliberately — the reconciler keeps its hands off it',
+  );
+});
+
+test('an open issue carrying two rung labels is drift', async () => {
+  const { provider, issues } = build();
+  issues.get(1).labels = [{ name: 'status: in progress' }, { name: 'status: review' }];
+  const why = (await provider.checkRepresentation(['#1'])).get('#1');
+  assert.match(why, /status: in progress/);
+  assert.match(why, /In Review/, 'the higher label is the state; the lower one is the stale half');
+  assert.ok(
+    !why.includes('"status: review"'),
+    'the reason names only the labels that disagree — the correct one is not part of the problem',
+  );
+});
+
+test('checkRepresentation is one call for the whole batch', async () => {
+  const { provider, calls } = build();
+  await provider.checkRepresentation(['#1', '#2']);
+  assert.equal(graphqlCalls(calls).length, 1);
+});
+
+// The batched read used to be `gh issue list --limit N`, which answers with the
+// N most recently *created* issues rather than the N asked about. On any
+// repository with more issues than the window, an old one fell out of the
+// answer, `getStates` reported UNKNOWN and the reconciler skipped it in silence
+// — the same class of stranded ticket this whole path exists to repair, and
+// worst in exactly the case that needs it: hunting a label stranded long ago.
+
+test('an issue far older than any recency window is still answered', async () => {
+  const { provider, calls, issues } = build();
+  for (let n = 3; n <= 400; n += 1) {
+    issues.set(n, { number: n, state: 'OPEN', stateReason: null, labels: [] });
+  }
+
+  assert.equal((await provider.getStates(['#1'])).get('#1'), 'In Progress');
+  assert.equal(
+    calls.filter((c) => c.args[1] === 'list').length,
+    0,
+    'a windowed list is not a read of the numbers asked about',
+  );
+});
+
+test('a number that does not exist does not blank the rest of the batch', async () => {
+  // GitHub answers a missing alias with a NOT_FOUND in `errors`, and `gh` exits
+  // non-zero for the whole response. Throwing the body away with it would let
+  // one deleted issue hide forty-nine live ones.
+  const { provider } = build();
+  const states = await provider.getStates(['#1', '#404']);
+  assert.equal(states.get('#1'), 'In Progress');
+  assert.equal(states.get('#404'), UNKNOWN, 'unread, not defaulted');
+});
+
+test('a batch larger than one query is still answered in full', async () => {
+  const { provider, calls, issues } = build();
+  const ids = [];
+  for (let n = 1; n <= 120; n += 1) {
+    if (!issues.has(n)) issues.set(n, { number: n, state: 'OPEN', stateReason: null, labels: [] });
+    ids.push(`#${n}`);
+  }
+
+  const states = await provider.getStates(ids);
+  assert.equal(states.size, 120);
+  assert.ok(![...states.values()].includes(UNKNOWN), 'every id asked about got a real answer');
+  assert.equal(graphqlCalls(calls).length, 3, '120 issues is three queries, not 120 spawns');
+});
+
+test('repairRepresentation relabels without opening or closing anything', async () => {
+  const { provider, calls, issues } = build();
+  issues.get(1).state = 'CLOSED';
+  issues.get(1).stateReason = 'COMPLETED';
+  issues.get(1).labels = [{ name: 'status: review' }];
+
+  const r = await provider.repairRepresentation('#1');
+  assert.ok(r.ok, r.error);
+  assert.equal(r.repaired, true);
+  assert.equal(r.state, 'Done');
+  assert.deepEqual(
+    issues.get(1).labels.map((l) => l.name),
+    ['status: done'],
+  );
+  assert.equal(issues.get(1).state, 'CLOSED', 'the issue itself must not move');
+  assert.ok(
+    !calls.some((c) => c.args[1] === 'close' || c.args[1] === 'reopen'),
+    'a repair is not a transition — it must never open or close an issue',
+  );
+});
+
+test('a repair only names labels the issue actually carries', async () => {
+  // `gh` fails the whole edit on a label the repository does not have, and the
+  // repair has just read the issue, so it has no reason to guess at siblings.
+  const { provider, calls, issues } = build();
+  issues.get(1).state = 'CLOSED';
+  issues.get(1).stateReason = 'COMPLETED';
+  issues.get(1).labels = [{ name: 'status: review' }];
+
+  await provider.repairRepresentation('#1');
+  const edit = calls.find((c) => c.args[1] === 'edit');
+  const removed = edit.args.filter((a, i) => edit.args[i - 1] === '--remove-label');
+  assert.deepEqual(removed, ['status: review']);
+});
+
+test('repairing an issue whose labels already agree changes nothing', async () => {
+  const { provider, calls, issues } = build();
+  issues.get(1).state = 'CLOSED';
+  issues.get(1).stateReason = 'COMPLETED';
+  issues.get(1).labels = [{ name: 'status: done' }];
+
+  const r = await provider.repairRepresentation('#1');
+  assert.ok(r.ok, r.error);
+  assert.equal(r.repaired, false);
+  assert.ok(!calls.some((c) => c.args[1] === 'edit'), 'no drift means no write');
+});
+
+test('a repair reads back, and a repeat finds nothing left to do', async () => {
+  const { provider, issues } = build();
+  issues.get(1).state = 'CLOSED';
+  issues.get(1).stateReason = 'COMPLETED';
+  issues.get(1).labels = [{ name: 'status: in progress' }, { name: 'status: review' }];
+
+  const first = await provider.repairRepresentation('#1');
+  const second = await provider.repairRepresentation('#1');
+  assert.equal(first.repaired, true);
+  assert.equal(second.repaired, false, 'rule 3: applying it twice converges');
+  assert.equal((await provider.checkRepresentation(['#1'])).get('#1'), null);
 });
 
 test('a label missing from the repo fails loudly with the fix', async () => {

@@ -9,17 +9,22 @@ name: reconcile
 #     one of GitHub's closing keywords, so the issue stays open carrying whatever
 #     `status:` label it had.
 #   - A PR opened by `dev.mjs land --apply` carries `Closes #12`, so GitHub closes
-#     the issue at merge — before anything can relabel it. `sync` then reads a
-#     closed issue as already done (`stateOf` in lib/github.mjs) and correctly
-#     declines to move it, which strands `status: in review` forever. #6 sat like
-#     that from 2026-08-15 until it was fixed by hand.
+#     the issue at merge — before anything can relabel it. The issue then reads as
+#     done via its closed state and as in-review via its label, indefinitely. #6
+#     sat like that from 2026-08-15 until it was fixed by hand.
 #
-# So this runs both halves: reconcile what GitHub did not close, then repair the
-# label GitHub's own auto-close stranded.
+# Both are `sync`'s job now, and there is one step below because of it. The
+# second half used to be a shell step here that swapped the label directly —
+# repo-local glue standing in for a gap in the tool, spelling the label names a
+# second time in a place `.dev-workflow.json` could not reach. #30 closed the gap
+# (`provider.checkRepresentation` / `repairRepresentation`), so every project
+# installing this workflow gets the repair rather than only this one.
 #
-# The second step is repo-local glue, not a design. It stands in for a gap in the
-# tool — the reconciler has no notion of "right state, wrong label" — and should
-# be deleted if the tool ever grows one.
+# One property the glue had and this does not: it scanned the last 100 closed
+# issues regardless of age. `sync` reconciles what PRs since `--since` (30d)
+# reference, which covers the strand at the moment it is created — a merge is
+# what creates it, and this runs on the merge. A strand older than the window
+# needs one wider run by hand: `dev.mjs sync --apply --deep --since 1y`.
 
 on:
   pull_request:
@@ -33,7 +38,7 @@ on:
 
 permissions:
   contents: read
-  issues: write # the label swap and the close
+  issues: write # sync moves tickets and repairs stranded labels
   pull-requests: read # sync's evidence is the PR list
 
 concurrency:
@@ -64,46 +69,3 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node _dev-workflow/scripts/dev.mjs sync --apply --deep
-
-      - name: Repair labels stranded by GitHub's own auto-close
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          # Closed as "not planned" is GitHub's Won't Fix: off the ladder on
-          # purpose. It is skipped here for the same reason the reconciler skips
-          # off-ladder states — somebody put it there deliberately.
-          #
-          # Only issues carrying a *stale ladder label* are touched. An issue
-          # closed with no status label at all is left alone rather than being
-          # backfilled, so unrelated history (bot issues, imports) stays as it is.
-          # One line per stranded label, `number<TAB>label`, rather than a list
-          # per issue: ladder labels contain spaces ("status: in review"), so
-          # anything that word-splits a list of them corrupts the name it is
-          # about to pass to --remove-label.
-          # shellcheck disable=SC2016  # $issue is a jq binding, not a shell variable
-          gh issue list -R "$GITHUB_REPOSITORY" \
-            --state closed \
-            --limit 100 \
-            --json number,stateReason,labels \
-            -q '.[]
-                | select(.stateReason == "COMPLETED")
-                | . as $issue
-                | $issue.labels[].name
-                | select(. == "status: in progress" or . == "status: in review")
-                | "\($issue.number)\t\(.)"' > stale.tsv
-
-          if [ ! -s stale.tsv ]; then
-            echo "no stranded labels"
-            exit 0
-          fi
-
-          # Removing a label the issue does not carry is an error, which is why
-          # each removal names a label the listing just read off that issue.
-          while IFS=$'\t' read -r number label; do
-            echo "repairing #$number: $label -> status: done"
-            gh issue edit "$number" -R "$GITHUB_REPOSITORY" \
-              --add-label "status: done" \
-              --remove-label "$label"
-          done < stale.tsv

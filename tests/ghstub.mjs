@@ -55,6 +55,18 @@ case "\${1:-} \${2:-}" in
   "issue list")
     printf '[{"number":12,"state":"OPEN","stateReason":null,"labels":[%s]}]\\n' "$(cat "$GH_STATE")"
     ;;
+  "api graphql")
+    # The batched state read. Answers by exact number, like the real one: the
+    # repository this stub stands in for holds issue 12 and nothing else, so
+    # every other number asked about is simply absent from the answer.
+    fields=""
+    for n in $(printf '%s' "$*" | grep -o 'issue(number: [0-9]*)' | grep -o '[0-9][0-9]*'); do
+      [ "$n" = "12" ] || continue
+      [ -n "$fields" ] && fields="$fields,"
+      fields="$fields\\"i12\\":{\\"number\\":12,\\"state\\":\\"OPEN\\",\\"stateReason\\":null,\\"labels\\":{\\"nodes\\":[$(cat "$GH_STATE")]}}"
+    done
+    printf '{"data":{"repository":{%s}}}\\n' "$fields"
+    ;;
   "issue edit")
     next=""
     while [ $# -gt 0 ]; do

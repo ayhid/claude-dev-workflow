@@ -143,6 +143,164 @@ export function createGitHubProvider({ config, run = sh, onWarn }) {
     return ladder[0];
   };
 
+  /**
+   * The ladder labels actually on an issue, sorted so the reason string a
+   * repair prints is the same bytes on every run (rule 4).
+   */
+  const ladderLabelsOn = (issue) =>
+    (issue?.labels ?? [])
+      .map((l) => (typeof l === 'string' ? l : l?.name))
+      .filter((name) => name && stateForLabel(name))
+      .sort();
+
+  /**
+   * Why this issue's labels contradict the state it is in, or null.
+   *
+   * The gap this closes: `stateOf` above is right to let a close beat a stale
+   * label, but that answer erases the only signal that a repair is needed. The
+   * decision and the disagreement are two facts, so they are two functions.
+   *
+   * Two silences are deliberate, and both were properties of the CI step this
+   * replaces. An off-ladder issue — closed as not planned, or unreadable — is
+   * somebody's decision, not drift. An issue carrying NO ladder label is not
+   * backfilled: an imported or bot-filed issue never entered the ladder, and
+   * labelling it `done` because it happens to be closed would invent history.
+   */
+  const driftOf = (issue) => {
+    const state = stateOf(issue);
+    if (state === UNKNOWN || rankOf(config, state) < 0) return null;
+
+    const present = ladderLabelsOn(issue);
+    if (present.length === 0) return null;
+
+    const wanted = labelFor(state);
+    // Only the labels that disagree. Naming the correct one alongside them
+    // would make the reason read as if it were part of the problem.
+    const stale = present.filter((l) => l !== wanted);
+    if (stale.length === 0) return null;
+
+    const shown = stale.map((l) => `"${l}"`).join(', ');
+    return `labelled ${shown}, but the issue is ${state}`;
+  };
+
+  /**
+   * The `issue edit` argv for a set of label changes, or null when there are
+   * none to make. Shared so `setState` and `repairRepresentation` cannot
+   * disagree about how a label edit is spelled.
+   *
+   * The two pass different sets on purpose. `setState` has not read the issue,
+   * so it drops every sibling rung blind; the repair has just read it, so it
+   * names only labels it saw — which is also the safer argv, since `gh` fails
+   * the whole edit on a label this repository does not have.
+   */
+  const labelEditArgs = (n, { add = [], remove = [] }) => {
+    const edits = [];
+    for (const l of add) edits.push('--add-label', l);
+    for (const l of remove) edits.push('--remove-label', l);
+    return edits.length ? ['issue', 'edit', n, '-R', repo, ...edits] : null;
+  };
+
+  /**
+   * Refuse rather than create. A label this repository does not have is a
+   * visible, permanent addition to somebody's repo, and it needs consent.
+   */
+  const ensureLabel = async (wanted) => {
+    if (!wanted) return { ok: true };
+    const known = await json(['label', 'list', '-R', repo, '--limit', '200', '--json', 'name']);
+    if (!known.ok) return known;
+    const names = new Set((known.data ?? []).map((l) => l.name));
+    if (names.has(wanted)) return { ok: true };
+    return {
+      ok: false,
+      error: `${repo} has no label "${wanted}" — create it with: gh label create "${wanted}" -R ${repo}`,
+    };
+  };
+
+  /**
+   * How many issues one GraphQL query asks about.
+   *
+   * Aliased `issue(number:)` fields cost one point each, so this is well inside
+   * anything GitHub rate-limits; it is a bound on query size, not a tuning knob.
+   */
+  const GRAPHQL_BATCH = 50;
+
+  /** The GraphQL selection matching exactly what `stateOf` and `driftOf` read. */
+  const ISSUE_GQL = 'number state stateReason labels(first: 100) { nodes { name } }';
+
+  /**
+   * One GraphQL issue node in the shape the `--json` reads produce, so
+   * `stateOf` and `driftOf` never learn there are two transports.
+   */
+  const fromGraphql = (node) => ({
+    number: node.number,
+    state: node.state,
+    stateReason: node.stateReason,
+    labels: (node.labels?.nodes ?? []).filter(Boolean).map((l) => ({ name: l.name })),
+  });
+
+  /**
+   * The raw issue objects behind `ids`, keyed by number, in ONE call per 50.
+   *
+   * Shared by `getStates` and `checkRepresentation` because they ask two
+   * questions of the same read, and because per-issue here is a process spawn
+   * plus a round trip each.
+   *
+   * Why GraphQL rather than `issue list`: the numbers asked about must be the
+   * numbers answered. `gh issue list --limit N` returns the N most recently
+   * *created* issues, which is a different set — so on any repository with more
+   * issues than the window, an older one silently fell out, `getStates` reported
+   * UNKNOWN, and the reconciler skipped it saying nothing. That is the failure
+   * this whole path exists to fix, reappearing one layer down, and it was
+   * likeliest in exactly the case that needs it most: `--deep --since 1y`,
+   * hunting a label stranded long ago. Aliased lookups have no window.
+   */
+  const listByNumber = async (ids) => {
+    const gate = await ensureGh();
+    if (!gate.ok) return gate;
+
+    const byNumber = new Map();
+    const numbers = [...new Set((ids ?? []).map(numberOf).filter(Boolean))];
+    if (!numbers.length) return { ok: true, byNumber };
+
+    const [owner, name] = repo.split('/');
+
+    for (let i = 0; i < numbers.length; i += GRAPHQL_BATCH) {
+      const chunk = numbers.slice(i, i + GRAPHQL_BATCH);
+      // `numberOf` has already proved every one of these is digits, which is
+      // what makes them safe to splice into the query text. Everything that is
+      // not — owner and name — goes through a variable.
+      const fields = chunk.map((n) => `i${n}: issue(number: ${n}) { ${ISSUE_GQL} }`).join('\n');
+      const r = await call([
+        'api', 'graphql',
+        '-f', `owner=${owner}`,
+        '-f', `name=${name}`,
+        '-f', `query=query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { ${fields} } }`,
+      ]);
+
+      // A number that does not exist makes GitHub answer with the issues that
+      // do plus a NOT_FOUND in `errors`, and `gh` exits non-zero on any `errors`
+      // at all. Reading the body regardless is what keeps one deleted issue from
+      // blanking the other forty-nine; an alias that is genuinely absent stays
+      // absent, which is the UNKNOWN the callers already handle.
+      let repository = null;
+      try {
+        repository = JSON.parse(r.stdout || 'null')?.data?.repository ?? null;
+      } catch {
+        repository = null;
+      }
+      if (!repository) {
+        return { ok: false, error: r.ok ? `could not read ${repo}` : r.stderr || `gh exited ${r.code}` };
+      }
+
+      for (const n of chunk) {
+        const node = repository[`i${n}`];
+        if (node) byNumber.set(String(node.number ?? n), fromGraphql(node));
+      }
+    }
+
+    return { ok: true, byNumber };
+  };
+
   let preflight = null;
   /** Check `gh` exists, is new enough, and is authenticated. Once per process. */
   const ensureGh = async () => {
@@ -249,28 +407,104 @@ export function createGitHubProvider({ config, run = sh, onWarn }) {
       const out = new Map();
       if (!ids?.length) return out;
 
-      const r = await json([
-        'issue', 'list',
-        '-R', repo,
-        '--state', 'all',
-        '--limit', String(Math.max(ids.length * 2, 100)),
-        '--json', 'number,state,stateReason,labels',
-      ]);
-
+      const r = await listByNumber(ids);
       if (!r.ok) {
         onWarn?.(`could not read issue states in bulk: ${r.error}`);
         for (const id of ids) out.set(id, UNKNOWN);
         return out;
       }
 
-      const byNumber = new Map((r.data ?? []).map((i) => [String(i.number), i]));
       for (const id of ids) {
         const n = numberOf(id);
-        // Not returned by the list means we could not read it, not that it is
-        // in some default state. UNKNOWN keeps the reconciler's hands off it.
-        out.set(id, n && byNumber.has(n) ? stateOf(byNumber.get(n)) : UNKNOWN);
+        // Not in the answer means we could not read it, not that it is in some
+        // default state. UNKNOWN keeps the reconciler's hands off it.
+        out.set(id, n && r.byNumber.has(n) ? stateOf(r.byNumber.get(n)) : UNKNOWN);
       }
       return out;
+    },
+
+    /**
+     * Which of `ids` are in the right state but say otherwise, and how.
+     *
+     * The read half of the representation pair (see lib/provider.mjs). Batched
+     * for the same reason `getStates` is.
+     *
+     * A read that fails answers null — "nothing to repair" — rather than
+     * guessing. The same failed read has already made `getStates` report
+     * UNKNOWN, so the reconciler skips the issue with a reason on stderr; a
+     * `checkRepresentation` that guessed here would turn an unreadable issue
+     * into a write.
+     *
+     * @returns {Promise<Map<string, ?string>>}
+     */
+    async checkRepresentation(ids) {
+      const out = new Map();
+      if (!ids?.length) return out;
+
+      const r = await listByNumber(ids);
+      if (!r.ok) {
+        onWarn?.(`could not check issue labels in bulk: ${r.error}`);
+        for (const id of ids) out.set(id, null);
+        return out;
+      }
+
+      for (const id of ids) {
+        const n = numberOf(id);
+        out.set(id, n && r.byNumber.has(n) ? driftOf(r.byNumber.get(n)) : null);
+      }
+      return out;
+    },
+
+    /**
+     * Bring one issue's labels in line with the state it is already in.
+     *
+     * The write half of the pair, and deliberately NOT a transition: it never
+     * opens or closes an issue, so a repair cannot move a ticket by accident,
+     * and nothing downstream records a second close for work closed once.
+     *
+     * Rule 3 all the same — it reads back, and reports drift that survived the
+     * write as a failure rather than as a success nobody checked.
+     */
+    async repairRepresentation(id) {
+      const n = numberOf(id);
+      if (!n) return { ok: false, error: `"${id}" is not a GitHub issue reference` };
+
+      const gate = await ensureGh();
+      if (!gate.ok) return gate;
+
+      const view = () => json(['issue', 'view', n, '-R', repo, '--json', 'state,stateReason,labels']);
+
+      const before = await view();
+      if (!before.ok) return { ok: false, error: `could not read ${id}: ${before.error}` };
+
+      const why = driftOf(before.data);
+      if (!why) {
+        return { ok: true, repaired: false, state: stateOf(before.data), why: 'labels already agree' };
+      }
+
+      const state = stateOf(before.data);
+      const wanted = labelFor(state);
+      const label = await ensureLabel(wanted);
+      if (!label.ok) return label;
+
+      const present = ladderLabelsOn(before.data);
+      const args = labelEditArgs(n, {
+        add: wanted && !present.includes(wanted) ? [wanted] : [],
+        remove: present.filter((l) => l !== wanted),
+      });
+      if (args) {
+        const edit = await call(args);
+        if (!edit.ok) return { ok: false, error: `could not relabel ${id}: ${edit.stderr}` };
+      }
+
+      const after = await view();
+      if (!after.ok) {
+        return { ok: false, error: `relabelled ${id} but could not read it back: ${after.error}` };
+      }
+      const left = driftOf(after.data);
+      if (left) return { ok: false, error: `${id} is still ${left}` };
+
+      return { ok: true, repaired: true, state: stateOf(after.data), why };
     },
 
     async search(keywords, { limit = 15 } = {}) {
@@ -307,27 +541,14 @@ export function createGitHubProvider({ config, run = sh, onWarn }) {
       if (!gate.ok) return gate;
 
       const wanted = labelFor(target);
-      if (wanted) {
-        const known = await json(['label', 'list', '-R', repo, '--limit', '200', '--json', 'name']);
-        if (!known.ok) return known;
-        const names = new Set((known.data ?? []).map((l) => l.name));
-        if (!names.has(wanted)) {
-          // Creating a label in someone's repository is a visible, permanent
-          // side effect. It needs consent, so this reports rather than acts.
-          return {
-            ok: false,
-            error: `${repo} has no label "${wanted}" — create it with: gh label create "${wanted}" -R ${repo}`,
-          };
-        }
-      }
+      const label = await ensureLabel(wanted);
+      if (!label.ok) return label;
 
-      const args = ['issue', 'edit', n, '-R', repo];
-      if (wanted) args.push('--add-label', wanted);
-      for (const rung2 of mappable) {
-        const l = labelFor(rung2);
-        if (l && l !== wanted) args.push('--remove-label', l);
-      }
-      if (args.length > 4) {
+      const args = labelEditArgs(n, {
+        add: wanted ? [wanted] : [],
+        remove: mappable.map(labelFor).filter((l) => l && l !== wanted),
+      });
+      if (args) {
         const edit = await call(args);
         if (!edit.ok) return { ok: false, error: `could not label ${id}: ${edit.stderr}` };
       }
