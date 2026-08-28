@@ -75,7 +75,7 @@ node bin/install.mjs --dir /tmp/rel --print   # config path only, writes nothing
 
 Then a genuine install into `/tmp/rel`, and against it confirm:
 
-- `_dev-workflow/`, the four `.claude/skills/dev-*`, and the hook in `.claude/settings.json` exist;
+- `_dev-workflow/`, every `.claude/skills/dev-*`, and the hook in `.claude/settings.json` exist;
 - **no `node_modules` under `_dev-workflow/`** — the payload must stay dependency-free, or it breaks
   in every non-Node project;
 - `node _dev-workflow/scripts/dev.mjs config` runs from the installed copy;
