@@ -219,6 +219,15 @@ their own skills alongside ours. We write to exactly two roots:
 through it** — including the removal pass, so a hand-edited or corrupted manifest still cannot
 reach a file that is not ours. A planned write outside those roots is a hard error, not a warning.
 
+**The boundary binds the installer, not the user.** `dev.mjs adr` writes decision records into the
+project's own `docs/decisions/`, which is outside both roots — and that is correct: the *user* asked
+for that file, in that directory, by running the command. What `isOwnedPath` prevents is the
+*installer* deciding on its own to write somewhere it does not own, which is a different act
+entirely. The line is who chose, not which path. Do not loosen `isOwnedPath` to accommodate a
+command; a command that writes user content was never subject to it. The corollary is the reason
+the Obsidian setup in `docs/decisions.md` is a recipe rather than an install step: nobody asked the
+installer to write `.obsidian/`.
+
 The manifest is split along that line, and the split is the point. **Reading** it —
 `lib/manifest.mjs` — ships, because `dev.mjs version` reports the installed version and local drift
 from the same file the installer wrote; two independent readers of one schema is the drift this repo
@@ -269,6 +278,14 @@ Two consequences, both deliberate:
 
 Work with an issue behind it references it as `(#123)`. Work without one keeps the
 `<type>(no-ticket):` escape hatch; the type in it is incidental, so any configured type carries it.
+
+`hooks/check-adr-immutable.sh` is the second shipped hook, and the pair are registered by one list
+— `SHIPPED_HOOKS` in `bin/lib/payload.mjs`. The merge into `.claude/settings.json` is what makes a
+hook apply at all, so a third hook is one entry in that list rather than a second copy of the merge.
+Their matchers differ deliberately: the commit guard must see every `Bash` call and is built around
+a ~3ms bail for it, while the ADR guard matches `Edit|Write` only, which keeps it off the hot path
+at the cost of not seeing an ADR rewritten through `sed -i`. That gap is written down in
+`docs/decisions.md` rather than quietly tolerated.
 
 `hooks/check-commit-ticket.sh` only sees `git commit -m` issued through the agent; it defers on
 editor commits, `-F` files and amends. Husky's `commit-msg` hook is what covers those, running

@@ -345,6 +345,28 @@ Set either in your shell profile, or per command:
 DEV_WORKFLOW_NO_BANNER=1 node _dev-workflow/scripts/dev.mjs config
 ```
 
+## `docs` — decision records
+
+Where `/dev-adr` writes architecture decision records, and whether the immutability hook applies.
+
+```jsonc
+{
+  "docs": {
+    "decisionsDir": "docs/decisions",  // relative to the project root
+    "enforce": true                    // false disables check-adr-immutable.sh
+  }
+}
+```
+
+Unlike `github.labels`, `decisionsDir` has a default. The difference is what a wrong value costs: a
+wrong label mapping fails silently — the ticket never moves — while a wrong directory is named in
+the first `adr new`'s own output. A monorepo keeping records per package points this elsewhere, or
+passes `--dir` for one run.
+
+**[Decision records reference →](decisions.md)** covers the format, the supersede rule, the gap in
+the hook's coverage, and reading records in Obsidian.
+
+
 ## `notesFile` — durable project knowledge
 
 What a session learns dies with the session unless something writes it down. `dev.mjs note` appends

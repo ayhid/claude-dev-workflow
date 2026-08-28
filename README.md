@@ -12,7 +12,7 @@
 ![The install wizard verifying a token, listing the projects it can see, reading that project's real State values, and writing .dev-workflow.json](https://raw.githubusercontent.com/ayhid/claude-dev-workflow/main/.github/assets/wizard.gif)
 
 Ticket-driven development against your issue tracker, [YouTrack](https://www.jetbrains.com/youtrack/)
-or [GitHub Issues](docs/configuration.md#github-issues), as six Claude Code skills. It installs **per
+or [GitHub Issues](docs/configuration.md#github-issues), as seven Claude Code skills. It installs **per
 project**: nothing is registered globally, so the skills exist only in repos that use a tracker.
 
 | Skill         | What it does |
@@ -23,6 +23,7 @@ project**: nothing is registered globally, so the skills exist only in repos tha
 | `/dev-done`    | Re-reads the ticket, verifies each criterion with evidence, runs the checks, then lands the work the way the project delivers: pull request, or straight onto the base branch. |
 | `/dev-standup` | Everything in flight across every configured repo: what merged, what is checked out, what has stopped moving, and the one thing waiting on you. **Never writes.** |
 | `/dev-ingest-docs` | Reads a brownfield project's existing documentation into a verified map: every claim anchored to the code that proves it, contradictions found, and the questions only a person can settle put to you. Runs in steps across sessions. **Never rewrites your docs.** |
+| `/dev-adr` | Records an architecture decision while the rejected alternatives are still known, then freezes it. An accepted record is superseded, never edited — a hook enforces it. [Reference →](docs/decisions.md) |
 
 Nothing installed is project-specific: instance, project, ticket language, repo layout, state
 ladder, branch naming, isolation mode and commit convention all come from one
@@ -72,7 +73,7 @@ names your instance may not have.
 To amend an existing config later, or to talk it through rather than click, run `/dev-init` in
 Claude Code instead.
 
-Either way you now have the six skills. Start work:
+Either way you now have the seven skills. Start work:
 
 ```
 /dev-task ABC-42
