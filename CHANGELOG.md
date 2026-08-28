@@ -1,3 +1,12 @@
+# [1.8.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.7.0...v1.8.0) (2026-08-28)
+
+
+### Features
+
+* **adr:** adr command for new, accept, supersede, list and index ([#38](https://github.com/ayhid/claude-dev-workflow/issues/38)) ([5435fc4](https://github.com/ayhid/claude-dev-workflow/commit/5435fc4c1c6a3dff65a0c4b566be4107df673e06))
+* **adr:** guard accepted records with a PreToolUse hook ([#38](https://github.com/ayhid/claude-dev-workflow/issues/38)) ([0b7392b](https://github.com/ayhid/claude-dev-workflow/commit/0b7392be8633e810042ce42173eb5939b9337fee))
+* **adr:** number, render and supersede decision records ([#38](https://github.com/ayhid/claude-dev-workflow/issues/38)) ([e539522](https://github.com/ayhid/claude-dev-workflow/commit/e5395223cfdd4744695c8fb896edd098c09ce0b0))
+
 # [1.7.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.6.3...v1.7.0) (2026-08-28)
 
 
