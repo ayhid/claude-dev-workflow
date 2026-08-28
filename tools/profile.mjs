@@ -87,9 +87,17 @@ export function weigh(usage = {}) {
  * ever question it.
  */
 export function costOf(usage, model) {
+  const weighted = weigh(usage);
+
+  // Nothing costs nothing, whatever model did not run. Without this, a session
+  // that opened and did nothing — no assistant turn, so no model recorded —
+  // priced as null, and one null marks its whole ticket unpriced in `byTicket`.
+  // A stub transcript would blank the cost of every real session beside it.
+  if (weighted === 0) return 0;
+
   const rate = INPUT_USD_PER_M[priceKey(model)];
   if (!rate) return null;
-  return (weigh(usage) * rate) / 1_000_000;
+  return (weighted * rate) / 1_000_000;
 }
 
 /**

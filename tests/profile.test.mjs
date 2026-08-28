@@ -110,6 +110,28 @@ test('a turn with no usage block is not counted as a turn', () => {
   assert.equal(s.turns, 1);
 });
 
+test('a session that did nothing costs nothing, and does not blank its neighbours', () => {
+  // A transcript that opened and stopped has no assistant turn, so no model is
+  // recorded. Pricing that as "unknown" made one stub mark a whole ticket
+  // unpriced — every real session beside it reported a dash. Found against a
+  // real machine's transcripts, where every message was a model we do price.
+  const stub = foldSession([{ type: 'user', gitBranch: 'main' }]);
+  assert.deepEqual([stub.turns, stub.model, stub.usd], [0, null, 0]);
+
+  const real = foldSession([assistant({}, usage({ output_tokens: 1000 }))]);
+  const rows = byTicket([stub, real], { config });
+  assert.equal(rows[0].usdKnown, true, 'the real session is still priced');
+  assert.ok(rows[0].usd > 0);
+});
+
+test('an unknown model still blanks the group it really appears in', () => {
+  // The poisoning is correct when there is real spend that cannot be priced —
+  // a partly-priced total would understate the bill without saying so.
+  const real = foldSession([assistant({ message: { model: 'mystery', usage: usage({ output_tokens: 1000 }) } })]);
+  assert.equal(real.usd, null);
+  assert.equal(byTicket([real], { config })[0].usdKnown, false);
+});
+
 test('an unknown model is named, not merely flagged', () => {
   // A blank in a cost report is only actionable if it says what it could not
   // price — otherwise the reader cannot fix it.
