@@ -192,3 +192,121 @@ test('an issue with no State reads as UNKNOWN, not as a missing field', () => {
   const i = normalizeIssue({ idReadable: 'ABC-4', customFields: [] });
   assert.equal(i.state, UNKNOWN);
 });
+
+// --- #14: converging on an instance whose brace rule we do not know -----------
+//
+// #14 found an instance that rejects `State {In Review}` and applies
+// `State In Review`; the fake above is the opposite, requiring the braces. Which
+// is the general rule could not be settled without a live YouTrack, so `setState`
+// does not need to know: it tries both spellings and stops at the one that moved
+// the ticket. These two tests are that claim, one dialect each.
+
+/**
+ * A YouTrack that accepts exactly one spelling of a State command.
+ *
+ * @param {'bare'|'braced'|'neither'|'silent'} dialect which spelling this
+ *   instance applies. `neither` rejects both; `silent` is the other documented
+ *   failure — 200 for a command it did not apply.
+ * @param {{localised?: boolean}} [opts] report state names in French, as the
+ *   instance in #14 did, so nothing may compare a read-back against the config
+ */
+function pickyYouTrack(dialect, { localised = false } = {}) {
+  const FR = { 'In Progress': 'En cours', 'In Review': 'En revue', Done: 'Terminé' };
+  const commands = [];
+  let state = 'In Progress';
+
+  const fetchImpl = async (url, init = {}) => {
+    const path = new URL(url).pathname.replace(/^\//, '');
+    const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
+
+    if (init.method === 'POST' && path === 'api/commands') {
+      const body = JSON.parse(init.body);
+      commands.push(body);
+      const braced = /^State \{(.+)\}$/.exec(body.query);
+      const bare = /^State (.+)$/.exec(body.query);
+      const wanted = braced ? braced[1] : bare?.[1];
+      const accepts = { bare: !braced, braced: Boolean(braced), neither: false, silent: true }[dialect];
+      if (!accepts) {
+        return json({ error_description: `État expected: ${body.query.slice(6)}` }, 400);
+      }
+      if (dialect !== 'silent' && ['In Progress', 'In Review', 'Done'].includes(wanted)) state = wanted;
+      return json({});
+    }
+
+    if (path.startsWith('api/issues/')) {
+      const name = localised ? (FR[state] ?? state) : state;
+      return json({ customFields: [{ name: 'State', value: { name } }] });
+    }
+    return json({}, 404);
+  };
+
+  return { fetchImpl, commands, current: () => state };
+}
+
+const buildPicky = (...args) => {
+  const fake = pickyYouTrack(...args);
+  const r = createYouTrackProvider({ config: CONFIG, fetch: fake.fetchImpl, onWarn: () => {} });
+  assert.ok(r.ok, r.error);
+  return { provider: r.provider, ...fake };
+};
+
+test('setState moves a multi-word state on an instance that rejects braces', async () => {
+  const { provider, commands, current } = buildPicky('bare');
+  const r = await provider.setState('ABC-1', 'review');
+
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.state, 'In Review');
+  assert.equal(current(), 'In Review');
+  assert.deepEqual(commands.map((c) => c.query), ['State In Review'], 'the bare spelling leads, so no retry was needed');
+});
+
+test('setState retries the braced spelling on an instance that requires it', async () => {
+  const { provider, commands, current } = buildPicky('braced');
+  const r = await provider.setState('ABC-1', 'review');
+
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.state, 'In Review');
+  assert.equal(current(), 'In Review');
+  assert.deepEqual(commands.map((c) => c.query), ['State In Review', 'State {In Review}']);
+});
+
+test('a rejected attempt posts no comment, so the retry still carries it', async () => {
+  // A 400 accepted nothing, the comment included. Dropping it here would lose
+  // the comment entirely on every instance that needs the second spelling.
+  const { provider, commands } = buildPicky('braced');
+  await provider.setState('ABC-1', 'review', 'moving to review');
+  assert.deepEqual(commands.map((c) => c.comment), ['moving to review', 'moving to review']);
+});
+
+test('a 200 that changed nothing still posted the comment, so the retry drops it', async () => {
+  // The other failure mode: accepted, applied nothing. The comment rode along
+  // with that 200, and sending it again would double-post it on the ticket.
+  const { provider, commands } = buildPicky('silent');
+  await provider.setState('ABC-1', 'review', 'moving to review');
+  assert.deepEqual(commands.map((c) => c.comment), ['moving to review', undefined]);
+});
+
+test('setState judges a write by what changed, not by the name it reads back', async () => {
+  // #14's instance reported `État`. A localised state name can never equal the
+  // configured English one, so comparing the two would report every successful
+  // move as a failure.
+  const { provider } = buildPicky('bare', { localised: true });
+  const r = await provider.setState('ABC-1', 'review');
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.state, 'En revue', 'rule 3: the state found, not the one asked for');
+});
+
+test('setState reports failure when no spelling moves the ticket', async () => {
+  const { provider } = buildPicky('neither');
+  const r = await provider.setState('ABC-1', 'review');
+  assert.equal(r.ok, false, 'this is what makes `start` print NOT MOVED with a reason');
+  assert.match(r.error, /État expected/);
+});
+
+test('setState succeeds when the ticket is already on the target state', async () => {
+  // Nothing changes, so "unchanged" cannot mean "did not apply" here.
+  const { provider } = buildPicky('bare');
+  const r = await provider.setState('ABC-1', 'start');
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.state, 'In Progress');
+});
