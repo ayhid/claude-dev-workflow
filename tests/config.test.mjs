@@ -168,19 +168,26 @@ test('formatConfig renders repos and the ladder', () => {
 // thing keeping a rename from silently making the hook read a different file
 // than the runtime does.
 
-test('the bash hook probes the same config names, in the same order', () => {
-  const hook = readFileSync(join(ROOT, 'hooks', 'check-commit-ticket.sh'), 'utf8');
+// Every shipped hook walks for the config itself, in bash, because none of them
+// may pay for a node boot. That makes each one a second copy of CONFIG_FILES,
+// and a copy that drifts is a hook reading a config file the tool no longer
+// writes — enforcement that silently stops applying. Both hooks are checked
+// here so adding a third fails loudly rather than quietly going unverified.
+for (const name of ['check-commit-ticket.sh', 'check-adr-immutable.sh']) {
+  test(`${name} probes the same config names, in the same order`, () => {
+    const hook = readFileSync(join(ROOT, 'hooks', name), 'utf8');
 
-  const loop = hook.match(/for rel in ([^;]+); do/);
-  assert.ok(loop, 'could not find the config-name loop in check-commit-ticket.sh');
+    const loop = hook.match(/for rel in ([^;]+); do/);
+    assert.ok(loop, `could not find the config-name loop in ${name}`);
 
-  const fromBash = loop[1].trim().split(/\s+/);
-  // The JS list uses path.join, which is backslash-separated on Windows; the
-  // hook is POSIX shell and always uses forward slashes.
-  const fromJs = CONFIG_FILES.map((p) => p.split(/[/\\]/).join('/'));
+    const fromBash = loop[1].trim().split(/\s+/);
+    // The JS list uses path.join, which is backslash-separated on Windows; the
+    // hook is POSIX shell and always uses forward slashes.
+    const fromJs = CONFIG_FILES.map((p) => p.split(/[/\\]/).join('/'));
 
-  assert.deepEqual(fromBash, fromJs);
-});
+    assert.deepEqual(fromBash, fromJs);
+  });
+}
 
 test('formatConfig shows the repo for a github project, not a YouTrack instance', () => {
   const config = deepMerge(DEFAULTS, {

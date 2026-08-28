@@ -57,6 +57,22 @@ const PAYLOAD_SOURCES = ['lib', 'scripts', 'hooks'];
 
 export const HOOK_COMMAND = `bash "$CLAUDE_PROJECT_DIR/${PAYLOAD_DIR}/hooks/check-commit-ticket.sh"`;
 
+export const ADR_HOOK_COMMAND = `bash "$CLAUDE_PROJECT_DIR/${PAYLOAD_DIR}/hooks/check-adr-immutable.sh"`;
+
+/**
+ * Every hook we register, and the tool each one guards.
+ *
+ * A list rather than two hardcoded entries: the merge below is the only thing
+ * that makes a hook actually apply, so a third hook must be one line here
+ * rather than a second copy of the merge. The matchers differ on purpose —
+ * the commit guard has to see every Bash call, the ADR guard only file writes,
+ * and giving the latter a Bash matcher would put it on the hot path for no gain.
+ */
+export const SHIPPED_HOOKS = [
+  { matcher: 'Bash', command: HOOK_COMMAND },
+  { matcher: 'Edit|Write', command: ADR_HOOK_COMMAND },
+];
+
 /** The skill-name prefix we claim. Anything else in .claude/skills/ is someone else's. */
 export const SKILL_PREFIX = 'dev-';
 
@@ -145,33 +161,34 @@ export function planFiles(sourceRoot) {
 }
 
 /**
- * Add the commit-message hook to the project's settings, preserving anything
+ * Add our PreToolUse hooks to the project's settings, preserving anything
  * already there.
  *
  * Users have their own hooks; an install that overwrote `settings.json` would
  * silently delete them. Matching on the command string also makes a re-run a
- * no-op rather than appending a duplicate entry.
+ * no-op rather than appending a duplicate entry — and it is matched per hook,
+ * so a project installed before a hook existed gains only the missing one and
+ * keeps whatever the user did to the entry for the other.
  *
- * @returns {{settings: object, added: boolean}}
+ * @returns {{settings: object, added: boolean, addedCommands: string[]}}
  */
 export function mergeHookIntoSettings(settings) {
   const next = settings && typeof settings === 'object' ? structuredClone(settings) : {};
   next.hooks ??= {};
-  const preToolUse = Array.isArray(next.hooks.PreToolUse) ? next.hooks.PreToolUse : [];
+  let preToolUse = Array.isArray(next.hooks.PreToolUse) ? next.hooks.PreToolUse : [];
 
-  const already = preToolUse.some((entry) =>
-    (entry?.hooks ?? []).some((h) => h?.command === HOOK_COMMAND),
-  );
-  if (already) {
-    next.hooks.PreToolUse = preToolUse;
-    return { settings: next, added: false };
+  const addedCommands = [];
+  for (const { matcher, command } of SHIPPED_HOOKS) {
+    const already = preToolUse.some((entry) =>
+      (entry?.hooks ?? []).some((h) => h?.command === command),
+    );
+    if (already) continue;
+    preToolUse = [...preToolUse, { matcher, hooks: [{ type: 'command', command }] }];
+    addedCommands.push(command);
   }
 
-  next.hooks.PreToolUse = [
-    ...preToolUse,
-    { matcher: 'Bash', hooks: [{ type: 'command', command: HOOK_COMMAND }] },
-  ];
-  return { settings: next, added: true };
+  next.hooks.PreToolUse = preToolUse;
+  return { settings: next, added: addedCommands.length > 0, addedCommands };
 }
 
 /**
@@ -183,7 +200,7 @@ export function mergeHookIntoSettings(settings) {
  * @param {string} opts.version      recorded in the manifest
  * @param {boolean} [opts.force]     overwrite locally-modified files
  * @param {boolean} [opts.dryRun]    plan only, write nothing
- * @returns {{written: string[], skipped: string[], removed: string[], hookAdded: boolean, isUpdate: boolean}}
+ * @returns {{written: string[], skipped: string[], removed: string[], hookAdded: boolean, addedCommands: string[], isUpdate: boolean}}
  */
 export function installPayload({ sourceRoot, projectDir, version, force = false, dryRun = false }) {
   const previous = readManifest(projectDir);
@@ -253,7 +270,7 @@ export function installPayload({ sourceRoot, projectDir, version, force = false,
   // user's own hooks: a torn write here breaks every Bash tool call in the
   // project, not just ours.
   const settingsAbs = join(projectDir, SETTINGS_PATH);
-  const { settings, added: hookAdded } = mergeHookIntoSettings(readJson(settingsAbs, {}));
+  const { settings, added: hookAdded, addedCommands } = mergeHookIntoSettings(readJson(settingsAbs, {}));
   if (!dryRun && hookAdded) {
     mkdirSync(dirname(settingsAbs), { recursive: true });
     writeAtomically(settingsAbs, `${JSON.stringify(settings, null, 2)}\n`);
@@ -278,5 +295,5 @@ export function installPayload({ sourceRoot, projectDir, version, force = false,
     writeAtomically(manifestAbs, `${JSON.stringify(manifest, null, 2)}\n`);
   }
 
-  return { written, skipped, removed, hookAdded, isUpdate, modified: drift.modified };
+  return { written, skipped, removed, hookAdded, addedCommands, isUpdate, modified: drift.modified };
 }

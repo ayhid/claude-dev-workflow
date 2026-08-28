@@ -13,6 +13,9 @@ import {
   detectDrift,
   installPayload,
   isOwnedPath,
+  ADR_HOOK_COMMAND,
+  HOOK_COMMAND,
+  SHIPPED_HOOKS,
   mergeHookIntoSettings,
   planFiles,
   readManifest,
@@ -97,15 +100,27 @@ test('dryRun plans without touching the filesystem', () => {
 
 // --- settings merge -----------------------------------------------------------
 
-test('the hook is added to settings.json', () => {
+test('every shipped hook is added to settings.json, on its own matcher', () => {
   const dir = scratch();
   const result = install(dir);
   assert.equal(result.hookAdded, true);
+  assert.equal(result.addedCommands.length, SHIPPED_HOOKS.length);
 
   const settings = readJson(join(dir, '.claude', 'settings.json'));
   const commands = settings.hooks.PreToolUse.flatMap((e) => e.hooks).map((h) => h.command);
-  assert.equal(commands.length, 1);
-  assert.match(commands[0], /_dev-workflow\/hooks\/check-commit-ticket\.sh/);
+  assert.equal(commands.length, SHIPPED_HOOKS.length);
+  assert.ok(commands.some((c) => /_dev-workflow\/hooks\/check-commit-ticket\.sh/.test(c)));
+  assert.ok(commands.some((c) => /_dev-workflow\/hooks\/check-adr-immutable\.sh/.test(c)));
+
+  // The matchers are the point: the commit guard sees every Bash call, the ADR
+  // guard only file writes. Swapping them would put the slower one on the hot
+  // path and stop the other from ever firing.
+  const byCommand = new Map(
+    settings.hooks.PreToolUse.flatMap((e) => (e.hooks ?? []).map((h) => [h.command, e.matcher])),
+  );
+  for (const { matcher, command } of SHIPPED_HOOKS) {
+    assert.equal(byCommand.get(command), matcher, `wrong matcher for ${command}`);
+  }
 });
 
 test('an existing user hook survives the install', () => {
@@ -130,7 +145,29 @@ test('an existing user hook survives the install', () => {
   assert.equal(settings.hooks.PostToolUse[0].hooks[0].command, 'my-formatter');
   const pre = settings.hooks.PreToolUse.flatMap((e) => e.hooks).map((h) => h.command);
   assert.ok(pre.includes('my-guard'), "the user's own PreToolUse hook survives");
-  assert.equal(pre.length, 2);
+  assert.equal(pre.length, 1 + SHIPPED_HOOKS.length);
+});
+
+test('a project installed before a hook existed gains only the missing one', () => {
+  // The upgrade path for every project already running an older version: the
+  // commit hook is registered, the ADR hook is not, and a re-run must add one
+  // entry rather than duplicating the first or rewriting the user's matcher.
+  const existing = {
+    hooks: {
+      PreToolUse: [
+        { matcher: 'Bash', hooks: [{ type: 'command', command: HOOK_COMMAND }] },
+        { matcher: 'Bash', hooks: [{ type: 'command', command: 'my-guard' }] },
+      ],
+    },
+  };
+  const { settings, added, addedCommands } = mergeHookIntoSettings(existing);
+  assert.equal(added, true);
+  assert.deepEqual(addedCommands, [ADR_HOOK_COMMAND]);
+
+  const commands = settings.hooks.PreToolUse.flatMap((e) => e.hooks).map((h) => h.command);
+  assert.equal(commands.filter((c) => c === HOOK_COMMAND).length, 1, 'no duplicate commit hook');
+  assert.ok(commands.includes('my-guard'));
+  assert.ok(commands.includes(ADR_HOOK_COMMAND));
 });
 
 test('mergeHookIntoSettings is idempotent', () => {
@@ -138,13 +175,14 @@ test('mergeHookIntoSettings is idempotent', () => {
   assert.equal(once.added, true);
   const twice = mergeHookIntoSettings(once.settings);
   assert.equal(twice.added, false);
-  assert.equal(twice.settings.hooks.PreToolUse.length, 1);
+  assert.deepEqual(twice.addedCommands, []);
+  assert.equal(twice.settings.hooks.PreToolUse.length, SHIPPED_HOOKS.length);
 });
 
 test('mergeHookIntoSettings tolerates a malformed settings file', () => {
   for (const input of [null, undefined, {}, { hooks: null }, { hooks: { PreToolUse: 'nope' } }]) {
     const { settings } = mergeHookIntoSettings(input);
-    assert.equal(settings.hooks.PreToolUse.length, 1);
+    assert.equal(settings.hooks.PreToolUse.length, SHIPPED_HOOKS.length);
   }
 });
 
@@ -168,7 +206,7 @@ test('re-running is an idempotent update', () => {
   );
 
   const settings = readJson(join(dir, '.claude', 'settings.json'));
-  assert.equal(settings.hooks.PreToolUse.flatMap((e) => e.hooks).length, 1);
+  assert.equal(settings.hooks.PreToolUse.flatMap((e) => e.hooks).length, SHIPPED_HOOKS.length);
 });
 
 test('a locally modified file is detected and left alone', () => {

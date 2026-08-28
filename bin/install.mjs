@@ -148,8 +148,10 @@ function installIntoProject({ force = false, dryRun = false } = {}) {
     );
 
     if (dryRun) p.log.info('Dry run — nothing was written.');
-    else if (result.hookAdded) p.log.success('Commit hook added to .claude/settings.json');
-    else p.log.info('Commit hook already registered in .claude/settings.json');
+    else if (result.hookAdded) {
+      const n = result.addedCommands?.length ?? 1;
+      p.log.success(`${n} hook(s) added to .claude/settings.json`);
+    } else p.log.info('Hooks already registered in .claude/settings.json');
 
     if (result.removed.length) {
       p.log.info(`${dryRun ? 'Would remove' : 'Removed'} ${result.removed.length} file(s) no longer shipped.`);
