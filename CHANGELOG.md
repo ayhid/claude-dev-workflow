@@ -1,3 +1,11 @@
+## [1.10.1](https://github.com/ayhid/claude-dev-workflow/compare/v1.10.0...v1.10.1) (2026-08-28)
+
+
+### Bug Fixes
+
+* **land:** print the reviewer, and say where the branch is when it is elsewhere ([#15](https://github.com/ayhid/claude-dev-workflow/issues/15)) ([5a8fc28](https://github.com/ayhid/claude-dev-workflow/commit/5a8fc283aaa689ed94100ca7430ea0fc25485eee))
+* **land:** resolve the repo from the directory the command runs in ([#15](https://github.com/ayhid/claude-dev-workflow/issues/15)) ([4daa607](https://github.com/ayhid/claude-dev-workflow/commit/4daa6071eaf0a0b3fd803b25bfc896d2fde56fa2))
+
 # [1.10.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.9.0...v1.10.0) (2026-08-28)
 
 
