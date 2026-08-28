@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 
-import { applyCommand, brace, commandFor, getState, request } from '../lib/youtrack.mjs';
+import {
+  applyCommand,
+  brace,
+  commandFor,
+  commandVariants,
+  getState,
+  request,
+} from '../lib/youtrack.mjs';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -20,7 +27,8 @@ function stubFetch(handler) {
 }
 
 // --- the brace rule ----------------------------------------------------------
-// bb96c4e. Braces mark where a multi-word value ends; they are not quoting.
+// bb96c4e and #14. Braces mark where a multi-word value ends; they are not
+// quoting. A trailing value has nothing after it to delimit.
 
 test('brace wraps only values containing a space', () => {
   assert.equal(brace('In Review'), '{In Review}');
@@ -29,17 +37,47 @@ test('brace wraps only values containing a space', () => {
   assert.equal(brace("Won't Fix"), "{Won't Fix}");
 });
 
-test('commandFor braces each value independently', () => {
-  // `Type {Bug} Priority {Critical}` parses as the single value "{Bug} Priority"
-  // and 400s, so neither single-word value may be braced.
+test('commandFor leaves a trailing multi-word value bare', () => {
+  // #14: `State {In Review}` was rejected where `State In Review` applied.
+  assert.equal(commandFor({ State: 'In Review' }), 'State In Review');
+  assert.equal(commandFor({ State: "Won't Fix" }), "State Won't Fix");
+  assert.equal(commandFor({ Type: 'Bug', Priority: 'Show stopper' }), 'Type Bug Priority Show stopper');
+});
+
+test('commandFor braces a multi-word value that another pair follows', () => {
+  // bb96c4e: without the braces this parses as the single value "Show stopper Type".
+  assert.equal(commandFor({ Priority: 'Show stopper', Type: 'Bug' }), 'Priority {Show stopper} Type Bug');
+  // `Type {Bug} Priority {Critical}` parses as "{Bug} Priority" and 400s, so no
+  // single-word value is braced wherever it sits.
   assert.equal(commandFor({ Type: 'Bug', Priority: 'Critical' }), 'Type Bug Priority Critical');
-  assert.equal(commandFor({ State: 'In Review' }), 'State {In Review}');
-  assert.equal(commandFor({ Type: 'Bug', Priority: 'Show stopper' }), 'Type Bug Priority {Show stopper}');
+});
+
+test('commandFor braces the trailing pair too when asked', () => {
+  assert.equal(commandFor({ State: 'In Review' }, { braceTrailing: true }), 'State {In Review}');
+  assert.equal(
+    commandFor({ Priority: 'Show stopper', Type: 'Bug' }, { braceTrailing: true }),
+    'Priority {Show stopper} Type Bug',
+    'a single-word trailing value stays bare in both spellings',
+  );
+});
+
+test('commandVariants offers both spellings only where they differ', () => {
+  assert.deepEqual(commandVariants({ State: 'In Review' }), ['State In Review', 'State {In Review}']);
+  assert.deepEqual(
+    commandVariants({ Type: 'Bug', Priority: 'Critical' }),
+    ['Type Bug Priority Critical'],
+    'nothing to retry when the trailing value is one word',
+  );
 });
 
 test('commandFor drops empty values', () => {
   assert.equal(commandFor({ Type: 'Bug', Priority: '' }), 'Type Bug');
   assert.equal(commandFor({ Type: 'Bug', Priority: null }), 'Type Bug');
+  assert.equal(
+    commandFor({ Type: 'In Progress', Priority: '' }),
+    'Type In Progress',
+    'a value only trailing because a later pair was dropped is still trailing',
+  );
 });
 
 // --- request -----------------------------------------------------------------
