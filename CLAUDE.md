@@ -34,9 +34,13 @@ re-resolved. The `github:` form has no version to compare at all — bust it by 
 that print the command drift.
 
 **Updating must never route through the wizard.** `bin/install.mjs --update` runs `installPayload`
-and exits *before the first prompt*, deliberately: the wizard is YouTrack-only and its instance URL
-is mandatory, so a GitHub Issues project could not answer it. It also makes the installer usable
-with no TTY. Adding a prompt above that early exit silently removes both properties.
+and exits *before the first prompt*, deliberately: updating must not mean re-answering twenty
+questions to change nothing but the version, and the installer must work where there is no TTY at
+all — CI, a container, a pipe. Adding a prompt above that early exit silently removes both
+properties, and `tests/install.test.mjs` spawns `--update` with stdin closed to prove it has not
+been. (The reason used to be that the wizard was YouTrack-only and its instance URL mandatory; the
+wizard now asks which tracker first and configures either, but the rule outlived its original
+justification.)
 
 `bin/lib/payload.mjs` owns that, and records a sha256 per file in
 `_dev-workflow/_config/manifest.json`. That manifest is what makes a re-run an *update*: unchanged
@@ -55,6 +59,14 @@ place a future backend has to be taught about, which is exactly what the layer e
 A new backend is one file in `lib/`, one `case` in the factory, and a passing run of
 `tests/provider.contract.mjs` **unchanged**. If the core needs changing to accommodate a backend,
 the abstraction is wrong: fix it in `provider.mjs` rather than special-casing a command.
+
+It also needs one branch in the installer — an option in the wizard's tracker question and a
+`configure<Backend>` beside the two in `bin/install.mjs`, returning the same shape as they do so
+every step after it stays provider-agnostic. A backend the wizard cannot configure is a backend
+users set up by hand from the README, which is what GitHub Issues was until the wizard learned to
+ask which tracker first. `tests/install-config.test.mjs` is where that branch is proved: it feeds
+`buildConfig`'s output to the real adapter constructor, so a wizard emitting a config the adapter
+rejects fails in CI rather than on a user's first `/dev-task`.
 
 Four rules the contract enforces, not conventions to remember:
 

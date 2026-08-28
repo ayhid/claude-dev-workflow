@@ -45,7 +45,10 @@ project's real field values. `tokenOpRef` is optional — without it the token c
 ### GitHub Issues
 
 Authentication is the [GitHub CLI](https://cli.github.com) you already have — there is no token to
-configure.
+configure. The wizard asks which tracker the project uses before anything else and fills this in
+from the repository: it proposes the slug from your `origin` remote and maps each ladder rung onto
+a label the repository really carries. The ID shape follows `provider`, so there is nothing to
+configure for `#123` to be recognised.
 
 ```json
 {
@@ -61,8 +64,7 @@ configure.
   "states": {
     "ladder": ["Backlog", "In Progress", "In Review", "Done"],
     "start": "In Progress", "review": "In Review", "done": "Done"
-  },
-  "commit": { "idPattern": "#[0-9]+" }
+  }
 }
 ```
 

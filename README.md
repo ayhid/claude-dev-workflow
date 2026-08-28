@@ -44,31 +44,31 @@ Node ≥ 22, and the project you want to set up. `jq` is needed by the commit ho
 [GitHub CLI](https://cli.github.com) by `dev.mjs sync` and by every GitHub Issues project. The
 1Password CLI (`op`) is optional.
 
-**YouTrack**, where the wizard configures everything and verifies the token before writing a file:
+One command for either tracker. The first question is which one you use, and that answer decides
+every question after it:
 
 ```bash
 cd your-project
 npx claude-dev-workflow@latest
 ```
 
-Have an instance URL and a token ready: *Profile → Account Security → Authentication → New token*,
-`YouTrack` scope. Export it as `$YOUTRACK_TOKEN`, or give the wizard a 1Password reference.
+**GitHub Issues** needs no token — `gh` carries the authentication. The wizard proposes the
+repository from your `origin` remote, checks that `gh` can write to it, and maps each rung of your
+state ladder onto a label the repository really has. It never creates a label: anything missing is
+printed as the exact `gh label create` command to run.
 
-**GitHub Issues**, where you install the files and then configure from inside a session. The wizard
-is YouTrack-only and insists on an instance URL such a project does not have, so `--update` is the
-way in: on a project with nothing installed it is a plain payload install that asks nothing.
-
-```bash
-cd your-project
-npx claude-dev-workflow@latest --update
-```
-
-Then, in Claude Code, run `/dev-init`. It knows about label ladders and writes the config.
+**YouTrack** needs an instance URL and a token: *Profile → Account Security → Authentication → New
+token*, `YouTrack` scope. Export it as `$YOUTRACK_TOKEN`, or give the wizard a 1Password reference.
+It then reads the project's real state, type and priority values off the API rather than proposing
+names your instance may not have.
 
 > [!TIP]
 > The wizard never needs a token pasted into a file: give it a 1Password reference such as
 > `op://Private/youtrack/credential` and it resolves through the `op` CLI at run time. It also
 > works offline. If the API is unreachable it says so and falls back to typed answers.
+
+To amend an existing config later, or to talk it through rather than click, run `/dev-init` in
+Claude Code instead.
 
 Either way you now have the five skills. Start work:
 
@@ -137,16 +137,23 @@ These are deliberate, and worth preserving in any fork.
 `npx claude-dev-workflow@latest` runs an interactive wizard
 ([`@clack/prompts`](https://github.com/bombshell-dev/clack)) that:
 
-1. asks for the instance URL and where the token comes from, `$YOUTRACK_TOKEN` or a 1Password
-   reference, and **verifies it before writing anything**;
-2. lists the projects the token can see, so you pick one rather than typing a key;
-3. reads that project's **real State / Type / Priority values** from the API, so the config can
-   never name a state that does not exist;
+1. asks **which issue tracker the project uses**, first, because that answer decides every question
+   after it — proposing GitHub Issues when `origin` points at github.com;
+2. asks what that tracker needs and **verifies it before writing anything**: an instance URL and a
+   token (`$YOUTRACK_TOKEN` or a 1Password reference) for YouTrack, a repository `gh` can write to
+   for GitHub;
+3. fills the rest from the tracker itself rather than proposing names it may not have — YouTrack's
+   **real State / Type / Priority values** off the API, or the labels your GitHub repository really
+   carries, mapped onto the rungs of your state ladder;
 4. scans the working tree for repos, package managers, test and lint scripts, commitlint types
    and scopes, runtime pins and git remotes, and shows them for confirmation;
 5. infers whether issue IDs go at the prefix or suffix of a commit subject from the last 50
-   commits;
+   commits, in whichever ID shape that tracker uses;
 6. writes `.dev-workflow.json` and installs the workflow into the project.
+
+It never writes to your issue tracker. A GitHub ladder needs a label per rung, and any your
+repository does not have yet are printed as the `gh label create` commands to run — adding a label
+is a visible, permanent change to a repository, and not the installer's to make.
 
 ```bash
 npx claude-dev-workflow@latest --dir ../other-project   # target somewhere else
@@ -224,7 +231,8 @@ has uncommitted changes, because an update rewrites those files and you need the
 
 ## Configuration
 
-`/dev-init` writes `.dev-workflow.json` at the repo root.
+The wizard writes `.dev-workflow.json` at the repo root; `/dev-init` writes the same file from
+inside a session.
 
 > [!IMPORTANT]
 > `.dev-workflow.json` holds no secret. `tokenOpRef` is a 1Password *reference*, not a credential,
@@ -260,8 +268,7 @@ already have.
   "states": {
     "ladder": ["Backlog", "In Progress", "In Review", "Done"],
     "start": "In Progress", "review": "In Review", "done": "Done"
-  },
-  "commit": { "idPattern": "#[0-9]+" }
+  }
 }
 ```
 

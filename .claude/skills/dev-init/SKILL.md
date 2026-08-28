@@ -10,9 +10,13 @@ Produces one file, `.dev-workflow.json` at the repo root. Everything `/dev-task`
 `/dev-done` need that is project-specific lives there; nothing under `_dev-workflow/` is edited per
 project.
 
-`npx dev-workflow` runs a CLI wizard that covers the **YouTrack** path deterministically, including
-reading the project's real state names off the API. If the user would rather click through prompts,
-point them at it and stop. It does not yet cover GitHub — a GitHub project is configured here.
+`npx claude-dev-workflow@latest` runs a CLI wizard that covers **both trackers** deterministically:
+it asks which one the project uses first, then reads YouTrack's real state names off the API, or a
+GitHub repository's real labels off `gh`. If the user would rather click through prompts than talk,
+point them at it and stop.
+
+Come here instead to amend an existing config, to repair one a command is complaining about, or
+when the user would rather answer in prose. What follows produces the same file the wizard does.
 
 ## 1. Check what already exists
 
@@ -218,13 +222,14 @@ Everything except the provider-specific block below has a working default; omit 
     "done": "Done",
     "abandon": "Backlog"
   },
-  "commit": { "idPattern": "#[0-9]+", "position": "suffix" }
+  "commit": { "position": "suffix" }
 }
 ```
 
 `issuesRepo` may be omitted when it equals `repo` and the project is a single repo. There is no
 `baseUrl`, no `tokenOpRef` and no `priorities`: GitHub has no ordered priority concept, and
-`/dev-bug` will say so rather than pretend.
+`/dev-bug` will say so rather than pretend. No `commit.idPattern` either — the `#123` shape follows
+`provider`, in the hook as well as the runtime, so writing one is an override, not a requirement.
 
 ### The rest, common to both
 
