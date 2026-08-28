@@ -45,7 +45,7 @@ import {
 } from '../../lib/ingest.mjs';
 import { sh } from '../../lib/sh.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
-import { context, readArg, resolveRepo, UserError } from './common.mjs';
+import { context, readArg, refuseMissingAnchors, resolveRepo, UserError } from './common.mjs';
 
 /** Everything this command writes lives here, and nothing of ours lives outside it. */
 export const ARTIFACT_DIR = join('_dev-workflow', 'artifacts', 'documentation');
@@ -167,6 +167,11 @@ export async function run(argv) {
     }
 
     let ledger = requireLedger(root);
+
+    // An anchor naming a file that is not there is a claim that reads as
+    // checked and is not. Shared with `docs record` so the two cannot disagree
+    // about what an anchor is.
+    refuseMissingAnchors(payload.claims ?? [], root);
 
     // Claims first: a question cites claims by id, so a batch that records both
     // at once must be able to see the ids it just created.
