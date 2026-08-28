@@ -50,13 +50,18 @@ test('the installer itself is shipped', () => {
 });
 
 test('the runtime payload declares no dependencies', () => {
-  // lib/ and scripts/ are copied into projects with no node_modules. Anything
-  // they import must come from node:.
+  // lib/, scripts/ and hooks/ are copied into projects with no node_modules.
+  // Anything they import must come from node:.
+  //
+  // hooks/ joined this list when the first Node hook shipped. It was bash-only
+  // before that, so the sweep could skip it — and a sweep that still skipped it
+  // would leave the one file most likely to be written in a hurry, and the only
+  // one that runs before anything else in a session, entirely unchecked.
   const offenders = [];
   for (const abs of planFiles(ROOT).values()) {
     if (!abs.endsWith('.mjs')) continue;
     const rel = abs.slice(ROOT.length + 1);
-    if (!rel.startsWith('lib/') && !rel.startsWith('scripts/')) continue;
+    if (!['lib/', 'scripts/', 'hooks/'].some((dir) => rel.startsWith(dir))) continue;
 
     for (const m of readFileSync(abs, 'utf8').matchAll(/^\s*import\s[^'"]*['"]([^'"]+)['"]/gm)) {
       const spec = m[1];
