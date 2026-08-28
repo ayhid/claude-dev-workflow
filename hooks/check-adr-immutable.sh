@@ -8,6 +8,8 @@
 #
 # Exit 0 = allow. Exit 2 = block (stderr is surfaced to Claude).
 #
+# see docs/decisions/0001 — why this is a hook and not a command, and why Edit|Write
+#
 # Matcher is Edit|Write, not Bash. The commit hook runs on every Bash call and
 # is built around a ~3ms bail for that reason; this one runs only on file
 # writes, which are rare by comparison, so it can afford to read the target.

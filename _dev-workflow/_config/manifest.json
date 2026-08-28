@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.7.0",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-28T19:14:31.334Z"
+    "lastUpdated": "2026-08-28T19:14:55.101Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -17,7 +17,7 @@
   "files": [
     {
       "path": "_dev-workflow/hooks/check-adr-immutable.sh",
-      "sha256": "97eaa7983446b128fc184e5618b59e7f8c513605d733b100a90a52939330c1e4"
+      "sha256": "72f3c10e44fa4b575b8c922b8c57048f17beae1e32bbce3b31b29b8ea61dcdc7"
     },
     {
       "path": "_dev-workflow/hooks/check-commit-ticket.sh",
