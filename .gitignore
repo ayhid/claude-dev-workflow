@@ -14,3 +14,10 @@ node_modules/
 # Same rule as .worktrees/ above — ours to add, because the installer writes
 # only _dev-workflow/ and .claude/skills/dev-*.
 .dev-workflow.metrics.jsonl
+
+# The update check's cache, rewritten at most once a day by `dev.mjs config`,
+# `status` and `standup`. Not committed: `_dev-workflow/` is, and a file that
+# rewrites itself daily would leave that directory permanently dirty and destroy
+# the drift signal `git diff _dev-workflow/` gives. Same rule as the two above —
+# ours to add, because the installer writes only the paths it plans.
+_dev-workflow/_config/updatecheck.json

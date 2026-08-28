@@ -289,6 +289,62 @@ Nothing may fail because of it. A log that cannot be written, or one a killed pr
 half-written, produces a line on stderr and the ticket still moves: an instrument that breaks what
 it measures is worse than no instrument.
 
+## The update banner
+
+Nothing to configure — this one is on, and the only settings are two ways to turn it off.
+
+`dev.mjs config`, `status` and `standup` are the commands a skill runs at its top, so once a day
+one of them prints a single line on **stderr** when the version installed in this project is behind
+the one published to npm:
+
+```
+An update is available: 1.6.2 → 1.6.3 — npx claude-dev-workflow@latest --update
+```
+
+It is the same sentence and the same command `dev.mjs version` prints, deliberately: one phrasing,
+one upgrade command, and `@latest` is the spelling that actually re-resolves rather than re-running
+whatever `npx` cached first.
+
+It stays quiet when there is nothing to say — when the versions match, when the install is *ahead*
+of the registry (what a `github:` install tracking `main` looks like), and when there is no manifest
+to compare against. It is silent on the second and third command of a session too: the answer is
+cached, so a `/dev-task` that runs all three prints one line, not three.
+
+**The check may never fail the command it rides on.** Offline, a registry that answers 500, an
+unparseable body, a cache file something corrupted, a `_config/` that cannot be written — each means
+no banner and nothing else. The host command's stdout, its exit code and everything else on its
+stderr are exactly what they would have been. This is the rule the metrics log follows, for the same
+reason.
+
+### The cache
+
+`_dev-workflow/_config/updatecheck.json`, holding the last version seen and when it was read. Fresh
+(under 24 hours old) means no network call at all; stale means one lookup, bounded at 2.5 seconds,
+written back.
+
+> [!IMPORTANT]
+> **Add it to your `.gitignore`.** You commit `_dev-workflow/`, and a file that rewrites itself
+> daily would leave that directory permanently dirty — which destroys the drift signal
+> `git diff _dev-workflow/` is there to give you. The workflow cannot add the line itself: it writes
+> only to `_dev-workflow/` and `.claude/skills/dev-*`, and your `.gitignore` is neither.
+>
+> ```gitignore
+> _dev-workflow/_config/updatecheck.json
+> ```
+
+### Turning it off
+
+| Variable | Effect |
+|---|---|
+| `DEV_WORKFLOW_NO_NETWORK` | No lookup. A fresh cache is still read, so a banner already paid for still prints; nothing goes to the network. Also honoured by `dev.mjs version`, alongside its `--offline` flag. |
+| `DEV_WORKFLOW_NO_BANNER` | No banner, and no lookup on its behalf. `dev.mjs version` still reports normally — asking is the whole point of that command. |
+
+Set either in your shell profile, or per command:
+
+```bash
+DEV_WORKFLOW_NO_BANNER=1 node _dev-workflow/scripts/dev.mjs config
+```
+
 ## `notesFile` — durable project knowledge
 
 What a session learns dies with the session unless something writes it down. `dev.mjs note` appends
