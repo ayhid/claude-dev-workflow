@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.5.1...v1.6.0) (2026-08-28)
+
+
+### Features
+
+* **tools:** measure what a session costs, per ticket ([#33](https://github.com/ayhid/claude-dev-workflow/issues/33)) ([69555ed](https://github.com/ayhid/claude-dev-workflow/commit/69555ed2ac4927f2936a772bc95d69fcf77e1a1f)), closes [package.json#files](https://github.com/package.json/issues/files)
+
 ## [1.5.1](https://github.com/ayhid/claude-dev-workflow/compare/v1.5.0...v1.5.1) (2026-08-28)
 
 
