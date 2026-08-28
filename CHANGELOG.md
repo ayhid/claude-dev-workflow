@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.3.0...v1.4.0) (2026-08-28)
+
+
+### Features
+
+* **no-ticket:** ask which issue tracker before anything else ([c89f356](https://github.com/ayhid/claude-dev-workflow/commit/c89f356f2bda4b89271cdfc9473cae72eb1cf0db))
+
 # [1.3.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.2.0...v1.3.0) (2026-08-28)
 
 

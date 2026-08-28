@@ -1,6 +1,6 @@
 {
   "name": "claude-dev-workflow",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Per-project installer for the ticket-driven dev workflow — /dev-task, /dev-bug, /dev-done as Claude Code skills, against YouTrack or GitHub Issues.",
   "type": "module",
   "bin": {
