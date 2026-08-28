@@ -1,11 +1,12 @@
 {
   "installation": {
-    "version": "1.6.3",
+    "version": "1.7.0",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-28T18:08:03.492Z"
+    "lastUpdated": "2026-08-28T19:14:31.334Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
+    "dev-adr",
     "dev-bug",
     "dev-done",
     "dev-ingest-docs",
@@ -15,8 +16,16 @@
   ],
   "files": [
     {
+      "path": "_dev-workflow/hooks/check-adr-immutable.sh",
+      "sha256": "97eaa7983446b128fc184e5618b59e7f8c513605d733b100a90a52939330c1e4"
+    },
+    {
       "path": "_dev-workflow/hooks/check-commit-ticket.sh",
       "sha256": "6263637ee4409a7bc175694fdbae12a2efee142539cb47f2eb2672910fed9dec"
+    },
+    {
+      "path": "_dev-workflow/lib/adr.mjs",
+      "sha256": "965784cdf1e606b2c9c085ed9f2e534d51faf66e903574d9d71c9fb09d6cc26c"
     },
     {
       "path": "_dev-workflow/lib/branch.mjs",
@@ -24,7 +33,7 @@
     },
     {
       "path": "_dev-workflow/lib/config.mjs",
-      "sha256": "263332110e0e42810c3913552334dc120a40f5b73de91fccd834ac5b4bb5e37a"
+      "sha256": "17ce97660e73e8a759a29c818d8901c58e669d7014ad34f504adde564f034ee7"
     },
     {
       "path": "_dev-workflow/lib/github.mjs",
@@ -95,6 +104,10 @@
       "sha256": "2e5a91e5b2f5d19cbad8bf066f91d1a59fbe19c235d5f6a0b4a5826b00580934"
     },
     {
+      "path": "_dev-workflow/scripts/cmd/adr.mjs",
+      "sha256": "aea5004cce6c882df96c1f06667339e2fde122feb2fda6f72d0a0c4906267b49"
+    },
+    {
       "path": "_dev-workflow/scripts/cmd/assess.mjs",
       "sha256": "50910f0d36777364679015f7ee0b0af0cda77840a218dcb7ea060f8d2011fe33"
     },
@@ -156,7 +169,11 @@
     },
     {
       "path": "_dev-workflow/scripts/dev.mjs",
-      "sha256": "4bb44e902081661624985990f811923f66bb8d866166eeaf948afa77f878ffe3"
+      "sha256": "36f4e66ec5a2fe5242afb7841a32d69ba99917e6712fa9fd2673d281fc8e5be7"
+    },
+    {
+      "path": ".claude/skills/dev-adr/SKILL.md",
+      "sha256": "e1276774a4a47d2694b69c81ce5794d9bccf924c28701a3cda7aa0b10e191f12"
     },
     {
       "path": ".claude/skills/dev-bug/SKILL.md",

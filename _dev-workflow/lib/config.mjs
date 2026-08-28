@@ -157,6 +157,22 @@ export const DEFAULTS = {
    * has decided, which is different from either answer.
    */
   stage: null,
+
+  /**
+   * Where architecture decision records live, relative to the project root.
+   *
+   * A default rather than a required key, which looks like a breach of rule 2
+   * until you ask what a wrong value costs. `github.labels` is required because
+   * a wrong mapping fails *silently* — the ticket simply never moves. A wrong
+   * directory here is visible on the first `adr new`, in its output, naming the
+   * path it wrote to. The convention is also near-universal (`docs/decisions`
+   * is what MADR and `adr-tools` both use), so requiring it would make every
+   * project restate the same answer for no protection.
+   *
+   * A monorepo that wants decisions per package points this somewhere else.
+   */
+  docs: { decisionsDir: 'docs/decisions' },
+
   repos: [],
 };
 

@@ -9,6 +9,15 @@
             "command": "bash \"$CLAUDE_PROJECT_DIR/_dev-workflow/hooks/check-commit-ticket.sh\""
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/_dev-workflow/hooks/check-adr-immutable.sh\""
+          }
+        ]
       }
     ],
     "PostToolUse": [
