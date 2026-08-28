@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.10.0",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-28T20:20:01.021Z"
+    "lastUpdated": "2026-08-28T20:30:14.836Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -46,7 +46,7 @@
     },
     {
       "path": "_dev-workflow/lib/ingest.mjs",
-      "sha256": "217b322ca60fde0a4fce4c31688ff88a4e90ace4892fa834490929374b7b6907"
+      "sha256": "70bc34dc07329e9cb474f1055eff26e357565ef6b9fcacfe3bfd1886ae6e0b77"
     },
     {
       "path": "_dev-workflow/lib/issueid.mjs",
