@@ -83,6 +83,15 @@ Four rules the contract enforces, not conventions to remember:
 Rung resolution belongs to the adapter (`setState` takes `start`/`review`/`done`), not the caller.
 Leaving it to callers makes rule 2 advisory.
 
+**State and its representation are two questions.** A backend that models the ladder on top of
+something else keeps two copies of a ticket's state, and they come apart: GitHub closes an issue
+itself at merge and the `in review` label stays. `checkRepresentation` / `repairRepresentation` are
+that second question — batched read, single write, same shape as `getStates` / `setState`. The
+repair rewrites labels and **never** opens or closes anything, so it is not a transition and does
+not go through `setState`: recording one would put a second close in the metrics log for work that
+closed once. There is deliberately no capability for it. A backend whose state is its own
+representation answers "nothing is stale" and no caller needs the branch.
+
 ## YouTrack API invariants — learned the hard way, do not regress
 
 1. **The commands API returns 200 for commands it did not apply.** Always read the state back and
@@ -230,11 +239,10 @@ Two consequences, both deliberate:
 
 - **The ladder is reconciled by CI, not by hand.** `.github/workflows/reconcile.yml` runs
   `dev.mjs sync --apply --deep` on every merged PR, plus weekly. `--deep` is load-bearing: a branch
-  named by hand carries no issue ID, so the commit subjects are the only link. Its second step is
-  repo-local glue, not a design — a PR opened by `land --apply` says `Closes #123`, so GitHub closes
-  the issue before anything can relabel it, and the reconciler then reads a closed issue as already
-  done and declines to move it. That strands `status: in review` forever, which is what happened to
-  #6. Delete the step if the tool ever learns to repair a stale label on an already-closed issue.
+  named by hand carries no issue ID, so the commit subjects are the only link. It is **one step**,
+  and must stay one: the second step it used to have was repo-local glue spelling `status: in
+  review` in shell, and #30 moved that repair into the adapter where the label mapping already
+  lives. A workaround added here rather than in `lib/` fixes this repo and no consumer's.
 
 Work with an issue behind it references it as `(#123)`. Work without one keeps the
 `<type>(no-ticket):` escape hatch; the type in it is incidental, so any configured type carries it.
