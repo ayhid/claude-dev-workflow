@@ -125,9 +125,14 @@ representation answers "nothing is stale" and no caller needs the branch.
 
 1. **The commands API returns 200 for commands it did not apply.** Always read the state back and
    report what you actually found. The exit code proves nothing.
-2. **Only values containing a space may be braced.** Braces mark where a multi-word value ends;
-   they are not quoting. `State {In Review}` is correct, `State {Staging}` is rejected outright,
-   and `Type {Bug} Priority {X}` parses as the single value `{Bug} Priority` and 400s.
+2. **Braces delimit, they do not quote,** so only a multi-word value with another pair after it
+   gets them. `State {Staging}` is rejected outright, and `Type {Bug} Priority {X}` parses as the
+   single value `{Bug} Priority` and 400s. Instances then disagree about the *trailing* pair — #14
+   found one rejecting `State {In Review}` and applying `State In Review` — and no dry run can
+   settle which is general, so `setState` tries both spellings and keeps the one that moved the
+   ticket rather than encoding a guess. Judge that by the state **changing**, never by the name
+   read back matching the config: a localised instance reports `État`, and comparing names there
+   would call every successful move a failure.
 3. **A dry run proves nothing about a write path.** `dev-sync --apply` once shipped with a command
    the API rejected while every dry run reported the correct plan. Exercise writes for real.
 4. **Never swallow stderr from a write.** The first `--apply` failure printed only `update failed`;
