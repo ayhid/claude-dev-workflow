@@ -216,6 +216,11 @@ Omit it entirely for a single-repo project.
 
 `when` is how `/dev-task` routes a ticket to a repo, `checks` is what `/dev-done` runs there, `env`
 is prepended to every command in that repo, and `remotes` lists everywhere branches are pushed.
+
+Commands taking `--repo` infer it from the directory they are run in, so the flag is only needed
+from outside every repo. This is what makes worktree mode usable here: a worktree sits *under* the
+repo it was cut from, and `--repo` accepts only the paths listed above — never the directory the
+branch is actually in.
 `repos[].delivery` overrides the top-level block, so one repo in a monorepo can push straight to
 `main` while another needs a PR — or lands on a different branch entirely, since `base` is part of
 that block like every other delivery field.

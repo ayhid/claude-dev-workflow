@@ -45,6 +45,54 @@ test('an ambiguous multi-repo project asks rather than picking the first', () =>
   assert.throws(() => resolveRepo(many, '/r', ''), /configures 2 repos/);
 });
 
+// --- which repo the caller is standing in (#15) --------------------------------
+
+test('with several repos, the working directory answers before the refusal does', () => {
+  assert.deepEqual(resolveRepo(many, '/r', '', '/r/web'), { path: 'web', dir: '/r/web' });
+  assert.deepEqual(resolveRepo(many, '/r', undefined, '/r/api/src/deep'), {
+    path: 'api',
+    dir: '/r/api',
+  });
+});
+
+test('a worktree resolves to the repo it was cut from', () => {
+  // The whole of #15: `branch.worktreeDir` is relative to its repo, so the
+  // branch lives *under* a configured path and can never be named by one. Before
+  // this, `land` could not be pointed at the branch it existed to land.
+  assert.deepEqual(resolveRepo(many, '/r', '', '/r/web/.worktrees/feat-12-thing'), {
+    path: 'web',
+    dir: '/r/web',
+  });
+});
+
+test('the repo the caller is in wins over the root that contains it', () => {
+  // A project listing `.` has two answers for everything. The root is the
+  // fallback, not the match.
+  const withRoot = { repos: [{ path: '.' }, { path: 'web' }] };
+  assert.deepEqual(resolveRepo(withRoot, '/r', '', '/r/web/.worktrees/x'), {
+    path: 'web',
+    dir: '/r/web',
+  });
+  assert.deepEqual(resolveRepo(withRoot, '/r', '', '/r/docs'), { path: '.', dir: '/r' });
+});
+
+test('a sibling whose name starts the same is not inside', () => {
+  // String prefixes would match `/r/web-legacy` against `/r/web`, and send the
+  // work to a repo that is nearly the right one.
+  assert.throws(() => resolveRepo(many, '/r', '', '/r/web-legacy'), /configures 2 repos/);
+});
+
+test('a working directory in none of them is still refused, and says both ways out', () => {
+  assert.throws(() => resolveRepo(many, '/r', '', '/elsewhere'), UserError);
+  assert.throws(() => resolveRepo(many, '/r', '', '/r'), /pass --repo <path>/);
+  assert.throws(() => resolveRepo(many, '/r', '', '/r'), /from inside one of them/);
+});
+
+test('an explicit --repo still wins over the working directory', () => {
+  // Inference fills a gap; it does not overrule what the caller asked for.
+  assert.deepEqual(resolveRepo(many, '/r', 'api', '/r/web'), { path: 'api', dir: '/r/api' });
+});
+
 test('preview caps a list and says how much it left out', () => {
   assert.deepEqual(preview(['a', 'b'], 5), ['a', 'b']);
   assert.deepEqual(preview(['a', 'b', 'c'], 2), ['a', 'b', '  … and 1 more']);
