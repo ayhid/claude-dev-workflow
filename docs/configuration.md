@@ -18,6 +18,7 @@ editor has a heading with the same name here.
 - [`repos` — more than one](#repos--more-than-one)
 - [`stage` — greenfield or brownfield](#stage--greenfield-or-brownfield)
 - [`metrics` — the transition log](#metrics--the-transition-log)
+- [`hooks` — turning a shipped hook off](#hooks--turning-a-shipped-hook-off)
 - [`docs` — the documentation set and decision records](#docs--the-documentation-set-and-decision-records)
 - [`notesFile` — durable project knowledge](#notesfile--durable-project-knowledge)
 - [Credentials (YouTrack)](#credentials-youtrack)
@@ -154,8 +155,9 @@ every other command is unaffected.
 
 - **`position`** — `suffix` (default), `prefix` or `any`. With `suffix`, a bare `ABC-1: …` prefix is
   rejected, matching how commitlint treats it; with `prefix`, the type is looked for *after* the ID.
-  `enforce: false` turns the hook off entirely, and `requireType: false` keeps the issue-ID check
-  but drops the conventional-commit one, for projects that do not use conventional commits.
+  `enforce: false` turns the hook off entirely — as does `hooks.commitTicket: false`, the current
+  spelling — and `requireType: false` keeps the issue-ID check but drops the conventional-commit
+  one, for projects that do not use conventional commits.
 - **`types` / `scopes`** — copy these from the project's own commitlint config; both the hook and
   the model read them.
 - **`noTicketEscape`** — the subject prefix that means *this work genuinely has no issue*. The
@@ -351,6 +353,51 @@ Set either in your shell profile, or per command:
 DEV_WORKFLOW_NO_BANNER=1 node _dev-workflow/scripts/dev.mjs config
 ```
 
+## `hooks` — turning a shipped hook off
+
+Three hooks are installed and on by default. One key each turns one off.
+
+```jsonc
+{
+  "hooks": {
+    "sessionStart": true,   // false: no standup when a session opens
+    "commitTicket": true,   // false: commit messages are not checked
+    "adrImmutable": true    // false: accepted decision records are editable
+  }
+}
+```
+
+The hooks read this themselves rather than the installer honouring it, and that is the point: an
+opt-out that worked by deleting the entry from `.claude/settings.json` would last until the next
+`npx claude-dev-workflow@latest`, which re-adds anything missing.
+
+`commit.enforce` and `docs.enforce` are the older spellings for the last two, and both still work.
+`false` in either place turns the hook off; the older key can only disable, never re-enable, so a
+config carrying both never has to be read for precedence.
+
+### What each one costs to leave on
+
+| Hook | Fires | Cost |
+|---|---|---|
+| `sessionStart` | once, when a session opens | a `standup` run, bounded at 3s, plus its output in the session's context |
+| `commitTicket` | every Bash tool call | ~3ms for anything that is not a `git commit -m` |
+| `adrImmutable` | every `Edit`/`Write` | one filename check, and a file read only for ADR-shaped paths |
+
+`sessionStart` is the one with a real price. Its output goes into the session's context as well as
+the terminal, so it is spending tokens on every session, not just screen space. That buys a board
+you did not have to ask for — what merged, what is checked out, what stopped moving, and the one
+thing waiting on you — and it is on by default because a report nobody switches on reports nothing.
+If a project's report is long enough that the trade stops paying, turn it off here and run
+`/dev-standup` when you want it.
+
+It stays silent, rather than reporting an error, when there is nothing useful to say: no
+`.dev-workflow.json` (so `/dev-init` has not been run), an unreadable one, or a `standup` that
+failed. It never blocks a session, and past 3s it prints a single line and gives up.
+
+Compaction does not re-trigger it. `SessionStart` fires again on compaction, and reprinting the
+board every time would spend context on a report nobody asked for twice.
+
+
 ## `docs` — the documentation set and decision records
 
 Where `/dev-docs-init` writes a greenfield project's documentation, which documents it writes, where
@@ -363,6 +410,7 @@ Where `/dev-docs-init` writes a greenfield project's documentation, which docume
     "set": ["architecture", "domain", "operations", "testing", "security"],
     "decisionsDir": "docs/decisions",  // relative to the project root
     "enforce": true                    // false disables check-adr-immutable.sh
+                                       // (hooks.adrImmutable is the current spelling)
   }
 }
 ```
@@ -512,6 +560,7 @@ Useful for one-off runs against another instance, and for CI. There is no GitHub
     "types": ["feat", "fix", "docs", "refactor", "test", "chore"],
     "enforce": true
   },
+  "hooks": { "sessionStart": true, "commitTicket": true, "adrImmutable": true },
   "priorities": ["Show-stopper", "Critical", "Major", "Normal", "Minor"],
   "defaultPriority": "Normal",
   "reviewer": "octocat",

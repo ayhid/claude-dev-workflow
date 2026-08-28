@@ -10,13 +10,23 @@ project** as Claude Code skills. This file is for working **on** it; `README.md`
 | `bin/*` | once, at install, from the npx checkout | Node ≥22. May use dependencies freely. |
 | `lib/*`, `scripts/*` | on every skill invocation, from the installed copy | **Zero dependencies** — node: builtins only. |
 | `hooks/check-commit-ticket.sh` | **on every Bash tool call** | Bash + jq only. Latency-critical — keep the fast-bail first. |
+| `hooks/check-adr-immutable.sh` | on every `Edit`/`Write` | Bash + jq only. Off the hot path, so it may read the target. |
+| `hooks/session-standup.mjs` | **once, when a session opens** | Node, zero deps. Bounded at 3s; may never fail or stall a session. |
 
 The zero-dependency rule for `lib/` and `scripts/` is load-bearing, not an aesthetic: the payload
 is copied into the user's project as plain source with no `node_modules`, so it has to work in a
 Python or Rust repo. Anything you `import` there must come from `node:`.
 
-The hook stays bash on purpose: `PreToolUse` with `matcher: "Bash"` fires on every command, so its
-non-commit exit path must cost ~3ms, not a ~50ms Node boot.
+The commit hook stays bash on purpose: `PreToolUse` with `matcher: "Bash"` fires on every command, so
+its non-commit exit path must cost ~3ms, not a ~50ms Node boot.
+
+`session-standup.mjs` is the **bounded exception**, and it is one for two reasons rather than
+preference. `SessionStart` fires once per session, so the ~3ms budget the bash rule protects simply
+does not apply. And the hook has to bound its own runtime: `timeout(1)` is not on a stock macOS —
+that is `gtimeout`, from coreutils — so a bash wrapper could not keep the 3s promise portably, while
+`spawnSync`'s `timeout` can. The zero-dependency rule still binds it in full; it runs from the
+installed copy in someone else's Python or Rust repo. A *third* Node hook needs this argument made
+again from scratch, not cited.
 
 ## Distribution: one path
 
@@ -282,13 +292,34 @@ Two consequences, both deliberate:
 Work with an issue behind it references it as `(#123)`. Work without one keeps the
 `<type>(no-ticket):` escape hatch; the type in it is incidental, so any configured type carries it.
 
-`hooks/check-adr-immutable.sh` is the second shipped hook, and the pair are registered by one list
-— `SHIPPED_HOOKS` in `bin/lib/payload.mjs`. The merge into `.claude/settings.json` is what makes a
-hook apply at all, so a third hook is one entry in that list rather than a second copy of the merge.
+Three hooks ship, registered by one list — `SHIPPED_HOOKS` in `bin/lib/payload.mjs`. The merge into
+`.claude/settings.json` is what makes a hook apply at all, so a fourth is one entry in that list
+rather than a second copy of the merge. Each entry carries its **event** as well as its matcher: the
+merge assumed `PreToolUse` until `session-standup.mjs` needed `SessionStart`, which is precisely the
+assumption a list exists to prevent. The match stays keyed by command string, per event, so a re-run
+adds only what is missing.
+
 Their matchers differ deliberately: the commit guard must see every `Bash` call and is built around
 a ~3ms bail for it, while the ADR guard matches `Edit|Write` only, which keeps it off the hot path
 at the cost of not seeing an ADR rewritten through `sed -i`. That gap is written down in
-`docs/decisions.md` rather than quietly tolerated.
+`docs/decisions.md` rather than quietly tolerated. `SessionStart` takes no matcher at all — it
+guards no tool — and an omitted key is not the same as an empty one.
+
+**The session greeting spends context, not just screen space.** `SessionStart` stdout goes into the
+session's context as well as the terminal, so every session of every consumer project pays for the
+report in tokens. It is on by default anyway, because a report nobody switches on reports nothing —
+but that is a decision with a price, not a free convenience, and `standup`'s own output is the thing
+to keep short. The 3s ceiling is the other half: past it the hook prints one line and gives up,
+because a greeting that delays a session is worse than no greeting.
+
+**Turning a hook off is one vocabulary.** `hooks.sessionStart`, `hooks.commitTicket` and
+`hooks.adrImmutable` in `.dev-workflow.json`, honoured by the hooks themselves — which is what makes
+an opt-out survive `--update`, since the installer would otherwise re-add an entry the user deleted.
+The two older spellings, `commit.enforce` and `docs.enforce`, are still honoured and must stay so:
+they are documented, and an update that switched a guard back on would be exactly the silent
+overwrite the manifest exists to prevent. `false` in either place disables. The older key can only
+ever disable, never re-enable, so there is no precedence rule to get wrong — the hook tests assert
+that directly.
 
 `hooks/check-commit-ticket.sh` only sees `git commit -m` issued through the agent; it defers on
 editor commits, `-F` files and amends. Husky's `commit-msg` hook is what covers those, running
