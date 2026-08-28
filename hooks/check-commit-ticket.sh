@@ -66,9 +66,14 @@ _find_cfg() {
 require_type=1
 
 if command -v jq >/dev/null 2>&1 && cfg=$(_find_cfg) && jq -e . "$cfg" >/dev/null 2>&1; then
-  # Hook disabled outright. `// true` would be wrong here — jq's alternative
-  # operator treats `false` as empty, so an explicit false would read as true.
-  [ "$(jq -r 'if .commit.enforce == false then "off" else "on" end' "$cfg")" = "off" ] && exit 0
+  # Hook disabled outright, in either spelling. `hooks.commitTicket` is the
+  # current one — one key per shipped hook, in one block — and `commit.enforce`
+  # is what this hook shipped with. Both are honoured, and neither can re-enable
+  # what the other turned off, so there is no precedence question to get wrong.
+  #
+  # `// true` would be wrong here — jq's alternative operator treats `false` as
+  # empty, so an explicit false would read as true.
+  [ "$(jq -r 'if .hooks.commitTicket == false or .commit.enforce == false then "off" else "on" end' "$cfg")" = "off" ] && exit 0
   [ "$(jq -r 'if .commit.requireType == false then "off" else "on" end' "$cfg")" = "off" ] && require_type=0
   v=$(jq -r '.commit.noTicketEscape // empty' "$cfg"); [ -n "$v" ] && escape="$v"
   v=$(jq -r '(.commit.types // []) | join("|")' "$cfg"); [ -n "$v" ] && types="$v"
