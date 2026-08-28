@@ -1,3 +1,12 @@
+# [1.11.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.10.2...v1.11.0) (2026-08-28)
+
+
+### Features
+
+* **hooks:** one vocabulary for turning a shipped hook off ([#31](https://github.com/ayhid/claude-dev-workflow/issues/31)) ([a9ec392](https://github.com/ayhid/claude-dev-workflow/commit/a9ec392c3872988613dc338d7f182767abd37f27))
+* **hooks:** print the standup when a session opens ([#31](https://github.com/ayhid/claude-dev-workflow/issues/31)) ([26082fb](https://github.com/ayhid/claude-dev-workflow/commit/26082fb6c839265e3aff99bec956fb93a162bb41))
+* **install:** merge hooks per event, not just PreToolUse ([#31](https://github.com/ayhid/claude-dev-workflow/issues/31)) ([ddf50a3](https://github.com/ayhid/claude-dev-workflow/commit/ddf50a36dc0b34a1302a51082d69bfb6e3ed21b4))
+
 ## [1.10.2](https://github.com/ayhid/claude-dev-workflow/compare/v1.10.1...v1.10.2) (2026-08-28)
 
 
