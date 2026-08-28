@@ -317,7 +317,7 @@ Each command below is prefixed with `node _dev-workflow/scripts/dev.mjs`.
 | `land --apply` | opens the PR, or rebase + fast-forward + push | git + GitHub CLI |
 | `land --apply --criteria first-pass` | the same, recording whether the criteria passed first time | git + GitHub CLI |
 | `standup [--since 3d] [--stale 7d]` | what merged, what is in flight, what is stale, what is next | HTTP + git + GitHub CLI |
-| `sync` | dry run: report state drift | git + GitHub CLI |
+| `sync` | dry run: report state drift and stranded labels | git + GitHub CLI |
 | `sync --apply --since 14d` | applies it, over a 14-day window | HTTP + git + GitHub CLI |
 | `sync --deep` | also reads commit subjects | git + GitHub CLI |
 | `status` | this checkout: branch, ticket, state, PR, dirty files, next step | git + GitHub CLI |
@@ -402,6 +402,23 @@ It only ever moves **forward** along `states.ladder`, and never touches a state 
 ticket parked in `Blocked` or `Won't Fix` was put there on purpose, and no reconciler should
 second-guess that. Running it twice is a no-op, so it is safe from a hook, a cron, or the top of
 `/dev-task`. Missing a week costs latency, nothing else.
+
+It also repairs the case that *looks* like nothing. On GitHub the ladder is modelled with labels,
+so an issue has two copies of its state — and they come apart: a PR body saying `Closes #12` makes
+GitHub close the issue at merge, before anything relabels it, leaving `status: in review` on a
+ticket that reads as done. Forward-only movement is the right answer about its state and the reason
+nothing was ever fixed. `sync` now reports that separately and puts the label right:
+
+```
+ISSUE        CURRENT          SHOULD BE        WHY
+#12          Done             relabel          labelled "status: in review", but the issue is Done
+```
+
+The repair only ever rewrites labels — it never opens or closes an issue, so it cannot move a
+ticket by accident. An issue closed as *not planned* is off the ladder and left alone, and one
+carrying **no** ladder label is never backfilled: it never entered the ladder, and labelling it
+would invent history it does not have. On a tracker that owns its own states there is only one copy
+and nothing to repair, so this costs a YouTrack project nothing.
 
 It matches PRs to issues through the **branch name and PR title**. `--deep` additionally reads each
 unmatched PR's commit subjects, which is where a `type(scope): description (ABC-1)` convention puts
