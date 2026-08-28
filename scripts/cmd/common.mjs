@@ -267,3 +267,57 @@ export async function emitUpdateBanner(configRoot) {
     // Deliberately empty: see above.
   }
 }
+
+/**
+ * The repo-relative path an anchor names, or null if it does not name one.
+ *
+ * An anchor is either a `file:line` or **the command that shows the claim to be
+ * true**, and the two have to be told apart before either can be checked. The
+ * rule is deliberately narrow, because a false refusal here is worse than a
+ * miss: it would block a claim that was correctly evidenced.
+ *
+ *   - anything containing whitespace is a command (`npm test`, `git ls-files`)
+ *   - anything containing `://` is a URL
+ *   - a bare word with no `/` and no extension is a command (`make`, `pytest`)
+ *   - what is left is a path, with an optional `:12` or `:12-30` suffix
+ */
+export function anchorPath(anchor) {
+  const text = String(anchor ?? '').trim();
+  if (!text || /\s/.test(text) || text.includes('://')) return null;
+
+  const path = text.replace(/:\d+(-\d+)?$/, '');
+  if (!path) return null;
+  if (!path.includes('/') && !/\.[A-Za-z0-9]+$/.test(path)) return null;
+  return path;
+}
+
+/**
+ * Refuse claims whose anchor names a file that is not there.
+ *
+ * The commonest failure of a model writing about a codebase is an invented
+ * filename, and it is the one kind of wrong anchor a script can catch: the
+ * claim reads as checked, and the thing that would check it does not exist.
+ * Ten lines of `existsSync` for that is a good trade.
+ *
+ * Shared by `docs record` and `ingest record` so the two cannot disagree about
+ * what an anchor is — the reason `lib/vcs.mjs` puts its refusals in one wrapper.
+ *
+ * Line numbers are **not** verified. `/dev-ingest-docs` deferred mechanical
+ * re-verification of anchors deliberately, and this does not reopen it: a line
+ * that drifted by three still points a reader at the right file.
+ */
+export function refuseMissingAnchors(claims, root) {
+  const bad = [];
+  for (const claim of claims ?? []) {
+    const path = anchorPath(claim?.anchor);
+    if (!path) continue;
+    if (existsSync(resolve(root, path))) continue;
+    bad.push(`  ${path}   for "${String(claim.text ?? '').trim().slice(0, 60)}"`);
+  }
+  if (!bad.length) return;
+
+  throw new UserError(
+    `${bad.length} claim(s) anchor a path that is not in the repo:\n${bad.join('\n')}\n` +
+      'Find the real file, or record the claim as kind "intent" and say who asserted it.',
+  );
+}
