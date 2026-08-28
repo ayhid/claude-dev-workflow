@@ -34,9 +34,14 @@ summary is the provider, so an existing setup tells you which branch of §4 appl
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" assess
 ```
 
-It measures commits, age, contributors, source files and documentation, and **proposes**
-greenfield or brownfield with every signal shown. It never decides: put the verdict to the user and
-let them correct it, then record the answer as `stage` in the config so it is settled once.
+What makes a project brownfield is that **there is already something here** — code, or
+documentation describing it. So the source files, their size and the documentation *decide*, and
+the history (commits, age, contributors) only corroborates. That order matters: `git init` on a
+codebase somebody has built for years produces one commit, one author and an age of zero, which is
+how most existing projects arrive at version control.
+
+It **proposes** and never decides: put the verdict to the user, let them correct it, then record the
+answer as `stage` in the config so it is settled once.
 
 The two need different first moves:
 
