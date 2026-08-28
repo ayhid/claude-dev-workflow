@@ -11,6 +11,11 @@
  *
  * `delivery.base` earned this: the fork point and the delivery target were one
  * key until #6, so no existing test could ever have caught them being confused.
+ *
+ * The second half of the file asks a different question — not what `land` does
+ * to the branches, but whether it can *find* the branch at all. That one is
+ * about the whole command rather than the git layer, so it drives the real CLI
+ * against the shared `gh` stub.
  */
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,6 +26,8 @@ import { test } from 'node:test';
 import { missingTargetError } from '../scripts/cmd/land.mjs';
 import { sh } from '../lib/sh.mjs';
 import { makeVcs } from '../lib/vcs.mjs';
+import { worktreePathFor } from '../lib/branch.mjs';
+import { CONFIG, git as gitOf, withStubGh } from './ghstub.mjs';
 
 const git = async (dir, ...args) => {
   const r = await sh('git', ['-C', dir, ...args]);
@@ -165,4 +172,121 @@ test('a missing target names the key that produced it', () => {
   });
   assert.match(fromBranch, /branch\.base/);
   assert.match(fromBranch, /set delivery\.base/, 'point at the fix, not just the cause');
+});
+
+// --- finding the branch (#15) -------------------------------------------------
+
+/**
+ * A multi-repo project in worktree mode used to be a closed loop: `--repo` takes
+ * only the paths in `repos`, and the branch lives in a worktree *under* one of
+ * them, so no spelling of the flag ever named the checkout holding the work.
+ * Every test here runs the real command with no `--repo` at all.
+ */
+const PR_MODE = { ...CONFIG, delivery: { mode: 'pr' }, reviewer: 'octocat' };
+
+test('land finds the branch from a worktree in a multi-repo project, with no --repo', async () => {
+  const { repo, wt, dev } = await withStubGh({ repos: ['api', 'web'], config: PR_MODE });
+
+  // The claim is about a worktree `dev.mjs start` would have made, so pin that
+  // the scaffold built the directory `start` renders rather than one that merely
+  // looks like it.
+  assert.equal(wt, worktreePathFor(CONFIG, { repoDir: repo, branch: 'feat/12-thing' }));
+
+  const r = await dev(['land'], {}, { cwd: wt });
+
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /issue: +#12 — Half a thing/);
+  assert.match(r.stdout, /repo: +web /, 'the repo came from the directory, not the first entry');
+  assert.match(r.stdout, /branch: +feat\/12-thing → main/);
+  assert.match(r.stdout, /reviewer: octocat/, 'the plan must be checkable against the config');
+  assert.match(r.stdout, /dry run/);
+});
+
+test('the dry run of a project with no reviewer says so rather than omitting the line', async () => {
+  const { wt, dev } = await withStubGh({
+    repos: ['api', 'web'],
+    config: { ...CONFIG, delivery: { mode: 'pr' } },
+  });
+
+  const r = await dev(['land'], {}, { cwd: wt });
+
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /reviewer: \(none configured\)/);
+});
+
+test('land --apply from that worktree pushes, opens the PR and reconciles the ticket', async () => {
+  // The dry run proves nothing about a write path. `gh` is a stub and cannot
+  // prove anything about the API — but the push is real git against a bare
+  // remote, and the argv and the ordering are what the log holds.
+  const openPr = {
+    number: 7,
+    state: 'OPEN',
+    title: 'Half a thing',
+    url: 'https://github.com/o/r/pull/7',
+    headRefName: 'feat/12-thing',
+    createdAt: new Date().toISOString(),
+  };
+  const { repo, wt, dev, read } = await withStubGh({
+    repos: ['api', 'web'],
+    remote: true,
+    config: PR_MODE,
+    prsByState: { merged: [], open: [openPr] },
+  });
+
+  const r = await dev(['land', '--apply'], {}, { cwd: wt });
+
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(
+    await gitOf(repo, 'rev-parse', 'origin/feat/12-thing'),
+    await gitOf(wt, 'rev-parse', 'HEAD'),
+    'the branch must be on the remote',
+  );
+
+  const log = read('log');
+  assert.match(log, /pr create --base main --head feat\/12-thing/);
+  assert.match(log, /--reviewer octocat/);
+  assert.match(r.stdout, /pr: +#7 https:\/\/github.com\/o\/r\/pull\/7/);
+  assert.match(read('state'), /status: in review/, 'the ticket must reach the review rung');
+});
+
+test('branch mode still resolves the repo from the directory it is run in', async () => {
+  // No worktree anywhere: the ticket branch is checked out in the repo itself,
+  // which is what `branch` mode leaves behind.
+  const { repo, wt, dev } = await withStubGh({ repos: ['api', 'web'], config: PR_MODE });
+  await gitOf(repo, 'worktree', 'remove', '--force', wt);
+  await gitOf(repo, 'checkout', 'feat/12-thing');
+
+  const r = await dev(['land'], {}, { cwd: repo });
+
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /repo: +web /);
+  assert.match(r.stdout, /branch: +feat\/12-thing → main/);
+  assert.doesNotMatch(r.stdout, /checkout: worktree/);
+});
+
+test('a single-repo project still lands with no --repo', async () => {
+  const { wt, dev } = await withStubGh({ config: PR_MODE });
+
+  const r = await dev(['land'], {}, { cwd: wt });
+
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /repo: +\. /);
+  assert.match(r.stdout, /branch: +feat\/12-thing → main/);
+});
+
+test('standing on the base branch says where the work actually is', async () => {
+  // The second command in #15's transcript: `--repo web` is answered by the repo
+  // root, which is where worktree mode leaves the base checked out. "Nothing to
+  // land" was true and useless.
+  const { repo, dev } = await withStubGh({ repos: ['api', 'web'], config: PR_MODE });
+
+  const r = await dev(['land', '#12', '--repo', 'web'], {}, { cwd: repo });
+
+  // Matched by shape rather than against the scaffold's own path: git reports
+  // the worktree resolved through symlinks, and the temporary directory on
+  // macOS is one.
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /already on main/);
+  assert.match(r.stderr, /#12 is checked out in \S+\/web\/\.worktrees\/feat-12-thing/);
+  assert.match(r.stderr, /cd \S+\/web\/\.worktrees\/feat-12-thing/);
 });

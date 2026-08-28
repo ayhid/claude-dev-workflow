@@ -77,7 +77,20 @@ case "\${1:-} \${2:-}" in
     ;;
   "issue comment") cat >> "$GH_COMMENT" ;;
   "label list") echo '[{"name":"status: in progress"},{"name":"status: in review"},{"name":"status: done"}]' ;;
-  "pr list") cat "$GH_PRS" ;;
+  # \`--state\` is answered separately when the test said so: one list for every
+  # state makes a merged PR an open one too, and the two rungs it maps onto are
+  # different answers to the same question.
+  "pr list")
+    want=""
+    while [ $# -gt 0 ]; do [ "$1" = "--state" ] && want="$2"; shift; done
+    if [ -n "$want" ] && [ -f "$GH_PRS.$want" ]; then cat "$GH_PRS.$want"; else cat "$GH_PRS"; fi
+    ;;
+  # Drains the body on stdin: the caller writes it with --body-file -, and a
+  # stub that exits without reading gets EPIPE instead of a clean exit.
+  "pr create") cat > /dev/null ;;
+  # Read back rather than trusted: the real \`gh pr create\` reports failure for
+  # pull requests it created, which is why the command under test asks again.
+  "pr view") printf '{"number":7,"url":"https://github.com/o/r/pull/7","title":"Half a thing","reviewRequests":[{"login":"octocat"}]}\\n' ;;
 esac
 exit 0
 `;
@@ -106,34 +119,75 @@ export const CONFIG = {
 /**
  * A repo on `main`, a ticket branch with one unmerged commit checked out in a
  * worktree, and a second ticket branch nobody has mounted.
+ *
+ * `repos` makes it a multi-repo project instead — one git repository per name,
+ * under a project root that is not itself a checkout, with the ticket in the
+ * *last* of them. That shape is not a variation for its own sake: it is the
+ * only one in which the configured repo and the directory holding the branch
+ * can disagree, which is the whole of #15. Putting the ticket last also means a
+ * command that quietly falls back to the first repo fails the test.
+ *
+ * `remote` gives each repo a bare origin, so a push is a real push with no
+ * network. Off by default: a remote changes what `sync` and `abandon` can see,
+ * and the tests written before this option were written without one.
  */
-export async function scaffold() {
+export async function scaffold({ repos = null, remote = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'recover-'));
-  const repo = join(root, 'repo');
-  const wt = join(root, 'repo', '.worktrees', 'feat-12-thing');
+  const names = repos ?? ['repo'];
+  const dirs = {};
 
-  await sh('git', ['init', '-b', 'main', repo]);
-  await git(repo, 'config', 'user.email', 'test@example.invalid');
-  await git(repo, 'config', 'user.name', 'Test');
-  await git(repo, 'commit', '--allow-empty', '-m', 'root');
+  for (const name of names) {
+    const dir = join(root, name);
+    await sh('git', ['init', '-b', 'main', dir]);
+    await git(dir, 'config', 'user.email', 'test@example.invalid');
+    await git(dir, 'config', 'user.name', 'Test');
+    await git(dir, 'commit', '--allow-empty', '-m', 'root');
+    if (remote) {
+      const bare = join(root, `${name}.git`);
+      await sh('git', ['init', '--bare', '-b', 'main', bare]);
+      await git(dir, 'remote', 'add', 'origin', bare);
+      await git(dir, 'push', '-u', 'origin', 'main');
+    }
+    dirs[name] = dir;
+  }
+
+  const repo = dirs[names[names.length - 1]];
+  const wt = join(repo, '.worktrees', 'feat-12-thing');
 
   await git(repo, 'worktree', 'add', wt, '-b', 'feat/12-thing', 'main');
   await git(wt, 'commit', '--allow-empty', '-m', 'feat(x): half of it (#12)');
   await git(repo, 'branch', 'fix/13-other', 'main');
 
-  return { root, repo, wt, vcs: makeVcs({ run: sh }) };
+  return { root, repo, wt, dirs, vcs: makeVcs({ run: sh }) };
 }
 
 /**
  * The scaffold, plus a config file and a `gh` on PATH that answers from disk.
  *
- * `dev(args)` runs the real CLI the way the skills do — a child process, with
- * the project root pinned so nothing resolves back to this repository's own
- * config — and returns its exit code and output.
+ * `dev(args, env, { cwd })` runs the real CLI the way the skills do — a child
+ * process, with the project root pinned so nothing resolves back to this
+ * repository's own config — and returns its exit code and output. `cwd`
+ * defaults to the project root; a test passes the worktree when *where the
+ * command was run from* is the thing under test.
+ *
+ * With `repos`, the config file goes to the project root rather than a
+ * checkout, which is where a multi-repo project keeps it, and each entry names
+ * the same GitHub slug the stub answers for — `sync` reads `repos[].github`,
+ * not the top-level one.
  */
-export async function withStubGh({ labels = '{"name":"status: in progress"}', prs = [], config = CONFIG } = {}) {
-  const s = await scaffold();
-  writeFileSync(join(s.repo, '.dev-workflow.json'), `${JSON.stringify(config, null, 2)}\n`);
+export async function withStubGh({ labels = '{"name":"status: in progress"}', prs = [], prsByState = {}, config = CONFIG, repos = null, remote = false } = {}) {
+  const s = await scaffold({ repos, remote });
+  const projectRoot = repos ? s.root : s.repo;
+  const written = repos
+    ? {
+        ...config,
+        // `#123` is per-repository, so a project spanning several must say which
+        // one holds the issues — the adapter refuses to guess.
+        github: { ...config.github, issuesRepo: config.github?.repo ?? 'o/r' },
+        repos: repos.map((path) => ({ path, github: config.github?.repo ?? 'o/r' })),
+      }
+    : config;
+  writeFileSync(join(projectRoot, '.dev-workflow.json'), `${JSON.stringify(written, null, 2)}\n`);
 
   const bin = join(s.root, 'bin');
   mkdirSync(bin, { recursive: true });
@@ -150,18 +204,21 @@ export async function withStubGh({ labels = '{"name":"status: in progress"}', pr
   writeFileSync(paths.state, labels);
   writeFileSync(paths.comment, '');
   writeFileSync(paths.prs, JSON.stringify(prs));
+  for (const [state, list] of Object.entries(prsByState)) {
+    writeFileSync(`${paths.prs}.${state}`, JSON.stringify(list));
+  }
 
-  const dev = (args, extraEnv = {}) =>
+  const dev = (args, extraEnv = {}, { cwd = projectRoot } = {}) =>
     new Promise((done) => {
       execFile(
         process.execPath,
         [join(REPO_ROOT, 'scripts', 'dev.mjs'), ...args],
         {
-          cwd: s.repo,
+          cwd,
           env: {
             ...process.env,
             PATH: `${bin}:${process.env.PATH}`,
-            CLAUDE_PROJECT_DIR: s.repo,
+            CLAUDE_PROJECT_DIR: projectRoot,
             GH_LOG: paths.log,
             GH_STATE: paths.state,
             GH_COMMENT: paths.comment,
@@ -173,5 +230,5 @@ export async function withStubGh({ labels = '{"name":"status: in progress"}', pr
       );
     });
 
-  return { ...s, dev, read: (k) => readFileSync(paths[k], 'utf8') };
+  return { ...s, projectRoot, dev, read: (k) => readFileSync(paths[k], 'utf8') };
 }
