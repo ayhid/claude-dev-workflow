@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.8.0...v1.9.0) (2026-08-28)
+
+
+### Features
+
+* **sync:** reconcile work that landed without a pull request ([#19](https://github.com/ayhid/claude-dev-workflow/issues/19)) ([b1d02f7](https://github.com/ayhid/claude-dev-workflow/commit/b1d02f7ece10d6807e70c1852d6922f4218c9c6b))
+
 # [1.8.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.7.0...v1.8.0) (2026-08-28)
 
 
