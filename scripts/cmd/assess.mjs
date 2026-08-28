@@ -53,15 +53,24 @@ export async function gatherSignals(dir, { run = sh } = {}) {
   const docs = tracked.filter((p) => classifyPath(p) === 'doc');
   const sourceFiles = tracked.filter((p) => classifyPath(p) === 'source');
 
-  let docBytes = 0;
-  for (const path of docs) {
-    try {
-      docBytes += statSync(join(dir, path)).size;
-    } catch {
-      // A tracked file that is not on disk (a sparse checkout, a broken link)
-      // contributes nothing rather than failing the whole assessment.
+  // Size as well as count, because the two fail differently: a generated
+  // scaffold is many small files, and an imported codebase can be a handful of
+  // enormous ones. Either alone would miss half the cases the verdict turns on.
+  const bytesOf = (list) => {
+    let total = 0;
+    for (const path of list) {
+      try {
+        total += statSync(join(dir, path)).size;
+      } catch {
+        // Tracked but not on disk — a sparse checkout, a broken link. It
+        // contributes nothing rather than failing the whole assessment.
+      }
     }
-  }
+    return total;
+  };
+
+  const docBytes = bytesOf(docs);
+  const sourceBytes = bytesOf(sourceFiles);
 
   const count = await git(['rev-list', '--count', 'HEAD']);
   const rootCommit = await git(['log', '--max-parents=0', '--format=%cI']);
@@ -75,6 +84,7 @@ export async function gatherSignals(dir, { run = sh } = {}) {
     ageDays: Number.isFinite(ageDays) ? ageDays : null,
     contributors: authors ? new Set(authors.split('\n').filter(Boolean)).size : null,
     sourceFiles: tracked.length ? sourceFiles.length : null,
+    sourceBytes: tracked.length ? sourceBytes : null,
     docBytes: tracked.length ? docBytes : null,
     tests: tracked.length ? tracked.some((p) => /(^|\/)(tests?|spec|__tests__)\//i.test(p) || /\.(test|spec)\./i.test(p)) : null,
     ci: tracked.length

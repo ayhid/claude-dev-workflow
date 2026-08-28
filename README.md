@@ -320,7 +320,7 @@ Each command below is prefixed with `node _dev-workflow/scripts/dev.mjs`.
 | `land` | dry run: how this work would reach the base branch | git + GitHub CLI |
 | `land --apply` | opens the PR, or rebase + fast-forward + push | git + GitHub CLI |
 | `land --apply --criteria first-pass` | the same, recording whether the criteria passed first time | git + GitHub CLI |
-| `assess` | greenfield or brownfield, proposed from signals | git |
+| `assess` | greenfield or brownfield, decided by what code and docs exist | git |
 | `ingest scan` \| `next` \| `read` \| `record` \| `answer` \| `emit` | absorb existing documentation, one step at a time | git |
 | `standup [--since 3d] [--stale 7d]` | what merged, what is in flight, what is stale, what is next | HTTP + git + GitHub CLI |
 | `sync` | dry run: report state drift | git + GitHub CLI |
@@ -431,6 +431,12 @@ something that is already there.
 ```bash
 node _dev-workflow/scripts/dev.mjs assess     # greenfield or brownfield, with every signal shown
 ```
+
+What makes a project brownfield is that **there is already something here** — code, or
+documentation describing it. So the source files, their size and the documentation decide it, and
+the history only corroborates. That order is the whole rule: `git init` on a codebase somebody has
+built for years gives one commit, one author and an age of zero, and a verdict that counted those
+would call four hundred source files greenfield. History is evidence of activity, never of code.
 
 It proposes and never decides; you confirm, and the answer is recorded as `stage`.
 

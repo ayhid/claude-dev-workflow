@@ -225,11 +225,23 @@ that block like every other delivery field.
 "stage": "brownfield"
 ```
 
-Settled once by a person, never inferred later. `dev.mjs assess` measures commits, age,
-contributors, source files and documentation and *proposes* a verdict with every signal shown; a
-wrong stage would send `/dev-init` down the wrong branch with nothing downstream to notice it, so
-it is confirmed rather than applied. Unset means nobody has decided, which is different from either
-answer.
+Settled once by a person, never inferred later. `dev.mjs assess` *proposes* a verdict and shows
+every signal; a wrong stage would send `/dev-init` down the wrong branch with nothing downstream to
+notice it, so it is confirmed rather than applied. Unset means nobody has decided, which is
+different from either answer.
+
+What it measures, and in what order:
+
+| | Signal | Role |
+| --- | --- | --- |
+| **Decisive** | tracked source files, their total size, documentation size | is there already a system here? |
+| Corroborating | commits, age, contributors | has it been worked on? |
+
+The split is the rule, not an implementation detail. `git init` on a codebase somebody has been
+building for years produces one commit, one author and an age of zero — so a verdict that weighted
+those equally would call four hundred source files greenfield. History is evidence of activity,
+never of code, and it is consulted only in the narrow band where there is a little code and it
+could be either a generated scaffold or a young real project.
 
 On a brownfield project it is what tells a session there is existing documentation worth reading
 before starting work. `/dev-ingest-docs` turns that documentation into a verified map under

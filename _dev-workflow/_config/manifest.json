@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.4.0",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-28T10:16:11.792Z"
+    "lastUpdated": "2026-08-28T10:25:53.032Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -60,7 +60,7 @@
     },
     {
       "path": "_dev-workflow/lib/stage.mjs",
-      "sha256": "fb28b6a5d29e4c7cf154d5b217b9e941d1518ab0885be5066a0f5d918a447ebf"
+      "sha256": "52920e502c8c2d5d7594f8d41112f9e4b2a4d2cda582df5b72c4106f6da3185e"
     },
     {
       "path": "_dev-workflow/lib/standup.mjs",
@@ -92,7 +92,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/assess.mjs",
-      "sha256": "429948301e733e63751ee495d265a728893db42a0e7a835f7ab98db5e60335d4"
+      "sha256": "50910f0d36777364679015f7ee0b0af0cda77840a218dcb7ea060f8d2011fe33"
     },
     {
       "path": "_dev-workflow/scripts/cmd/common.mjs",
