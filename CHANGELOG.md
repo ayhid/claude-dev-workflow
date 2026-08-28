@@ -1,3 +1,10 @@
+## [1.6.2](https://github.com/ayhid/claude-dev-workflow/compare/v1.6.1...v1.6.2) (2026-08-28)
+
+
+### Bug Fixes
+
+* **tools:** a session that did nothing must not blank its neighbours ([#33](https://github.com/ayhid/claude-dev-workflow/issues/33)) ([1d8a0ef](https://github.com/ayhid/claude-dev-workflow/commit/1d8a0ef5c00b8ce63e113d444819544fb27e27d7))
+
 ## [1.6.1](https://github.com/ayhid/claude-dev-workflow/compare/v1.6.0...v1.6.1) (2026-08-28)
 
 
