@@ -1,3 +1,10 @@
+## [1.10.2](https://github.com/ayhid/claude-dev-workflow/compare/v1.10.1...v1.10.2) (2026-08-28)
+
+
+### Bug Fixes
+
+* **ingest:** exclude agent-skill payloads from the surveyed corpus ([#34](https://github.com/ayhid/claude-dev-workflow/issues/34)) ([cb8bb6c](https://github.com/ayhid/claude-dev-workflow/commit/cb8bb6c07e5b0ed5349667df59b622d60e7c6415))
+
 ## [1.10.1](https://github.com/ayhid/claude-dev-workflow/compare/v1.10.0...v1.10.1) (2026-08-28)
 
 
