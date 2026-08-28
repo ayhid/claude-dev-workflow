@@ -5,16 +5,27 @@
  *   dev.mjs sync --apply        # apply the transitions
  *   dev.mjs sync --since 14d    # widen the window (default 30d)
  *   dev.mjs sync --repo frontend
- *   dev.mjs sync --deep         # also read commit subjects (1 extra call per PR)
+ *   dev.mjs sync --deep         # also read an unmatched PR's commit subjects
+ *                               # (1 extra API call per PR; the base-branch
+ *                               # commit scan below is free and always on)
  *
- * This is a reconciler, not an event handler. It asks "given the PRs that exist
- * right now, where should each ticket be?" and advances anything that has fallen
- * behind. A webhook that fires while the runner is down loses the event and the
+ * This is a reconciler, not an event handler. It asks "given what has been
+ * pushed right now, where should each ticket be?" and advances anything that has
+ * fallen behind. A webhook that fires while the runner is down loses the event and the
  * ticket is wrong forever; a reconciler that misses a week costs only latency.
  *
  * Evidence, weakest to strongest:
- *   open PR referencing the issue    -> states.review
- *   merged PR referencing the issue  -> states.done
+ *   open PR referencing the issue      -> states.review
+ *   merged PR referencing the issue    -> states.done
+ *   commit on the base branch          -> states.done
+ *
+ * That third line is not a nicety. A project on `delivery.mode: direct` never
+ * opens a pull request, so PR evidence about it does not exist and never will:
+ * the reconciler saw nothing, found nothing to do, and said "everything is in
+ * sync" while every ticket sat in the state it started in. A commit reachable
+ * from the base branch has landed, which is the same fact a merged PR carries.
+ * It also covers what bypasses `land` on a `pr` project — a hand-pushed fix, a
+ * hotfix, work done outside a session.
  *
  * It also repairs the case that looks like nothing: an issue in the right state
  * whose *representation* of that state is stale. GitHub closes an issue by
@@ -23,21 +34,24 @@
  * `provider.checkRepresentation` is what makes that visible here; the rung ->
  * label mapping stays in the adapter, where the config for it lives.
  *
- * Both passes are bounded by the same window: this reconciles issues referenced
- * by PRs since `--since`, so a strand older than that needs one wider run.
+ * Every pass is bounded by the same window: this reconciles issues referenced by
+ * a PR or a landed commit since `--since`, so a strand older than that needs one
+ * wider run.
  *
  * The decision rules live in lib/sync.mjs and are unit-tested; this file is the
  * I/O around them. It is the one command that drives external tools (gh, git)
  * rather than plain HTTP.
  */
 import { issueIdFromBranch } from '../../lib/branch.mjs';
-import { ladderOf, rankOf } from '../../lib/config.mjs';
+import { deliveryBase, deliveryFor, ladderOf, rankOf } from '../../lib/config.mjs';
 import { has, sh, shJson } from '../../lib/sh.mjs';
 import {
   byIssueNumber,
+  commitObservations,
   cutoffFrom,
   decide,
   extractIssueIds,
+  LOG_SEP,
   parseSince,
   renderComment,
   slugFromRemoteUrl,
@@ -132,6 +146,47 @@ async function observePrs({ config, slug, prState, cutoff, syntax, rank, state, 
   return observations;
 }
 
+/**
+ * The ref that answers "has this landed", or null when nothing resolves.
+ *
+ * A remote-tracking ref first, and the same `upstream` then `origin` order
+ * `slugFor` uses: the local base branch can be stale, or hold commits nobody
+ * has pushed, and neither of those has landed. The local branch is the last
+ * resort rather than the first, and is right for a repo with no remote at all.
+ */
+async function baseRefFor(dir, base) {
+  for (const ref of [`upstream/${base}`, `origin/${base}`, base]) {
+    const res = await sh('git', ['-C', dir, 'rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
+    if (res.ok) return ref;
+  }
+  return null;
+}
+
+/** Commits on the base branch, newer than the cutoff, as issue-ID observations. */
+async function observeCommits({ dir, ref, slug, cutoff, syntax, rank, state }) {
+  // `--no-merges` is load-bearing, not tidiness. GitHub's own merge commit is
+  // titled `Merge pull request #38 from …`, and on GitHub that reads as a
+  // perfectly well-formed issue ID — for a *pull request* number. Every merge
+  // would credit whatever issue happens to share that number.
+  const res = await sh('git', [
+    '-C', dir,
+    'log', ref,
+    '--no-merges',
+    `--since=${cutoff}`,
+    `--format=%H${LOG_SEP}%s`,
+  ]);
+  if (!res.ok) {
+    process.stderr.write(`  could not read commits on ${ref}: ${res.stderr || `exit ${res.code}`}\n`);
+    return [];
+  }
+  return commitObservations(res.stdout, {
+    syntax,
+    rank,
+    state,
+    urlFor: (sha) => `https://github.com/${slug}/commit/${sha}`,
+  });
+}
+
 export async function run(argv) {
   const opts = parseArgs(argv);
   await requireGh();
@@ -170,7 +225,17 @@ export async function run(argv) {
       process.stderr.write(`skipping '${repoPath}' — no GitHub remote found\n`);
       continue;
     }
-    process.stderr.write(`scanning ${repoPath} (${slug})\n`);
+    // Resolved before the passes below so the line says what was actually read.
+    // A repo whose base branch does not exist here is not an error — the PR
+    // passes still work — but it is exactly the case that would otherwise look
+    // like a clean run, so it is said out loud.
+    const base = deliveryBase(config, deliveryFor(config, repoPath));
+    const baseRef = await baseRefFor(dir, base);
+    process.stderr.write(
+      baseRef
+        ? `scanning ${repoPath} (${slug}) — PRs, and commits on ${baseRef}\n`
+        : `scanning ${repoPath} (${slug}) — PRs only, no branch '${base}' here\n`,
+    );
     scanned++;
 
     for (const [prState, rank, state] of [
@@ -191,6 +256,23 @@ export async function run(argv) {
         })),
       );
     }
+
+    // Last, deliberately. `strongestEvidence` keeps the first observation at a
+    // given rank, and a merged PR carries a URL a reader can do more with than
+    // a bare commit — so a ticket with both keeps the PR.
+    if (baseRef) {
+      observations.push(
+        ...(await observeCommits({
+          dir,
+          ref: baseRef,
+          slug,
+          cutoff,
+          syntax,
+          rank: rankDone,
+          state: config.states.done,
+        })),
+      );
+    }
   }
 
   if (scanned === 0) {
@@ -206,7 +288,7 @@ export async function run(argv) {
       // that a GitHub config has no equivalent of, so this line read "No null
       // issues…" for every GitHub project. The syntax sample says the same
       // thing — which IDs were scanned for — and every backend has one.
-      `\nNo issues matching ${provider.syntax.sample} referenced by PRs since ${cutoff}. Nothing to reconcile.\n`,
+      `\nNo issues matching ${provider.syntax.sample} referenced by a PR or a landed commit since ${cutoff}. Nothing to reconcile.\n`,
     );
     return 0;
   }

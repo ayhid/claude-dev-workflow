@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.7.0",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-28T19:14:55.101Z"
+    "lastUpdated": "2026-08-28T19:26:05.660Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -81,7 +81,7 @@
     },
     {
       "path": "_dev-workflow/lib/sync.mjs",
-      "sha256": "1bc6fbf9e19864ab7eef07e3a70c40a33f669155b2f6dfd1e1d93b3ad9c7cf6b"
+      "sha256": "259973502de0876d6c25e4738202eeeab09d92f370c8fe63e93167cc3e87e69b"
     },
     {
       "path": "_dev-workflow/lib/token.mjs",
@@ -157,7 +157,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/sync.mjs",
-      "sha256": "a95e3f5cb942dcfd1d88f7909fad29e4bc6de49fa40f67b7b831f1f24c2a7058"
+      "sha256": "550b5e9ffa587875793777b0cbd56031c62fdb6b3babd9172fd890c7de2032b0"
     },
     {
       "path": "_dev-workflow/scripts/cmd/update.mjs",
