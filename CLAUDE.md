@@ -271,7 +271,10 @@ Two consequences, both deliberate:
 
 - **The ladder is reconciled by CI, not by hand.** `.github/workflows/reconcile.yml` runs
   `dev.mjs sync --apply --deep` on every merged PR, plus weekly. `--deep` is load-bearing: a branch
-  named by hand carries no issue ID, so the commit subjects are the only link. It is **one step**,
+  named by hand carries no issue ID, so the commit subjects are the only link. So is
+  `fetch-depth: 0` on the checkout — this repo delivers `direct`, so most of its work has no PR at
+  all and the base-branch commit log is the only evidence there is. At the default depth of 1 that
+  log is one commit long and the run reports a clean board. It is **one step**,
   and must stay one: the second step it used to have was repo-local glue spelling `status: in
   review` in shell, and #30 moved that repair into the adapter where the label mapping already
   lives. A workaround added here rather than in `lib/` fixes this repo and no consumer's.

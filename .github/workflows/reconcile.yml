@@ -21,10 +21,10 @@ name: reconcile
 # installing this workflow gets the repair rather than only this one.
 #
 # One property the glue had and this does not: it scanned the last 100 closed
-# issues regardless of age. `sync` reconciles what PRs since `--since` (30d)
-# reference, which covers the strand at the moment it is created — a merge is
-# what creates it, and this runs on the merge. A strand older than the window
-# needs one wider run by hand: `dev.mjs sync --apply --deep --since 1y`.
+# issues regardless of age. `sync` reconciles what a PR or a landed commit since
+# `--since` (30d) references, which covers the strand at the moment it is created
+# — a merge is what creates it, and this runs on the merge. A strand older than
+# the window needs one wider run by hand: `dev.mjs sync --apply --deep --since 1y`.
 
 on:
   pull_request:
@@ -39,7 +39,7 @@ on:
 permissions:
   contents: read
   issues: write # sync moves tickets and repairs stranded labels
-  pull-requests: read # sync's evidence is the PR list
+  pull-requests: read # one half of sync's evidence is the PR list; the other is local
 
 concurrency:
   group: reconcile
@@ -52,7 +52,13 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
+      # Full history, because half of sync's evidence is now local: it reads the
+      # commit subjects on the base branch, which is the only thing that sees
+      # work landed without a PR. At the default depth of 1 that log is one
+      # commit long and the scan silently finds nothing.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -65,7 +71,7 @@ jobs:
       #
       # --deep is not optional. A branch named by hand carries no issue ID, so
       # for those PRs the commit subjects are the only link to the issue.
-      - name: Reconcile the ladder against the PRs that exist
+      - name: Reconcile the ladder against the PRs and commits that exist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node _dev-workflow/scripts/dev.mjs sync --apply --deep
