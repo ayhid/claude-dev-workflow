@@ -20,7 +20,7 @@ import { PR_UNKNOWN, describeBoard, describeCheckout } from '../../lib/status.mj
 import { issueIdFromBranch } from '../../lib/branch.mjs';
 import { sh, shJson, has } from '../../lib/sh.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
-import { context, resolveRepo, UserError } from './common.mjs';
+import { context, emitUpdateBanner, resolveRepo, UserError } from './common.mjs';
 
 function parseArgs(args) {
   const opts = { all: false, repo: '' };
@@ -68,6 +68,10 @@ export async function run(argv) {
       '\nPR state unavailable: the GitHub CLI is missing or not authenticated (gh auth login).\n',
     );
   }
+
+  // Last, and on stderr: this reports, and a notice about the tool is not part
+  // of the report.
+  await emitUpdateBanner(root);
   return 0;
 }
 

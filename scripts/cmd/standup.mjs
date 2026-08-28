@@ -29,7 +29,7 @@ import { describeStandup, inFlight, mergedSince } from '../../lib/standup.mjs';
 import { PR_UNKNOWN } from '../../lib/status.mjs';
 import { cutoffFrom, extractIssueIds, parseSince } from '../../lib/sync.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
-import { context, resolveRepo, UserError } from './common.mjs';
+import { context, emitUpdateBanner, resolveRepo, UserError } from './common.mjs';
 import { repoDirs, scanRepos } from './status.mjs';
 
 const USAGE = 'usage: dev.mjs standup [--since 1d] [--stale 7d] [--repo PATH]';
@@ -105,5 +105,9 @@ export async function run(argv) {
   });
 
   process.stdout.write(`${lines.join('\n')}\n`);
+
+  // Last, and on stderr: this reports, and a notice about the tool is not part
+  // of the report.
+  await emitUpdateBanner(root);
   return 0;
 }

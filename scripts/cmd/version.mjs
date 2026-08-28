@@ -24,78 +24,26 @@
  *    the version *found* is reported, never the one that was asked for.
  */
 import { existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { join } from 'node:path';
 
 import { loadConfig } from '../../lib/config.mjs';
-import { MANIFEST_PATH, PAYLOAD_DIR, compareVersions, detectDrift, readManifest } from '../../lib/manifest.mjs';
+import { PAYLOAD_DIR, compareVersions, detectDrift, readManifest } from '../../lib/manifest.mjs';
 import { has, sh } from '../../lib/sh.mjs';
+import { UPGRADE_COMMAND, findInstallRoot, latestVersion } from '../../lib/updatecheck.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
 import { UserError } from './common.mjs';
 
-/** The dist-tag endpoint: ~30 bytes, no auth, CDN-cached, no meaningful rate limit. */
-const REGISTRY_URL = 'https://registry.npmjs.org/-/package/claude-dev-workflow/dist-tags';
-
 /**
- * The one npx spelling that actually re-resolves. See bin/install.mjs for why
- * `@latest` is load-bearing rather than decorative.
+ * The args we spawn, as distinct from the command we print.
  *
- * `-y` is in the args we spawn — an unattended run must not stall on npx's
- * "install this package?" prompt — but not in the command we *print*, which has
- * to match what bin/install.mjs tells the user, byte for byte.
+ * `-y` belongs here and nowhere else — an unattended run must not stall on npx's
+ * "install this package?" prompt — while `UPGRADE_COMMAND`, imported above, has
+ * to match what bin/install.mjs tells the user byte for byte. The registry
+ * lookup, the timeout and that string all live in lib/updatecheck.mjs now,
+ * because the session-opening commands print the same notice and two copies of
+ * this check would be two answers to one question.
  */
 export const UPGRADE_ARGS = ['-y', 'claude-dev-workflow@latest', '--update'];
-const UPGRADE_COMMAND = 'npx claude-dev-workflow@latest --update';
-
-const NETWORK_TIMEOUT_MS = 2500;
-
-/**
- * The latest published version, or null.
- *
- * The registry rather than GitHub releases: `/releases/latest` is 60 requests an
- * hour *per IP* unauthenticated, which a shared CI runner or an office NAT burns
- * through, and it would have to strip a leading `v` off a tag. Because
- * `@semantic-release/git` writes the bump back to `main`, a `github:` install's
- * manifest version converges on the same number, so one source answers for both
- * install paths.
- *
- * The transport is injected for the reason every adapter's is (lib/provider.mjs
- * rule 1): it makes every branch below testable with no network. Every failure —
- * DNS, timeout, non-200, unparseable body — is null, never a throw.
- *
- * @param {typeof fetch} [fetchImpl]
- * @returns {Promise<string|null>}
- */
-export async function latestVersion(fetchImpl = fetch) {
-  try {
-    const res = await fetchImpl(REGISTRY_URL, {
-      headers: { accept: 'application/json' },
-      signal: AbortSignal.timeout(NETWORK_TIMEOUT_MS),
-    });
-    if (!res?.ok) return null;
-    const body = await res.json();
-    const v = body?.latest;
-    return typeof v === 'string' && v ? v : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The project root of the *install*, which is not always the config's root.
- *
- * Walks up looking for the manifest, so the command answers about the install it
- * is actually running from. Falls back to the config's root, then the start
- * directory, so it still says something useful in a project with neither.
- */
-export function findInstallRoot(startDir) {
-  let dir = resolve(startDir);
-  for (;;) {
-    if (existsSync(join(dir, MANIFEST_PATH))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
-}
 
 /**
  * Render the report. Pure, and stable byte-for-byte for the same inputs — the

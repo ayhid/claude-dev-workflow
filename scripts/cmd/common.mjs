@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 
 import { findIssueCheckouts } from '../../lib/branch.mjs';
 import { loadConfig } from '../../lib/config.mjs';
+import { readManifest } from '../../lib/manifest.mjs';
 import {
   closeEvent,
   metricsEnabled,
@@ -16,6 +17,7 @@ import {
   roleOf,
 } from '../../lib/metrics.mjs';
 import { makeProvider } from '../../lib/provider.mjs';
+import { checkForUpdate, findInstallRoot } from '../../lib/updatecheck.mjs';
 
 /** Thrown for expected, user-facing failures — dev.mjs prints `.message` alone. */
 export class UserError extends Error {}
@@ -231,4 +233,37 @@ export function preview(lines, max = 10) {
   const shown = lines.slice(0, max);
   const rest = lines.length - shown.length;
   return rest > 0 ? [...shown, `  … and ${rest} more`] : shown;
+}
+
+/**
+ * Tell the user, at most once a day, that a newer workflow is published.
+ *
+ * Called by `config`, `status` and `standup` — the commands a skill runs at its
+ * top, so a session is told once without attaching a network check to `fetch`,
+ * `create` or `land`. A choke point for the reason `withMetrics` above is one:
+ * three call sites today, and the fourth session-opening command someone adds
+ * later would otherwise be the one place this was forgotten. The trade accepted
+ * knowingly is that it is a call per command rather than a dispatcher hook — the
+ * dispatcher would put a lookup behind every command, which is the thing being
+ * avoided.
+ *
+ * **stderr, always.** `create` prints only the new issue ID on stdout and
+ * `config --json` is parsed by skills; a banner on stdout would corrupt both.
+ *
+ * It swallows everything. A notice that can fail the command it rides on is
+ * worse than no notice — the rule `lib/metrics.mjs` already holds.
+ *
+ * @param {string} configRoot the project root, as the command already resolved it
+ */
+export async function emitUpdateBanner(configRoot) {
+  try {
+    // The install root is not always the config's root: the same walk `version`
+    // does, so both commands answer about the same install.
+    const root = findInstallRoot(process.env.CLAUDE_PROJECT_DIR ?? process.cwd()) ?? configRoot;
+    const installed = readManifest(root)?.installation?.version ?? null;
+    const text = await checkForUpdate({ root, installed });
+    if (text) process.stderr.write(`${text}\n`);
+  } catch {
+    // Deliberately empty: see above.
+  }
 }
