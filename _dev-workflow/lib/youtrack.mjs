@@ -11,8 +11,9 @@
  *   1. The commands API returns 200 for commands it did not apply. `applyCommand`
  *      therefore reads the state back and reports what it actually found; the
  *      HTTP status alone proves nothing.
- *   2. Only values *containing a space* may be braced. Braces mark where a
- *      multi-word value ends — they are not quoting. See `brace`.
+ *   2. Braces mark where a multi-word value ends — they are not quoting — so
+ *      only a multi-word value with another field/value pair after it may be
+ *      braced. See `commandFor` and `commandVariants`.
  */
 
 import { resolveRung } from './config.mjs';
@@ -22,12 +23,11 @@ import { UNKNOWN } from './sync.mjs';
 const TIMEOUT_MS = 15_000;
 
 /**
- * Brace a command value only when it contains a space.
+ * Wrap a value in braces when it contains a space. The primitive only — where
+ * it is applied is `commandFor`'s decision, not this function's.
  *
- * Both directions bite. `State {Staging}` is rejected outright with
- * "expected: {Staging}", and `Type {Bug} Priority {Critical}` is parsed as the
- * single value "{Bug} Priority" and 400s. This is the rule bb96c4e fixed; it
- * lives here once so it cannot drift between call sites again.
+ * `State {Staging}` is rejected outright with "expected: {Staging}", so a
+ * single-word value is never braced.
  *
  * @param {string} value
  */
@@ -36,12 +36,61 @@ export function brace(value) {
   return v.includes(' ') ? `{${v}}` : v;
 }
 
-/** Build a `State X` / `Type Y Priority Z` style command string. */
-export function commandFor(pairs) {
-  return Object.entries(pairs)
-    .filter(([, v]) => v !== undefined && v !== null && v !== '')
-    .map(([field, value]) => `${field} ${brace(value)}`)
+/**
+ * Build a `State X` / `Type Y Priority Z` style command string.
+ *
+ * Braces delimit where a multi-word value *ends*, which means the last pair in
+ * a command has nothing to delimit. Both halves of that have drawn blood:
+ *
+ *   - `Type {Bug} Priority {Critical}` parses as the single value
+ *     "{Bug} Priority" and 400s — the bug bb96c4e fixed. A pair with another
+ *     pair after it needs its braces.
+ *   - `State {In Review}` is rejected on at least one instance while the same
+ *     value bare, `State In Review`, is applied (#14). A trailing pair must not
+ *     have them.
+ *
+ * #14 could not establish which of those is the general rule and which is one
+ * instance's quirk — it needs a live YouTrack to arbitrate, and the commands
+ * API returns 200 for commands it did not apply, so no dry run can. The two
+ * candidate rules differ *only* on the trailing pair, which is why
+ * `braceTrailing` exists and why `setState` retries both spellings rather than
+ * betting on one.
+ *
+ * @param {Record<string, string>} pairs
+ * @param {{braceTrailing?: boolean}} [opts]
+ */
+export function commandFor(pairs, { braceTrailing = false } = {}) {
+  const entries = Object.entries(pairs).filter(
+    ([, v]) => v !== undefined && v !== null && v !== '',
+  );
+  return entries
+    .map(([field, value], i) => {
+      const trailing = i === entries.length - 1;
+      return `${field} ${trailing && !braceTrailing ? String(value) : brace(value)}`;
+    })
     .join(' ');
+}
+
+/**
+ * The spellings of one command to try, most-likely first.
+ *
+ * The bare-trailing form leads because it is the one #14 observed applied. The
+ * braced form follows for the instances where the opposite holds. They collapse
+ * to a single entry whenever the trailing value is one word, which is most
+ * commands — nothing is retried when there is nothing to disagree about.
+ *
+ * @param {Record<string, string>} pairs
+ * @returns {string[]}
+ */
+export function commandVariants(pairs) {
+  const bare = commandFor(pairs);
+  const braced = commandFor(pairs, { braceTrailing: true });
+  return bare === braced ? [bare] : [bare, braced];
+}
+
+/** Compare two state names as YouTrack reports them. */
+function sameState(a, b) {
+  return String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 }
 
 /**
@@ -580,24 +629,58 @@ export function createYouTrackProvider({ config, fetch: fetchImpl, onWarn }) {
       if (!resolved.ok) return resolved;
 
       return withToken(async (token) => {
-        const query = commandFor({ State: resolved.state });
-        const r = await call(token, 'api/commands', {
-          method: 'POST',
-          body: {
-            query,
-            issues: [{ idReadable: id }],
-            usesMarkdown: true,
-            ...(comment ? { comment } : {}),
-          },
-        });
-        if (!r.ok) return { ok: false, error: `command '${query}' on ${id}: ${r.error}` };
+        const readState = async () => {
+          const res = await call(token, `api/issues/${id}`, {
+            params: { fields: 'customFields(name,value(name))' },
+          });
+          if (!res.ok) return { ok: false, error: res.error };
+          const field = (res.data?.customFields ?? []).find((f) => f.name === 'State');
+          return { ok: true, state: field?.value?.name ?? UNKNOWN };
+        };
 
-        const res = await call(token, `api/issues/${id}`, {
-          params: { fields: 'customFields(name,value(name))' },
-        });
-        if (!res.ok) return { ok: false, error: `applied '${query}' but could not read ${id} back: ${res.error}` };
-        const field = (res.data?.customFields ?? []).find((f) => f.name === 'State');
-        return { ok: true, state: field?.value?.name ?? UNKNOWN };
+        // The baseline is what makes "did this apply?" answerable. Comparing the
+        // state read back against the *requested* one would not: an instance may
+        // report a localised name (#14 saw `État`) that can never equal the
+        // configured English one, and a caller would then be told every
+        // successful move had failed. A state that did not change is the only
+        // evidence of a command that did nothing.
+        const before = await readState();
+        const baseline = before.ok ? before.state : null;
+        const alreadyThere = baseline !== null && sameState(baseline, resolved.state);
+
+        let sendComment = Boolean(comment);
+        let failure = null;
+
+        for (const query of commandVariants({ State: resolved.state })) {
+          const r = await call(token, 'api/commands', {
+            method: 'POST',
+            body: {
+              query,
+              issues: [{ idReadable: id }],
+              usesMarkdown: true,
+              ...(sendComment ? { comment } : {}),
+            },
+          });
+          if (!r.ok) {
+            // Nothing was accepted, the comment included — it still needs sending.
+            failure = `command '${query}' on ${id}: ${r.error}`;
+            continue;
+          }
+          // A 200 means the request was accepted, so the comment rode along with
+          // it even where the command itself changed nothing. Never send twice.
+          sendComment = false;
+
+          const after = await readState();
+          if (!after.ok) {
+            return { ok: false, error: `applied '${query}' but could not read ${id} back: ${after.error}` };
+          }
+          if (alreadyThere || baseline === null || !sameState(after.state, baseline)) {
+            return { ok: true, state: after.state };
+          }
+          failure = `command '${query}' on ${id} returned 200 but left the state at ${after.state}`;
+        }
+
+        return { ok: false, error: failure ?? `could not move ${id} to ${resolved.state}` };
       });
     },
 
@@ -642,15 +725,28 @@ export function createYouTrackProvider({ config, fetch: fetchImpl, onWarn }) {
         // they go through the commands API as a second call. A failure here is
         // a warning, not an error: the issue exists and losing its ID would be
         // the worse outcome.
+        //
+        // There is no cheap read-back for Type and Priority the way there is for
+        // State, so this converges on the rejection alone rather than on what
+        // the issue ends up holding. That is weaker, and deliberately so: the
+        // alternative is a second round trip on the common path to guard a
+        // spelling that only differs when the trailing value is multi-word.
         const warnings = [];
-        const query = commandFor({ Type: type, Priority: priority });
-        if (query) {
+        const variants = commandVariants({ Type: type, Priority: priority });
+        let lastError = null;
+        for (const query of variants) {
+          if (!query) break;
           const c = await call(token, 'api/commands', {
             method: 'POST',
             body: { query, issues: [{ idReadable: id }] },
           });
-          if (!c.ok) warnings.push(`created ${id}, but applying '${query}' failed: ${c.error}`);
+          if (c.ok) {
+            lastError = null;
+            break;
+          }
+          lastError = `created ${id}, but applying '${query}' failed: ${c.error}`;
         }
+        if (lastError) warnings.push(lastError);
 
         return { ok: true, id, url: `${baseUrl}/issue/${id}`, warnings };
       });
