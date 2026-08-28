@@ -12,7 +12,7 @@
 ![The install wizard verifying a token, listing the projects it can see, reading that project's real State values, and writing .dev-workflow.json](https://raw.githubusercontent.com/ayhid/claude-dev-workflow/main/.github/assets/wizard.gif)
 
 Ticket-driven development against your issue tracker, [YouTrack](https://www.jetbrains.com/youtrack/)
-or [GitHub Issues](docs/configuration.md#github-issues), as five Claude Code skills. It installs **per
+or [GitHub Issues](docs/configuration.md#github-issues), as six Claude Code skills. It installs **per
 project**: nothing is registered globally, so the skills exist only in repos that use a tracker.
 
 | Skill         | What it does |
@@ -22,6 +22,7 @@ project**: nothing is registered globally, so the skills exist only in repos tha
 | `/dev-bug`     | Investigates the likely code path, checks for duplicates, drafts the issue in the project's language, files it on approval. **Never fixes.** |
 | `/dev-done`    | Re-reads the ticket, verifies each criterion with evidence, runs the checks, then lands the work the way the project delivers: pull request, or straight onto the base branch. |
 | `/dev-standup` | Everything in flight across every configured repo: what merged, what is checked out, what has stopped moving, and the one thing waiting on you. **Never writes.** |
+| `/dev-ingest-docs` | Reads a brownfield project's existing documentation into a verified map: every claim anchored to the code that proves it, contradictions found, and the questions only a person can settle put to you. Runs in steps across sessions. **Never rewrites your docs.** |
 
 Nothing installed is project-specific: instance, project, ticket language, repo layout, state
 ladder, branch naming, isolation mode and commit convention all come from one
@@ -36,6 +37,7 @@ ladder, branch naming, isolation mode and commit convention all come from one
 [Configuration](#configuration) &middot;
 [Scripts](#scripts) &middot;
 [Keeping states honest](#keeping-states-honest) &middot;
+[Joining an existing codebase](#joining-a-codebase-that-already-exists) &middot;
 [Measuring what happened](#measuring-what-actually-happened)
 
 ## Quick start
@@ -70,7 +72,7 @@ names your instance may not have.
 To amend an existing config later, or to talk it through rather than click, run `/dev-init` in
 Claude Code instead.
 
-Either way you now have the five skills. Start work:
+Either way you now have the six skills. Start work:
 
 ```
 /dev-task ABC-42
@@ -127,6 +129,8 @@ These are deliberate, and worth preserving in any fork.
 | `/dev-done` refuses to close a ticket whose acceptance criteria are unmet or whose suite fails, and reports the gap instead. | The `/dev-done` skill contract |
 | The transition log never leaves your machine, and never fails a ticket transition. | `dev.mjs` appends one JSON line locally; a log it cannot write produces a line on stderr and the ticket still moves. |
 | `/dev-standup` reports and never writes — not even the `sync --apply` it suggests. A command run first thing in the morning must be safe to run without thinking. | `dev.mjs standup` has no write path at all; every fix it names is a command for you to approve. |
+| `/dev-ingest-docs` never rewrites your documentation. It writes only under `_dev-workflow/artifacts/documentation/`; reorganising your docs is a proposal you approve as ordinary work. | The survey has no write path outside the payload root, and the map says it is generated. |
+| An `observable` claim with no evidence anchor is refused, not stored. | `lib/ingest.mjs` — an unanchored claim is a guess in the voice of a fact, and a map of those reads exactly like one that was checked. |
 | `dev.mjs abandon` refuses while the branch has uncommitted changes or commits the base has not seen, and names each one. `--force` is the only thing that discards them. | The check runs before the first write, so a refusal really does leave everything as it was found. |
 | Nothing bypasses git hooks. No `--no-verify`, no `HUSKY=0`. | `lib/vcs.mjs` refuses to build the argv, so it holds for code added later too. |
 | Nothing force-resolves a merge conflict. `-X theirs` and `checkout --theirs` discard one side silently. | A rebase conflict aborts, leaves the branch untouched, and says which commits clashed. |
@@ -192,7 +196,7 @@ your-project/
     scripts/  lib/  hooks/
     _config/manifest.json         # version + a sha256 per installed file
   .claude/
-    skills/dev-task, dev-bug, dev-done, dev-init, dev-standup
+    skills/dev-task, dev-bug, dev-done, dev-init, dev-standup, dev-ingest-docs
     settings.json                 # the commit hook, merged in alongside your own
 ```
 
@@ -316,6 +320,8 @@ Each command below is prefixed with `node _dev-workflow/scripts/dev.mjs`.
 | `land` | dry run: how this work would reach the base branch | git + GitHub CLI |
 | `land --apply` | opens the PR, or rebase + fast-forward + push | git + GitHub CLI |
 | `land --apply --criteria first-pass` | the same, recording whether the criteria passed first time | git + GitHub CLI |
+| `assess` | greenfield or brownfield, proposed from signals | git |
+| `ingest scan` \| `next` \| `read` \| `record` \| `answer` \| `emit` | absorb existing documentation, one step at a time | git |
 | `standup [--since 3d] [--stale 7d]` | what merged, what is in flight, what is stale, what is next | HTTP + git + GitHub CLI |
 | `sync` | dry run: report state drift | git + GitHub CLI |
 | `sync --apply --since 14d` | applies it, over a 14-day window | HTTP + git + GitHub CLI |
@@ -415,6 +421,35 @@ has drifted, and the commit hook is what pulls it back.
 Requires the [GitHub CLI](https://cli.github.com), authenticated. The repo is taken from
 `repos[].github` when set, otherwise from the `upstream` then `origin` remote. Set it explicitly
 when branches live on a fork but PRs are opened against the parent.
+
+## Joining a codebase that already exists
+
+Most projects are not greenfield. There are years of decisions in them, some written down, and some
+of those no longer true — and the expensive failure is a session confidently reimplementing
+something that is already there.
+
+```bash
+node _dev-workflow/scripts/dev.mjs assess     # greenfield or brownfield, with every signal shown
+```
+
+It proposes and never decides; you confirm, and the answer is recorded as `stage`.
+
+On a brownfield project, `/dev-ingest-docs` then reads the existing documentation into something a
+later session can trust. The unit is a **claim**, not a document, and every claim carries its
+evidence:
+
+- **`observable`** — checkable against the tree, and **required to carry an anchor** (`file:line`,
+  or the command that shows it). Two of these disagreeing is a contradiction you can locate.
+- **`intent`** — why something is the way it is. No amount of reading settles a disagreement between
+  two of these, so those are the questions that get put to you.
+
+That split is what keeps arbitration small enough to survive: the tool asks about what evidence
+genuinely cannot settle, and nothing else. It runs **in steps across sessions** — every claim,
+question and answer is persisted, so a survey can be picked up next week, and a colleague who pulls
+gets the decisions and not just the map.
+
+It writes to `_dev-workflow/artifacts/documentation/` and nowhere else. Reorganising your own docs
+is a proposal it hands you, not an edit it makes.
 
 ## Measuring what actually happened
 

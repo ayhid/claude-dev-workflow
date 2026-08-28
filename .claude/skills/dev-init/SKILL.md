@@ -26,9 +26,28 @@ node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" config
 
 If a config file is already reported, show it and ask whether to amend or replace it. Never
 overwrite an existing `.dev-workflow.json` without saying what will change. The first line of the
-summary is the provider, so an existing setup tells you which branch of §3 applies.
+summary is the provider, so an existing setup tells you which branch of §4 applies.
 
-## 2. Probe the repo before asking anything
+## 2. Find out what kind of project this is
+
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" assess
+```
+
+It measures commits, age, contributors, source files and documentation, and **proposes**
+greenfield or brownfield with every signal shown. It never decides: put the verdict to the user and
+let them correct it, then record the answer as `stage` in the config so it is settled once.
+
+The two need different first moves:
+
+- **greenfield** — carry on below. There is nothing to learn yet.
+- **brownfield** — there is a codebase full of decisions here, some written down and some of those
+  no longer true. Finish this configuration first, then say that `/dev-ingest-docs` will read the
+  existing documentation into a verified map, and offer to run it. **Do not start it from here** —
+  it runs over multiple sessions, and re-running `/dev-init` later to change one config value must
+  not drag anybody back into a survey.
+
+## 3. Probe the repo before asking anything
 
 Answer as much as you can from the project itself, and only ask about the rest:
 
@@ -50,7 +69,7 @@ Answer as much as you can from the project itself, and only ask about the rest:
   subjects on this project, which beats any assumption about prefix vs suffix. It also hints at the
   tracker: `ABC-123` is YouTrack-shaped, `#123` is GitHub-shaped.
 
-## 3. Ask only what the repo cannot tell you
+## 4. Ask only what the repo cannot tell you
 
 **First, settle the tracker**, because it decides everything else:
 
@@ -135,7 +154,7 @@ YouTrack projects differ wildly on state names; some have no `Fixed`/`Closed` at
    unlabelled issue would read as in-progress. This is why `states.ladder` is required for GitHub
    and optional for YouTrack.
 
-## 4. Verify the credentials before writing anything
+## 5. Verify the credentials before writing anything
 
 ### YouTrack
 
@@ -174,7 +193,7 @@ node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" fetch "#<any existing
 The `State:` line must show a rung from the agreed ladder. If it shows the first rung for an issue
 you know is in progress, a label is mapped wrongly.
 
-## 5. Write `.dev-workflow.json`
+## 6. Write `.dev-workflow.json`
 
 Everything except the provider-specific block below has a working default; omit what does not apply.
 
@@ -187,6 +206,7 @@ Everything except the provider-specific block below has a working default; omit 
   "project": "ABC",
   "tokenOpRef": "op://Private/youtrack/credential",
   "language": "English",
+  "stage": "brownfield",
   "states": {
     "start": "In Progress",
     "review": "In Review",
@@ -215,6 +235,7 @@ Everything except the provider-specific block below has a working default; omit 
     }
   },
   "language": "English",
+  "stage": "brownfield",
   "states": {
     "ladder": ["Backlog", "In Progress", "In Review", "Done"],
     "start": "In Progress",
@@ -269,6 +290,9 @@ Everything except the provider-specific block below has a working default; omit 
 
 Field notes:
 
+- `stage` is `greenfield` or `brownfield`, settled by the user in §2 and never inferred later. On a
+  brownfield project it is what tells a session there is existing documentation worth reading before
+  starting work — `/dev-ingest-docs` turns that into a verified map.
 - `states.ladder` stops a session inventing a state that does not exist. `start` / `review` / `done`
   are the three rungs the skills actually apply, and they are what the commands take — no skill ever
   passes a raw state name. `states.abandon` is the fourth rung and the only one with no default: it
@@ -298,7 +322,7 @@ Field notes:
   resolve on its own.
 - `notes` is free-form and is shown to the model on every `/dev-task`, `/dev-bug` and `/dev-done`.
 
-## 6. Confirm it loads, and tell them what is next
+## 7. Confirm it loads, and tell them what is next
 
 ```bash
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" config
@@ -315,7 +339,7 @@ instance or repo. Then:
   with the exact `gh label create` command to fix it — it is never created behind their back.
 - Point at `/dev-task <ID>` as the entry point.
 
-## 7. Check the workflow itself is current
+## 8. Check the workflow itself is current
 
 ```bash
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" version
