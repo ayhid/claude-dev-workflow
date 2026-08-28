@@ -325,6 +325,9 @@ export async function run(argv) {
     // counting it here would make the summary contradict the lines over it.
     relabelled ? `${relabelled} relabelled` : null,
   ].filter(Boolean);
-  process.stdout.write(`\nDone. ${done.join(', ')}.\n`);
+  // Only repairs were planned and every one of them found the drift already
+  // gone. The per-issue lines above each said so; an empty summary here would
+  // print `Done. .` and claim nothing at all.
+  process.stdout.write(`\nDone. ${done.length ? done.join(', ') : 'nothing to repair'}.\n`);
   return 0;
 }

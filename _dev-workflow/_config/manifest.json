@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.6.0",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-28T12:02:21.988Z"
+    "lastUpdated": "2026-08-28T15:24:21.218Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -140,7 +140,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/sync.mjs",
-      "sha256": "83f19141beeff9731d59340e48b29ea7991358f18e55728f39452fdc485a00b1"
+      "sha256": "a95e3f5cb942dcfd1d88f7909fad29e4bc6de49fa40f67b7b831f1f24c2a7058"
     },
     {
       "path": "_dev-workflow/scripts/cmd/update.mjs",
