@@ -1,3 +1,15 @@
+# [1.3.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.2.0...v1.3.0) (2026-08-28)
+
+
+### Features
+
+* **metrics:** let /dev-done report whether the criteria passed first time ([#28](https://github.com/ayhid/claude-dev-workflow/issues/28)) ([933854f](https://github.com/ayhid/claude-dev-workflow/commit/933854ff6025d5dab3e7bc8a208bb965c0143bda))
+* **metrics:** record every ticket transition to a local log ([#28](https://github.com/ayhid/claude-dev-workflow/issues/28)) ([a98891f](https://github.com/ayhid/claude-dev-workflow/commit/a98891f9ef670111bae8e460ed0fcef90a2fea34))
+* **recovery:** add dev.mjs abandon and dev.mjs resume ([#28](https://github.com/ayhid/claude-dev-workflow/issues/28)) ([348eaf0](https://github.com/ayhid/claude-dev-workflow/commit/348eaf0056060256163c1228b97d0d2b0609de57))
+* **recovery:** add the abandon rung and the git it needs ([#28](https://github.com/ayhid/claude-dev-workflow/issues/28)) ([d33e316](https://github.com/ayhid/claude-dev-workflow/commit/d33e3167ecc3312bc91185f8d617b465cbb2f234))
+* **standup:** add dev.mjs standup ([#28](https://github.com/ayhid/claude-dev-workflow/issues/28)) ([b3f3d21](https://github.com/ayhid/claude-dev-workflow/commit/b3f3d2199f648656ad423b0e0f18b228dab8574d))
+* **standup:** decide and render the board, and share one scanner ([#28](https://github.com/ayhid/claude-dev-workflow/issues/28)) ([9ffe207](https://github.com/ayhid/claude-dev-workflow/commit/9ffe207824aa657026096fdaa4226aebbad448ab))
+
 # [1.2.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.1.0...v1.2.0) (2026-08-17)
 
 
