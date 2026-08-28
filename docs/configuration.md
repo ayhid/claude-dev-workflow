@@ -18,6 +18,7 @@ editor has a heading with the same name here.
 - [`repos` — more than one](#repos--more-than-one)
 - [`stage` — greenfield or brownfield](#stage--greenfield-or-brownfield)
 - [`metrics` — the transition log](#metrics--the-transition-log)
+- [`docs` — the documentation set and decision records](#docs--the-documentation-set-and-decision-records)
 - [`notesFile` — durable project knowledge](#notesfile--durable-project-knowledge)
 - [Credentials (YouTrack)](#credentials-youtrack)
 - [Environment overrides (YouTrack)](#environment-overrides-youtrack)
@@ -345,23 +346,69 @@ Set either in your shell profile, or per command:
 DEV_WORKFLOW_NO_BANNER=1 node _dev-workflow/scripts/dev.mjs config
 ```
 
-## `docs` — decision records
+## `docs` — the documentation set and decision records
 
-Where `/dev-adr` writes architecture decision records, and whether the immutability hook applies.
+Where `/dev-docs-init` writes a greenfield project's documentation, which documents it writes, where
+`/dev-adr` keeps decision records, and whether the immutability hook applies.
 
 ```jsonc
 {
   "docs": {
+    "dir": "docs",                     // where the documentation set lives
+    "set": ["architecture", "domain", "operations", "testing", "security"],
     "decisionsDir": "docs/decisions",  // relative to the project root
     "enforce": true                    // false disables check-adr-immutable.sh
   }
 }
 ```
 
+### `set` is an array, and that matters
+
+`deepMerge` merges objects recursively and **replaces arrays outright** — the same rule that lets
+you narrow `commit.types` to three without inheriting the other eight. So listing three documents
+gives you exactly three. Written as an object it would give you those three *plus* the five
+defaults, silently, which is why an object here is refused rather than merged.
+
+The keys and the filenames they map to:
+
+| key | file | holds |
+| --- | --- | --- |
+| `architecture` | `docs/architecture.md` | components, boundaries, data flow |
+| `domain` | `docs/domain.md` | the glossary — terms, and what they mean *here* |
+| `operations` | `docs/operations.md` | the runbook: run it, deploy it, what breaks |
+| `testing` | `docs/testing.md` | what is tested, how to run it, what deliberately is not |
+| `security` | `docs/security-model.md` | trust boundaries, secrets, what is assumed |
+| `decisions` | `docs.decisionsDir` | a **pointer** — `docs init` writes nothing here, it prints `/dev-adr` |
+
+A key outside that list is an error naming the known ones, never a guess.
+
+### Why the security document is `security-model.md`
+
+`lib/ingest.mjs` excludes `/^security\.md$/i` from what counts as a document, and tests it against
+the **basename**, before the `docs/` rule. That exclusion was written for a root-level GitHub
+`SECURITY.md` policy file, but as written it also swallows a real security document under `docs/`:
+`classifyPath('docs/security.md')` is `other`, while `classifyPath('docs/security-model.md')` is
+`doc`. A set emitting the first name would produce a file `ingest scan` never inventories.
+
+Narrowing that regex would change what `ingest scan` finds in every already-surveyed project and
+reopen settled surveys, so the filename sidesteps it instead — and a test renames it back to
+`security.md` and fails, so this cannot be undone by accident.
+
+### `decisionsDir`
+
 Unlike `github.labels`, `decisionsDir` has a default. The difference is what a wrong value costs: a
 wrong label mapping fails silently — the ticket never moves — while a wrong directory is named in
 the first `adr new`'s own output. A monorepo keeping records per package points this elsewhere, or
 passes `--dir` for one run.
+
+`dir` and `set` also have defaults, for the same reason and with one caveat: **an existing project's
+`.dev-workflow.json` will not grow these keys on an update.** The installer's `--update` refreshes
+the payload, not your config, so until [#39](https://github.com/ayhid/claude-dev-workflow/issues/39)
+lands you will not see them written out — the feature works on the defaults, and what is lost is the
+key's discoverability in your own file. Add them by hand to change either.
+
+**[Documentation set reference →](documentation.md)** covers the claim format, what `docs check`
+enforces, and how a hand-edited document gets absorbed rather than overwritten.
 
 **[Decision records reference →](decisions.md)** covers the format, the supersede rule, the gap in
 the hook's coverage, and reading records in Obsidian.
@@ -464,6 +511,12 @@ Useful for one-off runs against another instance, and for CI. There is no GitHub
   "defaultPriority": "Normal",
   "reviewer": "octocat",
   "stage": "brownfield",
+  "docs": {
+    "dir": "docs",
+    "set": ["architecture", "domain", "operations", "testing", "security"],
+    "decisionsDir": "docs/decisions",
+    "enforce": true
+  },
   "metrics": true,
   "metricsFile": ".dev-workflow.metrics.jsonl",
   "repos": [

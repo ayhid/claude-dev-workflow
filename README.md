@@ -12,7 +12,7 @@
 ![The install wizard verifying a token, listing the projects it can see, reading that project's real State values, and writing .dev-workflow.json](https://raw.githubusercontent.com/ayhid/claude-dev-workflow/main/.github/assets/wizard.gif)
 
 Ticket-driven development against your issue tracker, [YouTrack](https://www.jetbrains.com/youtrack/)
-or [GitHub Issues](docs/configuration.md#github-issues), as seven Claude Code skills. It installs **per
+or [GitHub Issues](docs/configuration.md#github-issues), as eight Claude Code skills. It installs **per
 project**: nothing is registered globally, so the skills exist only in repos that use a tracker.
 
 | Skill         | What it does |
@@ -23,6 +23,7 @@ project**: nothing is registered globally, so the skills exist only in repos tha
 | `/dev-done`    | Re-reads the ticket, verifies each criterion with evidence, runs the checks, then lands the work the way the project delivers: pull request, or straight onto the base branch. |
 | `/dev-standup` | Everything in flight across every configured repo: what merged, what is checked out, what has stopped moving, and the one thing waiting on you. **Never writes.** |
 | `/dev-ingest-docs` | Reads a brownfield project's existing documentation into a verified map: every claim anchored to the code that proves it, contradictions found, and the questions only a person can settle put to you. Runs in steps across sessions. **Never rewrites your docs.** |
+| `/dev-docs-init` | Gives a greenfield project the documents it does not have yet — architecture, domain, operations, testing, security — filled a claim at a time, every line carrying the anchor or the attribution that would show it false. **Writes no prose of its own.** [Reference →](docs/documentation.md) |
 | `/dev-adr` | Records an architecture decision while the rejected alternatives are still known, then freezes it. An accepted record is superseded, never edited — a hook enforces it. [Reference →](docs/decisions.md) |
 
 Nothing installed is project-specific: instance, project, ticket language, repo layout, state
@@ -73,7 +74,7 @@ names your instance may not have.
 To amend an existing config later, or to talk it through rather than click, run `/dev-init` in
 Claude Code instead.
 
-Either way you now have the seven skills. Start work:
+Either way you now have the eight skills. Start work:
 
 ```
 /dev-task ABC-42
@@ -131,7 +132,8 @@ These are deliberate, and worth preserving in any fork.
 | The transition log never leaves your machine, and never fails a ticket transition. | `dev.mjs` appends one JSON line locally; a log it cannot write produces a line on stderr and the ticket still moves. |
 | `/dev-standup` reports and never writes — not even the `sync --apply` it suggests. A command run first thing in the morning must be safe to run without thinking. | `dev.mjs standup` has no write path at all; every fix it names is a command for you to approve. |
 | `/dev-ingest-docs` never rewrites your documentation. It writes only under `_dev-workflow/artifacts/documentation/`; reorganising your docs is a proposal you approve as ordinary work. | The survey has no write path outside the payload root, and the map says it is generated. |
-| An `observable` claim with no evidence anchor is refused, not stored. | `lib/ingest.mjs` — an unanchored claim is a guess in the voice of a fact, and a map of those reads exactly like one that was checked. |
+| `/dev-docs-init` writes no prose of its own, and never overwrites a document you already have. A generated document it cannot recognise as its own is left alone rather than re-rendered. | `renderDocument` takes claims and has no parameter a paragraph could be passed through; `docs render` compares the file against the hash it wrote. |
+| An `observable` claim with no evidence anchor is refused, not stored. An anchor naming a file that is not in the repo is refused too. | `lib/ingest.mjs` — an unanchored claim is a guess in the voice of a fact, and a map of those reads exactly like one that was checked. |
 | `dev.mjs abandon` refuses while the branch has uncommitted changes or commits the base has not seen, and names each one. `--force` is the only thing that discards them. | The check runs before the first write, so a refusal really does leave everything as it was found. |
 | Nothing bypasses git hooks. No `--no-verify`, no `HUSKY=0`. | `lib/vcs.mjs` refuses to build the argv, so it holds for code added later too. |
 | Nothing force-resolves a merge conflict. `-X theirs` and `checkout --theirs` discard one side silently. | A rebase conflict aborts, leaves the branch untouched, and says which commits clashed. |
@@ -197,7 +199,8 @@ your-project/
     scripts/  lib/  hooks/
     _config/manifest.json         # version + a sha256 per installed file
   .claude/
-    skills/dev-task, dev-bug, dev-done, dev-init, dev-standup, dev-ingest-docs
+    skills/dev-task, dev-bug, dev-done, dev-init, dev-standup,
+           dev-ingest-docs, dev-docs-init, dev-adr
     settings.json                 # the commit hook, merged in alongside your own
 ```
 
@@ -492,6 +495,19 @@ gets the decisions and not just the map.
 
 It writes to `_dev-workflow/artifacts/documentation/` and nowhere else. Reorganising your own docs
 is a proposal it hands you, not an edit it makes.
+
+On a **greenfield** project there is nothing to read, so `/dev-docs-init` points the same machinery
+the other way: it scaffolds `architecture`, `domain`, `operations`, `testing` and `security`, and
+fills them from the same ledger, one claim at a time. Ingest turns documents into claims; this turns
+claims into documents.
+
+The renderer takes claims and nothing else — there is no parameter a paragraph could be passed
+through — so a sentence nobody can check is not discouraged, it is unrepresentable. On a two-week-old
+project most of what you record will be `intent`, attributed to whoever said it, and that is the
+correct output: six months later a reader can tell which sentences were ever checkable and which
+were one person's belief on a Tuesday. `dev.mjs docs check` is the CI gate once they are real.
+
+[Documentation set reference →](docs/documentation.md)
 
 ## Measuring what actually happened
 
