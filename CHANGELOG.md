@@ -1,3 +1,10 @@
+## [1.5.1](https://github.com/ayhid/claude-dev-workflow/compare/v1.5.0...v1.5.1) (2026-08-28)
+
+
+### Bug Fixes
+
+* **assess:** decide the stage from what exists, not from history ([#29](https://github.com/ayhid/claude-dev-workflow/issues/29)) ([8e92c15](https://github.com/ayhid/claude-dev-workflow/commit/8e92c15dbb8f6ba6d4852744b9294237dcc0ecc8))
+
 # [1.5.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.4.0...v1.5.0) (2026-08-28)
 
 
