@@ -11,9 +11,10 @@
  * whether someone had refreshed it, which is the very thing under test.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 import { checkPayload, main } from '../tools/check-payload.mjs';
@@ -166,4 +167,132 @@ test('AC7: a missing manifest is reported, not thrown', () => {
   const out = [];
   assert.equal(main([], { sourceRoot: root, write: (s) => out.push(s) }), 0);
   assert.match(out.join(''), /version/i);
+});
+
+/**
+ * The refresh never writes the payload itself. `isOwnedPath`, the write plan and
+ * the delete pass live in `bin/lib/payload.mjs` and are the single
+ * implementation of what the installer may touch in a project — a second writer
+ * here would be a second copy of that boundary, for the same reason
+ * `dev.mjs version --upgrade` spawns the installer rather than unpacking one.
+ */
+test('AC8: --refresh spawns the installer, then reports the state found afterwards', () => {
+  const root = fixture();
+  put(root, 'lib/thing.mjs', 'export const thing = 2;\n');
+
+  const calls = [];
+  const spawn = (cmd, args) => {
+    calls.push({ cmd, args });
+    // Stand in for the installer: only it writes the payload.
+    put(root, '_dev-workflow/lib/thing.mjs', 'export const thing = 2;\n');
+    return { status: 0 };
+  };
+
+  const out = [];
+  const code = main(['--refresh'], { sourceRoot: root, write: (s) => out.push(s), spawn });
+
+  assert.equal(calls.length, 1, 'the installer is spawned exactly once');
+  assert.equal(calls[0].cmd, process.execPath);
+  assert.ok(calls[0].args.some((a) => a.endsWith(join('bin', 'install.mjs'))), calls[0].args.join(' '));
+  assert.ok(calls[0].args.includes('--update'), calls[0].args.join(' '));
+  assert.equal(code, 0, 'the re-check, not the first check, decides the exit code');
+});
+
+test('AC8: a refresh that did not fix the drift is still reported as drift', () => {
+  const root = fixture();
+  put(root, 'lib/thing.mjs', 'export const thing = 2;\n');
+
+  const out = [];
+  const code = main(['--refresh'], {
+    sourceRoot: root,
+    write: (s) => out.push(s),
+    spawn: () => ({ status: 0 }), // an installer that wrote nothing
+  });
+
+  assert.equal(code, 1, 'the state found afterwards is what is reported, not the one requested');
+  assert.match(out.join(''), /thing\.mjs/);
+});
+
+test('AC8: an installer that fails is reported, and nothing is claimed for it', () => {
+  const root = fixture();
+  put(root, 'lib/thing.mjs', 'export const thing = 2;\n');
+
+  const out = [];
+  const code = main(['--refresh'], {
+    sourceRoot: root,
+    write: (s) => out.push(s),
+    spawn: () => ({ status: 3 }),
+  });
+
+  assert.equal(code, 1);
+  // Named exit status, not a generic "install failed" — the first thing a
+  // reader needs is whether the installer ran and what it said.
+  assert.match(out.join(''), /installer exited 3/);
+});
+
+test('AC8: without the flag nothing is spawned at all', () => {
+  const root = fixture();
+  put(root, 'lib/thing.mjs', 'export const thing = 2;\n');
+
+  let spawned = 0;
+  const code = main([], {
+    sourceRoot: root,
+    write: () => {},
+    spawn: () => {
+      spawned += 1;
+      return { status: 0 };
+    },
+  });
+
+  assert.equal(spawned, 0, 'the default is read-only');
+  assert.equal(code, 1);
+});
+
+// --- packaging and wiring ---------------------------------------------------------
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+
+test('AC9: npm test runs the check', () => {
+  assert.ok(pkg.scripts['check:payload'], 'no check:payload script');
+  assert.match(
+    pkg.scripts.test,
+    /check:payload/,
+    'npm test does not run the check, so a PR that edits lib/ without refreshing the copy stays green',
+  );
+});
+
+test('AC1: the check is repo-local and does not ship', () => {
+  assert.ok(!pkg.files.includes('tools'), 'package.json files must not ship tools/');
+});
+
+test('AC1: the check imports only node: builtins and the installer payload module', () => {
+  const src = readFileSync(join(ROOT, 'tools', 'check-payload.mjs'), 'utf8');
+  const specifiers = [...src.matchAll(/^import[^;]*?from '([^']+)';/gm)].map((m) => m[1]);
+
+  assert.ok(specifiers.length > 0, 'no imports found — the scan is not looking at the right thing');
+  for (const spec of specifiers) {
+    assert.ok(
+      spec.startsWith('node:') || spec === '../bin/lib/payload.mjs',
+      `unexpected import ${spec}`,
+    );
+  }
+});
+
+test('AC2: the check keeps no second list of payload sources or destinations', () => {
+  // The whole point is that `planFiles` decides which files ship and where they
+  // land. A literal here would be a second copy of that mapping, and it would go
+  // stale silently — reporting a clean tree for a directory it had never heard of.
+  //
+  // Comments are stripped before the scan. The header has to be able to *explain*
+  // what `_dev-workflow/` and `.claude/skills/dev-*` are, and a check that
+  // forbade saying so would be pushing the reasoning out of the file that needs
+  // it. What must not exist is a directory list the code reads.
+  const code = readFileSync(join(ROOT, 'tools', 'check-payload.mjs'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  for (const literal of ["'lib'", '"lib"', "'scripts'", "'hooks'", "'skills'", '.claude']) {
+    assert.ok(!code.includes(literal), `${literal} is spelled out in tools/check-payload.mjs`);
+  }
 });

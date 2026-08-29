@@ -32,6 +32,7 @@
  * first time the installer learned to copy a new directory, and go stale
  * silently, reporting a clean tree.
  */
+import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
@@ -180,11 +181,14 @@ export function render({ stale, missing, orphan }, note, planned) {
     ['orphan', orphan, 'no longer shipped; the next install would remove it'],
   ];
 
-  const drifted = stale.length + missing.length + orphan.length;
-  if (drifted === 0) {
+  const count = stale.length + missing.length + orphan.length;
+  if (count === 0) {
     lines.push(`payload: ${planned} files, byte-identical to the source they were generated from`);
   } else {
-    lines.push(`payload: ${drifted} of ${planned} planned files have drifted from the source`, '');
+    // Not "N of M planned files": an orphan is by definition not planned, so
+    // counting it against the planned total would be a category error in the
+    // one line most readers stop at.
+    lines.push(`payload: ${count} problem${count === 1 ? '' : 's'} across ${planned} planned files`, '');
     for (const [label, paths, why] of rows) {
       if (paths.length === 0) continue;
       lines.push(`  ${label} — ${why}`);
@@ -198,22 +202,58 @@ export function render({ stale, missing, orphan }, note, planned) {
   return lines;
 }
 
+const drifted = ({ stale, missing, orphan }) => stale.length + missing.length + orphan.length;
+
+/**
+ * Bring the installed copy back in step by **running the installer**.
+ *
+ * Deliberately not by copying the planned files here. `isOwnedPath`, the write
+ * plan and the delete pass are one implementation of the boundary deciding what
+ * may be written and removed in a project, and they stay in `bin/lib/payload.mjs`.
+ * A writer in this file would be a second copy of that rule — which is exactly
+ * why `dev.mjs version --upgrade` spawns the installer rather than unpacking
+ * anything itself.
+ *
+ * The installer is taken from `sourceRoot`, not from beside this file: the point
+ * is to refresh the copy from the tree being checked.
+ */
+function refresh({ sourceRoot, projectDir, spawn }) {
+  const installer = join(sourceRoot, 'bin', 'install.mjs');
+  const { status } = spawn(process.execPath, [installer, '--update', '--dir', projectDir], {
+    stdio: 'inherit',
+  });
+  return status === 0 ? null : `refresh: the installer exited ${status ?? 'without a status'}`;
+}
+
 /**
  * @param {string[]} argv
- * @param {{sourceRoot?: string, projectDir?: string, write?: (s: string) => void}} io
+ * @param {{sourceRoot?: string, projectDir?: string, write?: (s: string) => void,
+ *          spawn?: typeof spawnSync}} io
  * @returns {number} exit code — non-zero for content drift only
  */
 export function main(argv = [], io = {}) {
   const sourceRoot = io.sourceRoot ?? process.cwd();
   const projectDir = io.projectDir ?? sourceRoot;
   const write = io.write ?? ((s) => process.stdout.write(s));
+  const spawn = io.spawn ?? spawnSync;
 
   const planned = planFiles(sourceRoot).size;
+  const notes = [];
+
+  // Read-only unless asked. And when asked, the state reported is the one read
+  // back *after* the write, never the one the write intended — the same rule the
+  // tracker adapters follow, for the same reason.
+  if (argv.includes('--refresh')) {
+    const failure = refresh({ sourceRoot, projectDir, spawn });
+    if (failure) notes.push(failure);
+  }
+
   const result = checkPayload({ sourceRoot, projectDir });
+  notes.push(versionNote({ projectDir }));
 
-  write(`${render(result, versionNote({ projectDir }), planned).join('\n')}\n`);
+  write(`${render(result, notes.join('\n'), planned).join('\n')}\n`);
 
-  return result.stale.length + result.missing.length + result.orphan.length === 0 ? 0 : 1;
+  return drifted(result) === 0 ? 0 : 1;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) process.exit(main(process.argv.slice(2)));
