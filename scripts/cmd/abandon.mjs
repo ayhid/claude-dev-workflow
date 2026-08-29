@@ -32,6 +32,7 @@
 import { resolve } from 'node:path';
 
 import { resolveRung } from '../../lib/config.mjs';
+import { canonicalId } from '../../lib/issueid.mjs';
 import { sh } from '../../lib/sh.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
 import { context, locateWork, preview, readArg, resolveRepo, UserError } from './common.mjs';
@@ -72,17 +73,19 @@ export function abandonComment({ reason, branch, commits = 0, changes = 0 }) {
 
 export async function run(args) {
   const { opts, rest } = parseArgs(args);
-  const [id, rawReason] = rest;
-  if (!id) throw new UserError(USAGE);
+  const [rawId, rawReason] = rest;
+  if (!rawId) throw new UserError(USAGE);
   if (rawReason === undefined) {
     throw new UserError(
-      `abandoning ${id} needs a reason — it is the only record of why the work stopped.\n\n${USAGE}`,
+      `abandoning ${rawId} needs a reason — it is the only record of why the work stopped.\n\n${USAGE}`,
     );
   }
   const reason = readArg(rawReason, 'reason file').trim();
   if (!reason) throw new UserError('the reason is empty');
 
   const { config, root, provider } = await context();
+  // One spelling from here on — see canonicalId in lib/issueid.mjs (#43).
+  const id = canonicalId(config, rawId);
 
   // Fail on the missing key before anything is read or written. A project that
   // has never configured this rung finds out here, with the key named, rather
