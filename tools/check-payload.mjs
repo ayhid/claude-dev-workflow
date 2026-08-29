@@ -115,8 +115,14 @@ export function ownedRoots(planned) {
 function installedRoots(planned, projectDir) {
   const roots = new Set(ownedRoots(planned));
 
+  // `existsSync` answers "something is there", not "a directory is there" — the
+  // same distinction a planned path needed a few lines up, where a directory
+  // sitting on a file threw EISDIR. Here it is the mirror: a file sitting where
+  // the skills directory belongs throws ENOTDIR out of `readdirSync` and takes
+  // the whole check down, when the planned skill files are simply missing and
+  // saying so is the useful answer.
   const absSkills = join(projectDir, SKILLS_DIR);
-  if (existsSync(absSkills)) {
+  if (existsSync(absSkills) && statSync(absSkills).isDirectory()) {
     for (const entry of readdirSync(absSkills, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const candidate = join(SKILLS_DIR, entry.name);
