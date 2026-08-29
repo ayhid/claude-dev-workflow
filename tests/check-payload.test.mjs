@@ -221,6 +221,25 @@ test('AC6: skills removed from the source are found even when none is planned', 
   rmSync(root, { recursive: true, force: true });
 });
 
+test('a file sitting where the skills directory belongs is reported, not thrown', () => {
+  // The mirror of the planned-path case: `existsSync` says something is there,
+  // not that it is a directory, and `readdirSync` on a file throws ENOTDIR —
+  // taking down a check whose useful answer is "the planned skill files are
+  // missing".
+  const root = mkdtempSync(join(tmpdir(), 'payload-check-'));
+  put(root, 'lib/thing.mjs', 'export const thing = 1;\n');
+  put(root, '_dev-workflow/lib/thing.mjs', 'export const thing = 1;\n');
+  put(root, 'skills/dev-thing/SKILL.md', '# dev-thing\n');
+  put(root, '.claude/skills', 'a file, where a directory belongs\n');
+
+  const { missing, stale, orphan } = checkPayload({ sourceRoot: root });
+  assert.deepEqual(missing, [join('.claude', 'skills', 'dev-thing', 'SKILL.md')]);
+  assert.deepEqual(stale, []);
+  assert.deepEqual(orphan, []);
+
+  rmSync(root, { recursive: true, force: true });
+});
+
 test('AC6: the installer\'s own config directory is not an orphan', () => {
   // `_config/` is what the installer writes *about* the install — the manifest
   // and the update-check stamp — rather than anything it copied. It is
