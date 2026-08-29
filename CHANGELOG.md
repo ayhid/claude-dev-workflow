@@ -1,3 +1,11 @@
+# [1.13.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.12.0...v1.13.0) (2026-08-29)
+
+
+### Features
+
+* **provider:** listOpen — the board, not just what is branched ([#35](https://github.com/ayhid/claude-dev-workflow/issues/35)) ([a931a18](https://github.com/ayhid/claude-dev-workflow/commit/a931a18a6a95322f92e6bb6bcc2ecfd8bd59fe10))
+* **standup:** read the board, and stop claiming it is clear ([#35](https://github.com/ayhid/claude-dev-workflow/issues/35)) ([81f13e7](https://github.com/ayhid/claude-dev-workflow/commit/81f13e7ffd7875966ab9e978dd865efbc7766b92))
+
 # [1.12.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.11.0...v1.12.0) (2026-08-28)
 
 
