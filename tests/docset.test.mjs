@@ -14,7 +14,7 @@
  * somebody edited by hand that a re-render must not silently discard.
  */
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
@@ -436,6 +436,38 @@ test('an anchor naming a file that is not in the repo is refused, on both record
     claimsFile(s, [{ text: 'The suite passes', kind: 'observable', anchor: 'npm test', target: 'testing' }]),
   ]);
   assert.equal(ok.code, 0, ok.stderr);
+});
+
+test('a document that was never scaffolded is not the same failure as one that drifted', async () => {
+  // Widening the catalogue (#53) makes this the common case rather than an
+  // edge one: a project that has never set `docs.set` gains three documents on
+  // update, and `docs check` exits 1 for every one of them. Reported as drift
+  // that would read as though something went wrong — the silent-behaviour
+  // change the manifest exists to prevent, arriving through a default.
+  //
+  // The ledger is what tells the two apart. It records each document `docs
+  // init` generated, with the sha256 written to it, so absent-from-disk **and**
+  // absent-from-the-ledger is a document nobody has ever asked for.
+  const s = await greenfield({ ...GREENFIELD, docs: { set: ['architecture'] } });
+  const { repo, dev } = s;
+
+  const never = await dev(['docs', 'check']);
+  assert.equal(never.code, 1, 'the exit code stays 1: the document is still missing');
+  assert.match(never.stderr, /docs\/architecture\.md — has never been scaffolded/);
+  assert.match(never.stderr, /dev\.mjs docs init/);
+  assert.doesNotMatch(never.stderr, /drift|moved on|edited by hand/);
+
+  // Scaffolded and then deleted is the opposite fact: the ledger has claims and
+  // a sha256 for a file that is gone, so `docs render` puts it back. `docs
+  // init` would rewrite it as a stub and lose them.
+  await dev(['docs', 'init']);
+  rmSync(join(repo, 'docs', 'architecture.md'));
+
+  const gone = await dev(['docs', 'check']);
+  assert.equal(gone.code, 1);
+  assert.match(gone.stderr, /docs\/architecture\.md — was generated and is now missing/);
+  assert.match(gone.stderr, /dev\.mjs docs render architecture/);
+  assert.doesNotMatch(gone.stderr, /never been scaffolded/);
 });
 
 test('check goes green only when the documents match the ledger, and names the one that does not', async () => {
