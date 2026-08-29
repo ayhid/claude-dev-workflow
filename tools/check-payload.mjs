@@ -34,7 +34,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 
 import { MANIFEST_PATH, PAYLOAD_DIR, isOwnedPath, planFiles, readManifest } from '../bin/lib/payload.mjs';
 
@@ -95,6 +95,45 @@ export function ownedRoots(planned) {
 }
 
 /**
+ * The roots to sweep: the ones an install plans, plus the ones already on disk.
+ *
+ * `ownedRoots` can only see what is still planned, and that is exactly blind to
+ * the case worth catching. Delete `skills/dev-old/` from the source tree and no
+ * planned path yields `.claude/skills/dev-old` any more, so the installed skill
+ * is never looked at — while `isOwnedPath` still calls every file in it ours and
+ * the installer's delete pass would still remove them. `_dev-workflow` does not
+ * have this problem because it is one root that never stops being planned; a
+ * skill directory is a root per skill.
+ *
+ * The extra roots are *discovered*, not listed: look beside each derived root
+ * and take any sibling directory that actually holds a file `isOwnedPath`
+ * accepts. The boundary is still the one predicate, and `.claude/skills` is
+ * still not written down here.
+ */
+function installedRoots(planned, projectDir) {
+  const roots = new Set(ownedRoots(planned));
+
+  for (const root of [...roots]) {
+    const parent = dirname(root);
+    // `_dev-workflow` sits at the project root, and sweeping every sibling of
+    // *that* is the whole project — every other tool's payload included.
+    if (parent === '.' || parent === '') continue;
+
+    const absParent = join(projectDir, parent);
+    if (!existsSync(absParent)) continue;
+
+    for (const entry of readdirSync(absParent, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const candidate = join(parent, entry.name);
+      if (roots.has(candidate)) continue;
+      if (walk(join(projectDir, candidate), projectDir).some(isOwnedPath)) roots.add(candidate);
+    }
+  }
+
+  return [...roots].sort();
+}
+
+/**
  * Compare the installed copy against the source it is generated from.
  *
  * `sourceRoot` and `projectDir` are the same directory for this repo — it
@@ -126,7 +165,7 @@ export function checkPayload({ sourceRoot, projectDir = sourceRoot }) {
   // file that ships to nobody and runs here, which is the same class of lie as
   // a stale one.
   const orphan = [];
-  for (const root of ownedRoots(planned)) {
+  for (const root of installedRoots(planned, projectDir)) {
     const abs = join(projectDir, root);
     if (!existsSync(abs)) continue;
     for (const rel of walk(abs, projectDir)) {

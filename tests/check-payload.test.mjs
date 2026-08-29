@@ -100,6 +100,24 @@ test('AC6: an unplanned file under an owned root is an orphan', () => {
   assert.deepEqual(missing, []);
 });
 
+test('AC6: a skill removed from the source leaves its whole installed directory orphaned', () => {
+  // The gap the derived roots had. `.claude/skills/dev-old` is a root only for
+  // as long as `skills/dev-old/` is still planned, so deleting the source made
+  // the installed copy invisible rather than reported — while `isOwnedPath`
+  // still called it ours and the installer's delete pass would still remove it.
+  const root = fixture();
+  put(root, '.claude/skills/dev-old/SKILL.md', '# a skill that no longer ships\n');
+  put(root, '.claude/skills/dev-old/reference/notes.md', '# nested, and just as gone\n');
+
+  const { orphan, stale, missing } = checkPayload({ sourceRoot: root });
+  assert.deepEqual(orphan, [
+    join('.claude', 'skills', 'dev-old', 'SKILL.md'),
+    join('.claude', 'skills', 'dev-old', 'reference', 'notes.md'),
+  ]);
+  assert.deepEqual(stale, []);
+  assert.deepEqual(missing, []);
+});
+
 test('AC6: the installer\'s own config directory is not an orphan', () => {
   // `_config/` is what the installer writes *about* the install — the manifest
   // and the update-check stamp — rather than anything it copied. It is
