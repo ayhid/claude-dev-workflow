@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.15.0",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-30T03:36:32.566Z"
+    "lastUpdated": "2026-08-30T03:37:02.498Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -135,7 +135,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/docs.mjs",
-      "sha256": "78de9bfe27be4b3b4b1c5985a70e11e6558f9ea5744420fbadd91f591e4a8491"
+      "sha256": "0e5c3a636cda9d22e8062a8ffa8886564e9ec6ba8adb0face98b63dfb78ebb8f"
     },
     {
       "path": "_dev-workflow/scripts/cmd/fetch.mjs",

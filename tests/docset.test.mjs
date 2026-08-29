@@ -470,6 +470,23 @@ test('a document that was never scaffolded is not the same failure as one that d
   assert.doesNotMatch(gone.stderr, /never been scaffolded/);
 });
 
+test('a brownfield project is not told to run the command that refuses brownfield projects', async () => {
+  // The two halves of #53 meet here. Widening the catalogue gives every project
+  // documents it has never scaffolded, and `docs check` reports each one — but
+  // `docs init` refuses anything that is not greenfield, so a brownfield
+  // project was handed a recovery command that answers the failure by refusing.
+  // Stage decides the route, from the same predicate `init` refuses through.
+  const { dev } = await greenfield({ ...CONFIG, stage: 'brownfield', docs: { set: ['architecture'] } });
+
+  const r = await dev(['docs', 'check']);
+  assert.equal(r.code, 1, 'still missing, so still 1');
+  assert.match(r.stderr, /docs\/architecture\.md — has never been scaffolded/);
+  assert.match(r.stderr, /record claims against "architecture"/);
+  assert.match(r.stderr, /dev\.mjs docs render architecture/);
+  // The command it cannot run must not be the one it is pointed at.
+  assert.doesNotMatch(r.stderr, /dev\.mjs docs init/);
+});
+
 test('check goes green only when the documents match the ledger, and names the one that does not', async () => {
   // One document in the set, so the assertions are about this document's state
   // and not about the four that have not been created yet.
