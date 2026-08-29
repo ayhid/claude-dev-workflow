@@ -35,7 +35,7 @@
     }
   },
   "delivery": {
-    "mode": "direct"
+    "mode": "pr"
   },
   "commit": {
     "pattern": "type(scope): description (<ID>)",

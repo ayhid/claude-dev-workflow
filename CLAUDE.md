@@ -301,9 +301,12 @@ Two consequences, both deliberate:
 - **The ladder is reconciled by CI, not by hand.** `.github/workflows/reconcile.yml` runs
   `dev.mjs sync --apply --deep` on every merged PR, plus weekly. `--deep` is load-bearing: a branch
   named by hand carries no issue ID, so the commit subjects are the only link. So is
-  `fetch-depth: 0` on the checkout — this repo delivers `direct`, so most of its work has no PR at
-  all and the base-branch commit log is the only evidence there is. At the default depth of 1 that
-  log is one commit long and the run reports a clean board. It is **one step**,
+  `fetch-depth: 0` on the checkout — and it stays load-bearing after the switch to `pr` delivery,
+  which is the reading to resist. `--deep` exists for work the PR record cannot account for: a
+  hand-named branch, a hotfix pushed straight to `main`, and every commit this repo made in the
+  years it delivered `direct`. For all of those the base-branch commit log is the only evidence
+  there is, and at the default depth of 1 that log is one commit long and the run reports a clean
+  board. A delivery mode is a default, not a guarantee about how work arrives. It is **one step**,
   and must stay one: the second step it used to have was repo-local glue spelling `status: in
   review` in shell, and #30 moved that repair into the adapter where the label mapping already
   lives. A workaround added here rather than in `lib/` fixes this repo and no consumer's.
