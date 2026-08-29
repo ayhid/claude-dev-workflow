@@ -120,13 +120,23 @@ test('the CLI still runs when its own path has a space or a symlink in it', () =
   symlinkSync(repo, join(awkward, 'repo'), 'dir');
 
   const project = fixture();
-  const r = spawnSync(process.execPath, [join(awkward, 'repo', 'tools', 'check-payload.mjs')], {
+  const cli = join(awkward, 'repo', 'tools', 'check-payload.mjs');
+  const r = spawnSync(process.execPath, [cli], { cwd: project, encoding: 'utf8' });
+
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /payload:/, 'the guard let main run and the report was printed');
+
+  // Node has two spellings of "which file is this" and picks by flag: normally
+  // `import.meta.url` is realpath-resolved, and under `--preserve-symlinks-main`
+  // it keeps the symlink instead — so resolving the entry, the fix for the
+  // default mode, is precisely what breaks this one. Both must run.
+  const preserved = spawnSync(process.execPath, ['--preserve-symlinks-main', cli], {
     cwd: project,
     encoding: 'utf8',
   });
 
-  assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /payload:/, 'the guard let main run and the report was printed');
+  assert.equal(preserved.status, 0, preserved.stderr);
+  assert.match(preserved.stdout, /payload:/, 'the guard holds with --preserve-symlinks-main too');
 
   rmSync(box, { recursive: true, force: true });
   rmSync(project, { recursive: true, force: true });

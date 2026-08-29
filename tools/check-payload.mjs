@@ -323,6 +323,16 @@ function invokedDirectly(url) {
   // is being run as a command, so this is not it.
   if (!entry) return false;
   try {
+    // Both spellings, because Node has two and picks by flag. Normally
+    // `import.meta.url` is realpath-resolved and `process.argv[1]` is not, so
+    // the resolved comparison is the one that matches. Under
+    // `--preserve-symlinks-main` it is the other way round: `import.meta.url`
+    // keeps the symlink it was invoked through, and resolving `argv[1]` is
+    // exactly what breaks the match. Neither alone is right in both modes.
+    //
+    // Accepting either cannot produce a false positive: for a module that is
+    // *not* the entry, its own URL is not the entry path under either spelling.
+    if (url === pathToFileURL(entry).href) return true;
     return url === pathToFileURL(realpathSync(entry)).href;
   } catch {
     // `realpathSync` throws only for an entry that cannot be resolved, and the
