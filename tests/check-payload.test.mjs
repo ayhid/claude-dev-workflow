@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 
-import { checkPayload } from '../tools/check-payload.mjs';
+import { checkPayload, main } from '../tools/check-payload.mjs';
 
 /** Write `body` at `rel` under `root`, creating parents. */
 function put(root, rel, body) {
@@ -121,4 +121,49 @@ test('AC6: a file belonging to another tool is not an orphan', () => {
   put(root, '.claude/settings.json', '{}\n');
 
   assert.deepEqual(checkPayload({ sourceRoot: root }).orphan, []);
+});
+
+/**
+ * The version stamp is structurally behind, not wrong: the payload is refreshed
+ * from a working tree, and `@semantic-release/git` writes the bump back only
+ * after the push. So it is worth reporting and must never fail a build.
+ */
+function versioned(root, { manifest, pkg }) {
+  put(root, '_dev-workflow/_config/manifest.json', `${JSON.stringify({ installation: { version: manifest } })}\n`);
+  put(root, 'package.json', `${JSON.stringify({ version: pkg })}\n`);
+  return root;
+}
+
+test('AC7: the version note is printed, and a mismatch still exits 0', () => {
+  const root = versioned(fixture(), { manifest: '1.12.0', pkg: '1.13.0' });
+
+  const out = [];
+  const code = main([], { sourceRoot: root, write: (s) => out.push(s) });
+
+  assert.equal(code, 0, 'a version mismatch alone is not drift');
+  const text = out.join('');
+  assert.match(text, /1\.12\.0/);
+  assert.match(text, /1\.13\.0/);
+});
+
+test('AC7: content drift is what sets the exit code, not the version', () => {
+  const root = versioned(fixture(), { manifest: '1.13.0', pkg: '1.13.0' });
+  put(root, 'lib/thing.mjs', 'export const thing = 2;\n');
+
+  const out = [];
+  assert.equal(
+    main([], { sourceRoot: root, write: (s) => out.push(s) }),
+    1,
+    'matching versions do not excuse a stale file',
+  );
+  assert.match(out.join(''), /_dev-workflow/);
+});
+
+test('AC7: a missing manifest is reported, not thrown', () => {
+  const root = fixture();
+  put(root, 'package.json', '{"version":"1.13.0"}\n');
+
+  const out = [];
+  assert.equal(main([], { sourceRoot: root, write: (s) => out.push(s) }), 0);
+  assert.match(out.join(''), /version/i);
 });

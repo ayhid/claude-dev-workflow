@@ -35,7 +35,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
-import { PAYLOAD_DIR, isOwnedPath, planFiles } from '../bin/lib/payload.mjs';
+import { MANIFEST_PATH, PAYLOAD_DIR, isOwnedPath, planFiles, readManifest } from '../bin/lib/payload.mjs';
 
 /**
  * Unplanned paths that are nonetheless legitimate.
@@ -137,3 +137,83 @@ export function checkPayload({ sourceRoot, projectDir = sourceRoot }) {
 
   return { stale: stale.sort(), missing: missing.sort(), orphan: orphan.sort() };
 }
+
+/**
+ * What the manifest says this install is, against what the repo is now.
+ *
+ * These are **expected** to differ by one release, and that is structural rather
+ * than a mistake: the payload is refreshed from a working tree, and
+ * `@semantic-release/git` writes the version bump back to `package.json` only
+ * after the push. So the copy is always stamped one release behind the repo that
+ * produced it.
+ *
+ * Reported, therefore, and never counted as drift. A note that could fail a
+ * build would fail every build, and a check that is red by design gets switched
+ * off within a week.
+ */
+export function versionNote({ projectDir }) {
+  const installed = readManifest(projectDir)?.installation?.version ?? null;
+
+  let declared = null;
+  try {
+    declared = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf8')).version ?? null;
+  } catch {
+    declared = null;
+  }
+
+  if (!installed) return `version: no install manifest at ${MANIFEST_PATH} — nothing to compare`;
+  if (!declared) return `version: manifest records ${installed}; package.json declares none`;
+  if (installed === declared) return `version: manifest and package.json agree at ${installed}`;
+
+  return (
+    `version: manifest records ${installed}, package.json ${declared} — expected, and not an error. ` +
+    'The payload is stamped from the working tree before the release writes the bump back.'
+  );
+}
+
+/** The report, as lines. Sorted throughout: the same tree prints the same bytes. */
+export function render({ stale, missing, orphan }, note, planned) {
+  const lines = [];
+  const rows = [
+    ['stale', stale, 'the source moved on and the copy did not'],
+    ['missing', missing, 'planned by the installer, not on disk'],
+    ['orphan', orphan, 'no longer shipped; the next install would remove it'],
+  ];
+
+  const drifted = stale.length + missing.length + orphan.length;
+  if (drifted === 0) {
+    lines.push(`payload: ${planned} files, byte-identical to the source they were generated from`);
+  } else {
+    lines.push(`payload: ${drifted} of ${planned} planned files have drifted from the source`, '');
+    for (const [label, paths, why] of rows) {
+      if (paths.length === 0) continue;
+      lines.push(`  ${label} — ${why}`);
+      for (const p of paths) lines.push(`    ${p}`);
+      lines.push('');
+    }
+    lines.push('Refresh the installed copy with:', '  npm run check:payload -- --refresh', '');
+  }
+
+  lines.push(note);
+  return lines;
+}
+
+/**
+ * @param {string[]} argv
+ * @param {{sourceRoot?: string, projectDir?: string, write?: (s: string) => void}} io
+ * @returns {number} exit code — non-zero for content drift only
+ */
+export function main(argv = [], io = {}) {
+  const sourceRoot = io.sourceRoot ?? process.cwd();
+  const projectDir = io.projectDir ?? sourceRoot;
+  const write = io.write ?? ((s) => process.stdout.write(s));
+
+  const planned = planFiles(sourceRoot).size;
+  const result = checkPayload({ sourceRoot, projectDir });
+
+  write(`${render(result, versionNote({ projectDir }), planned).join('\n')}\n`);
+
+  return result.stale.length + result.missing.length + result.orphan.length === 0 ? 0 : 1;
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) process.exit(main(process.argv.slice(2)));
