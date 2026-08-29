@@ -12,13 +12,14 @@
 ![The install wizard verifying a token, listing the projects it can see, reading that project's real State values, and writing .dev-workflow.json](https://raw.githubusercontent.com/ayhid/claude-dev-workflow/main/.github/assets/wizard.gif)
 
 Ticket-driven development against your issue tracker, [YouTrack](https://www.jetbrains.com/youtrack/)
-or [GitHub Issues](docs/configuration.md#github-issues), as eight Claude Code skills. It installs **per
+or [GitHub Issues](docs/configuration.md#github-issues), as nine Claude Code skills. It installs **per
 project**: nothing is registered globally, so the skills exist only in repos that use a tracker.
 
 | Skill         | What it does |
 | ------------- | ------------ |
 | `/dev-init`    | Probes the repo, asks what it cannot infer, verifies the credentials, writes `.dev-workflow.json`. |
 | `/dev-task` | Takes an issue ID **or a plain sentence**, files the issue first when there is none, then agrees acceptance criteria, plans, moves it to *in progress*, checks it out in a worktree, and implements with ticket-referencing commits. |
+| `/dev-tdd` | The red/green/refactor loop `/dev-task` hands off to at implementation: one agreed criterion at a time, a test confirmed to fail for the intended reason before any production code, then a refactor while green. On by default, `tdd.enabled: false` to switch it off. |
 | `/dev-bug`     | Investigates the likely code path, checks for duplicates, drafts the issue in the project's language, files it on approval. **Never fixes.** |
 | `/dev-done`    | Re-reads the ticket, verifies each criterion with evidence, runs the checks, then lands the work the way the project delivers: pull request, or straight onto the base branch. |
 | `/dev-standup` | Everything in flight across every configured repo: what merged, what is checked out, what has stopped moving, what is still open on the tracker, and the one thing waiting on you. **Never writes.** |
@@ -74,7 +75,7 @@ names your instance may not have.
 To amend an existing config later, or to talk it through rather than click, run `/dev-init` in
 Claude Code instead.
 
-Either way you now have the eight skills. Start work:
+Either way you now have the nine skills. Start work:
 
 ```
 /dev-task ABC-42
@@ -199,7 +200,7 @@ your-project/
     scripts/  lib/  hooks/
     _config/manifest.json         # version + a sha256 per installed file
   .claude/
-    skills/dev-task, dev-bug, dev-done, dev-init, dev-standup,
+    skills/dev-task, dev-tdd, dev-bug, dev-done, dev-init, dev-standup,
            dev-ingest-docs, dev-docs-init, dev-adr
     settings.json                 # the commit hook, merged in alongside your own
 ```

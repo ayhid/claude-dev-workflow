@@ -399,6 +399,33 @@ Compaction does not re-trigger it. `SessionStart` fires again on compaction, and
 board every time would spend context on a report nobody asked for twice.
 
 
+## `tdd` — how implementation is driven
+
+```jsonc
+{
+  "tdd": { "enabled": true }   // false: /dev-task implements directly
+}
+```
+
+`/dev-task` §2 agrees the acceptance criteria and §7 verifies them. This key decides what happens
+between those two points. On — the default — §6 hands each criterion to `/dev-tdd`, which drives it
+red/green/refactor: a test confirmed to fail **for the intended reason** before any production
+code, then the least code that passes it, then a refactor while green.
+
+`false` turns the handoff off and §6 implements directly. Nothing else changes: §7 still walks
+every criterion and still wants evidence for each, so a criterion with no test needs the command
+output that shows it works.
+
+Absent means **on**, the same way a `hooks.*` key does. That is why the installer never asks about
+it and never writes it: a config written before this key existed reads as enabled, an express
+`--update` leaves it alone, and a project that wants the loop off says so once rather than a
+session deciding it again every time.
+
+The skill is honest about where the loop does not apply — a documentation edit, a failure only
+observable outside the test runner, untested legacy code with no seam — and says which it is
+rather than writing a test to have written one.
+
+
 ## `docs` — the documentation set and decision records
 
 Where `/dev-docs-init` writes a greenfield project's documentation, which documents it writes, where
@@ -562,6 +589,7 @@ Useful for one-off runs against another instance, and for CI. There is no GitHub
     "enforce": true
   },
   "hooks": { "sessionStart": true, "commitTicket": true, "adrImmutable": true },
+  "tdd": { "enabled": true },
   "priorities": ["Show-stopper", "Critical", "Major", "Normal", "Minor"],
   "defaultPriority": "Normal",
   "reviewer": "octocat",
