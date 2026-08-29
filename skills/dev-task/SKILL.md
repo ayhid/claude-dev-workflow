@@ -218,6 +218,16 @@ Rules:
 - Use the repo's configured package manager, and only that one.
 - Commit in small, reviewable batches rather than one large commit at the end.
 
+**How the code gets written is the `tdd:` line in §0's output**, not a per-session preference:
+
+- **`tdd: on`** (the default, and what a project that has never heard of the key reads as) — drive
+  each criterion through `/dev-tdd`: one criterion at a time, a test confirmed to fail for the
+  intended reason before any production code, then a refactor while green. It takes the criteria
+  §2 already agreed and does not re-open them.
+- **`tdd: off`** — implement directly. Nothing else changes: §7 still walks every criterion and
+  still wants evidence for each, so a criterion with no test needs the command output that shows
+  it works.
+
 ## 7. Before delivering
 
 Do both, in order, and do them before §8 rather than after — `direct` delivery lands on the base
