@@ -1,7 +1,8 @@
 # The documentation set
 
 `/dev-docs-init` and `dev.mjs docs` give a **greenfield** project the documents it does not have
-yet — architecture, domain, operations, testing, security — and fill them a claim at a time.
+yet — context, architecture, domain, api, ux, operations, testing, security — and fill them a claim
+at a time.
 
 `/dev-ingest-docs` is the other half, for a project that already has documentation: it reads what is
 there into a verified map. The two share a ledger, a validator and a renderer on purpose. **Ingest
@@ -54,8 +55,11 @@ Defined once, in `lib/docset.mjs`, and configured with [`docs.dir` and
 
 | key | file | holds |
 | --- | --- | --- |
+| `context` | `docs/context.md` | why this exists, who it is for, what it deliberately does not do |
 | `architecture` | `docs/architecture.md` | components, boundaries, data flow |
 | `domain` | `docs/domain.md` | the glossary — terms, and what they mean *here* |
+| `api` | `docs/api.md` | the external contract: what callers may depend on, and what may change |
+| `ux` | `docs/ux.md` | the user-facing surface: flows, screens, states, and their rules |
 | `operations` | `docs/operations.md` | the runbook: run it, deploy it, what breaks |
 | `testing` | `docs/testing.md` | what is tested, how to run it, what deliberately is not |
 | `security` | `docs/security-model.md` | trust boundaries, secrets, what is assumed |
@@ -68,6 +72,20 @@ a skeleton that silently omits decisions reads as though a project needs none.
 The security document is `security-model.md` for a specific reason, [written down in the
 configuration reference](configuration.md#why-the-security-document-is-security-modelmd) rather than
 quietly tolerated.
+
+### Why `api` is separate from `architecture`
+
+They rot at different speeds. An internal boundary moves when somebody refactors; an external
+contract moves when somebody breaks a consumer. One document carrying both is re-rendered on every
+refactor, so a reader cannot tell from its history whether anything they depend on changed.
+
+### Why `context` and `ux` will mostly hold `intent` claims
+
+A goal is somebody's stated intent — there is no line of code that would show "this is for
+self-hosting teams" false — so claims there carry an attributed source rather than an anchor. That is
+[correct rather than degraded](#on-a-young-project-most-claims-are-intent).
+`api` is the opposite: a contract is anchorable to the file that declares it, so an `observable`
+claim there with no anchor is a real error.
 
 ## The commands
 
@@ -103,6 +121,13 @@ this project claim about itself".
 `docs init` wrote, and one that no longer matches what the ledger renders. Once the documents are
 real it is worth running in CI — it is the thing that notices a claim was recorded and never folded
 in.
+
+A missing document is reported as one of two different facts, because they call for different
+commands. A document the ledger has never registered as generated has **never been scaffolded** —
+nobody has been asked about it, which is what an updated project sees for a document the set gained
+— and the fix is `docs init`. One the ledger *did* generate and that is now gone has claims and a
+sha256 behind it, so the fix is `docs render <key>`; `docs init` would rewrite it as a stub and lose
+them. The exit code is 1 either way: the document is still missing.
 
 It cannot fail spuriously with time. Nothing in a rendered document comes from the clock: dates are
 the `recordedAt` the ledger already holds, so the same ledger renders the same bytes a year later.
