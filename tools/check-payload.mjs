@@ -33,7 +33,7 @@
  * silently, reporting a clean tree.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -158,7 +158,14 @@ export function checkPayload({ sourceRoot, projectDir = sourceRoot }) {
     }
     // Byte-for-byte. The installer copies verbatim, so anything short of
     // equality is drift — there is no formatting to normalise away.
-    if (!readFileSync(dest).equals(readFileSync(src))) stale.push(rel);
+    //
+    // `existsSync` answers "something is there", not "a file is there". A
+    // directory at a planned path throws EISDIR out of `readFileSync`, and a
+    // stack trace is a poor answer from the one tool whose job is to name the
+    // path. It is drift like anything else: not what the source says belongs
+    // there. Asked as `isFile()` rather than by catching, so a genuine EACCES
+    // still surfaces as itself instead of being relabelled as drift.
+    if (!statSync(dest).isFile() || !readFileSync(dest).equals(readFileSync(src))) stale.push(rel);
   }
 
   // What is on disk under our roots but no longer planned — the set the
@@ -317,6 +324,22 @@ export function main(argv = [], io = {}) {
  * report is truncated at the pipe buffer. Setting the code lets Node drain and
  * leave on its own.
  */
-if (import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+function invokedDirectly(url) {
+  const entry = process.argv[1];
+  // No entry script at all — `node -e`, `--input-type=module`, a REPL. Nothing
+  // is being run as a command, so this is not it.
+  if (!entry) return false;
+  try {
+    return url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    // `realpathSync` throws only for an entry that cannot be resolved, and the
+    // script Node is currently executing always can — it just loaded it. So
+    // this catch cannot swallow the real invocation, only an unresolvable one
+    // that is by definition some other module.
+    return false;
+  }
+}
+
+if (invokedDirectly(import.meta.url)) {
   process.exitCode = main(process.argv.slice(2));
 }

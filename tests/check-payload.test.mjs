@@ -15,7 +15,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 
 import { checkPayload, main } from '../tools/check-payload.mjs';
@@ -130,6 +130,41 @@ test('the CLI still runs when its own path has a space or a symlink in it', () =
 
   rmSync(box, { recursive: true, force: true });
   rmSync(project, { recursive: true, force: true });
+});
+
+test('importing the module without an entry script does not throw', () => {
+  // The entry guard resolves `process.argv[1]`, and there are contexts with no
+  // entry script at all — `node -e`, `--input-type=module`, a REPL. Resolving
+  // `undefined` throws ENOENT at import time, which would make the module
+  // unloadable rather than merely not-the-command. Spawned, because the guard
+  // is top-level code that a plain import from inside this suite runs with
+  // `argv[1]` already set to the test file.
+  const here = dirname(fileURLToPath(import.meta.url));
+  const mod = pathToFileURL(join(here, '..', 'tools', 'check-payload.mjs')).href;
+
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(mod)});`], {
+    encoding: 'utf8',
+  });
+
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stderr, /ENOENT|undefined/);
+});
+
+test('a directory where a planned file belongs is drift, not a crash', () => {
+  // `existsSync` says something is there, not that it is a file. Left to
+  // `readFileSync` this threw EISDIR — a stack trace out of the one tool whose
+  // job is to name the path that is wrong.
+  const root = fixture();
+  const planted = join(root, '_dev-workflow', 'lib', 'thing.mjs');
+  rmSync(planted);
+  mkdirSync(planted, { recursive: true });
+
+  const { stale, missing, orphan } = checkPayload({ sourceRoot: root });
+  assert.deepEqual(stale, [join('_dev-workflow', 'lib', 'thing.mjs')]);
+  assert.deepEqual(missing, []);
+  assert.deepEqual(orphan, []);
+
+  rmSync(root, { recursive: true, force: true });
 });
 
 test('AC6: a skill removed from the source leaves its whole installed directory orphaned', () => {
