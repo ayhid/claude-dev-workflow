@@ -22,6 +22,7 @@
  * '@'). The printed "State is now" line is read back after the write, never
  * echoed from the request.
  */
+import { canonicalId } from '../../lib/issueid.mjs';
 import { parseCriteria } from '../../lib/metrics.mjs';
 import { context, must, readArg, UserError } from './common.mjs';
 
@@ -53,10 +54,12 @@ function takeCriteria(args) {
 
 export async function run(argv) {
   const { criteria, rest: args } = takeCriteria(argv);
-  const [issue, verb, ...rest] = args;
-  if (!issue || !verb) throw new UserError(USAGE);
+  const [rawId, verb, ...rest] = args;
+  if (!rawId || !verb) throw new UserError(USAGE);
 
-  const { provider } = await context();
+  const { config, provider } = await context();
+  // One spelling from here on — see canonicalId in lib/issueid.mjs (#43).
+  const issue = canonicalId(config, rawId);
   if (criteria) provider.annotate({ criteria });
 
   if (verb === 'comment') {
