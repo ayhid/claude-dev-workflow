@@ -185,6 +185,32 @@ test('AC6: a skill removed from the source leaves its whole installed directory 
   assert.deepEqual(missing, []);
 });
 
+test('AC6: skills removed from the source are found even when none is planned', () => {
+  // The residual case in deriving roots from the plan. One skill removed still
+  // leaves a sibling to derive `.claude/skills` from; removing the *last* one
+  // leaves nothing, and the sweep then had nowhere to look — installed skills
+  // that ship to nobody, reported as a clean tree. The directory is asked
+  // directly for this reason.
+  const root = mkdtempSync(join(tmpdir(), 'payload-check-'));
+  put(root, 'lib/thing.mjs', 'export const thing = 1;\n');
+  put(root, '_dev-workflow/lib/thing.mjs', 'export const thing = 1;\n');
+  // No `skills/` in the source at all, and two installed skills left behind.
+  put(root, '.claude/skills/dev-thing/SKILL.md', '# dev-thing\n');
+  put(root, '.claude/skills/dev-old/reference/notes.md', '# nested\n');
+  // Still not ours, and still not reported.
+  put(root, '.claude/skills/other-tool/SKILL.md', '# not ours\n');
+
+  const { orphan, stale, missing } = checkPayload({ sourceRoot: root });
+  assert.deepEqual(orphan, [
+    join('.claude', 'skills', 'dev-old', 'reference', 'notes.md'),
+    join('.claude', 'skills', 'dev-thing', 'SKILL.md'),
+  ]);
+  assert.deepEqual(stale, []);
+  assert.deepEqual(missing, []);
+
+  rmSync(root, { recursive: true, force: true });
+});
+
 test('AC6: the installer\'s own config directory is not an orphan', () => {
   // `_config/` is what the installer writes *about* the install — the manifest
   // and the update-check stamp — rather than anything it copied. It is
