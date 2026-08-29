@@ -33,8 +33,9 @@
  * silently, reporting a clean tree.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { MANIFEST_PATH, PAYLOAD_DIR, isOwnedPath, planFiles, readManifest } from '../bin/lib/payload.mjs';
 
@@ -295,4 +296,27 @@ export function main(argv = [], io = {}) {
   return drifted(result) === 0 ? 0 : 1;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) process.exit(main(process.argv.slice(2)));
+/**
+ * Run only when this file *is* the command, and get the comparison right.
+ *
+ * Two things break the obvious `file://${process.argv[1]}` spelling, and both
+ * break it the same silent way: the guard is false, `main` never runs, and the
+ * process exits 0 having checked nothing. A guard that reports success when it
+ * did not run is worse than one that throws — this is the check that fails the
+ * build on drift, so a silent no-op is a green build over a stale payload.
+ *
+ *   - `import.meta.url` is percent-encoded and `process.argv[1]` is not, so any
+ *     space or non-ASCII character in the checkout path defeats it.
+ *   - `import.meta.url` is realpath-resolved and `process.argv[1]` is not, so a
+ *     path through a symlink defeats it as well — on macOS `/tmp` is one.
+ *
+ * `realpathSync` then `pathToFileURL` answers both.
+ *
+ * `process.exitCode` rather than `process.exit`: `exit` tears the process down
+ * without flushing, and stdout to a pipe is non-blocking, so a long enough
+ * report is truncated at the pipe buffer. Setting the code lets Node drain and
+ * leave on its own.
+ */
+if (import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+  process.exitCode = main(process.argv.slice(2));
+}

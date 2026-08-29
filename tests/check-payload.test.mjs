@@ -11,7 +11,8 @@
  * whether someone had refreshed it, which is the very thing under test.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -98,6 +99,37 @@ test('AC6: an unplanned file under an owned root is an orphan', () => {
   ]);
   assert.deepEqual(stale, []);
   assert.deepEqual(missing, []);
+});
+
+test('the CLI still runs when its own path has a space or a symlink in it', () => {
+  // The guard decides whether this file is the command being run, and the
+  // obvious `file://${process.argv[1]}` spelling gets it wrong twice:
+  // `import.meta.url` is percent-encoded and realpath-resolved, and
+  // `process.argv[1]` is neither. Both mismatches fail the same silent way —
+  // `main` never runs and the process exits 0 having checked nothing, which is
+  // a green build over a stale payload. Exercised through a real spawn, since
+  // importing `main` is precisely what does not go through the guard.
+  const here = dirname(fileURLToPath(import.meta.url));
+  const repo = join(here, '..');
+
+  const box = mkdtempSync(join(tmpdir(), 'payload-cli-'));
+  const awkward = join(box, 'a dir with spaces');
+  mkdirSync(awkward);
+  // A symlink to the checkout: relative imports still resolve through it, so
+  // the only thing that changes is the path the CLI is invoked by.
+  symlinkSync(repo, join(awkward, 'repo'), 'dir');
+
+  const project = fixture();
+  const r = spawnSync(process.execPath, [join(awkward, 'repo', 'tools', 'check-payload.mjs')], {
+    cwd: project,
+    encoding: 'utf8',
+  });
+
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /payload:/, 'the guard let main run and the report was printed');
+
+  rmSync(box, { recursive: true, force: true });
+  rmSync(project, { recursive: true, force: true });
 });
 
 test('AC6: a skill removed from the source leaves its whole installed directory orphaned', () => {
