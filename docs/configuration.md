@@ -385,8 +385,9 @@ config carrying both never has to be read for precedence.
 
 `sessionStart` is the one with a real price. Its output goes into the session's context as well as
 the terminal, so it is spending tokens on every session, not just screen space. That buys a board
-you did not have to ask for — what merged, what is checked out, what stopped moving, and the one
-thing waiting on you — and it is on by default because a report nobody switches on reports nothing.
+you did not have to ask for — what merged, what is checked out, what stopped moving, what is still
+open on the tracker, and the one thing waiting on you — and it is on by default because a report
+nobody switches on reports nothing.
 If a project's report is long enough that the trade stops paying, turn it off here and run
 `/dev-standup` when you want it.
 

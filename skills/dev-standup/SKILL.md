@@ -1,6 +1,6 @@
 ---
 name: dev-standup
-description: Report everything in flight across the project's repos — what merged recently, what is checked out, what has stopped moving, and the one thing waiting on you. Use when the user asks for a standup, what they were working on, what is in progress, what landed yesterday, or what to pick up next.
+description: Report everything in flight across the project's repos — what merged recently, what is checked out, what has stopped moving, what is still open on the tracker, and the one thing waiting on you. Use when the user asks for a standup, what they were working on, what is in progress, what landed yesterday, or what to pick up next.
 argument-hint: "[optional --since 3d]"
 ---
 
@@ -12,15 +12,19 @@ One command answers all of it. Run it first, before saying anything:
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" standup $ARGUMENTS
 ```
 
-It scans every configured repo, so nothing here needs to be assembled by hand from `git`, `gh` or
-the tracker. Four sections come back, in this order:
+It scans every configured repo and reads the tracker, so nothing here needs to be assembled by hand
+from `git`, `gh` or the issue list. Five sections come back, in this order:
 
 - **merged since** — what landed inside the window, with each ticket's current state. A line
   marked *merged, but the ticket has not been reconciled* is drift, not finished work.
 - **in flight** — one row per ticket branch: state, PR, whether the tree is dirty or ahead of the
   base, and how long since its last commit.
 - **stale** — anything with no commit for the threshold (7 days by default).
-- **next** — the single highest-priority thing waiting on *you*, or a line saying nothing is.
+- **open in the tracker** — every open issue nothing above already accounts for: the work that
+  exists but has not been started here. Capped, with a count of the rest.
+- **next** — the single highest-priority thing waiting on *you*, or a line saying nothing is. It
+  ranks work **in flight only** and never picks from the open list; when nothing in flight is yours
+  it points at that section instead, because starting something is the user's decision.
 
 ## Reading it out
 
@@ -39,13 +43,16 @@ suggest — a report that invents work is one nobody trusts twice.
 
 ## What it cannot see, and must not pretend to
 
-Coverage is **local checkouts and pull requests**. A ticket somebody started on another machine, or
-moved by hand in the tracker without ever branching, does not appear. If the user asks about a
-ticket that is not on the board, fetch it rather than concluding it does not exist:
+Coverage is local checkouts, pull requests **and the tracker's open issues**. What it does not show
+is anything the tracker calls closed. If the user asks about a ticket that is not on the board,
+fetch it rather than concluding it does not exist:
 
 ```bash
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" fetch <ISSUE-ID>
 ```
+
+**`could not read the tracker` is not an empty board.** When that line appears, the open section and
+the `next` line know nothing about what is unstarted — say so, and do not report the board as clear.
 
 `--since` defaults to one day, which is the wrong window on a Monday and after time off — pass
 `--since 3d` or `--since 7d` and say which window you used. `--stale` moves the staleness threshold
