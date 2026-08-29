@@ -51,8 +51,38 @@ const claim = (over = {}) => ({
 // --- the set exists once -------------------------------------------------------
 
 test('the catalogue is the set: keys, filenames and the default docs.set all come from it', () => {
-  assert.deepEqual(DOC_KEYS, ['architecture', 'domain', 'operations', 'testing', 'security', 'decisions']);
-  assert.deepEqual(DEFAULT_DOC_SET, ['architecture', 'domain', 'operations', 'testing', 'security']);
+  // Catalogue order is reading order: why it exists, then its internals, then
+  // the surfaces it presents, then how it is run — and the pointer last.
+  assert.deepEqual(DOC_KEYS, [
+    'context',
+    'architecture',
+    'domain',
+    'api',
+    'ux',
+    'operations',
+    'testing',
+    'security',
+    'decisions',
+  ]);
+  assert.deepEqual(DEFAULT_DOC_SET, [
+    'context',
+    'architecture',
+    'domain',
+    'api',
+    'ux',
+    'operations',
+    'testing',
+    'security',
+  ]);
+
+  // Every writable entry is complete. A catalogue entry missing a purpose
+  // renders a document with an empty subtitle rather than failing, so the
+  // shape is asserted here rather than discovered in someone's docs/.
+  for (const entry of DOC_CATALOGUE.filter((d) => d.writable)) {
+    assert.ok(entry.file, `${entry.key} has no filename`);
+    assert.ok(entry.title, `${entry.key} has no title`);
+    assert.ok(entry.purpose, `${entry.key} has no purpose`);
+  }
 
   // Not merely equal — the same array. `lib/config.mjs` importing its default
   // is what stops the list existing in two places, which is the whole point of
@@ -139,7 +169,9 @@ test('docs.set as an object is refused, since deepMerge would fold it into the d
   const r = resolveDocSet({ docs: { set: { architecture: true } } });
   assert.equal(r.ok, false);
   assert.match(r.error, /must be an array/);
-  assert.match(r.error, /architecture, domain, operations, testing, security, decisions/);
+  // Derived, not restated: the literal list is asserted once, above. A second
+  // copy here is the drift lib/docset.mjs exists to prevent.
+  assert.ok(r.error.endsWith(`Known keys: ${DOC_KEYS.join(', ')}`), r.error);
 });
 
 test('an unknown document is an error naming the known ones, never a guess', () => {
@@ -317,7 +349,8 @@ test('init registers what it wrote, so ingest scan never offers it back for extr
   const generated = ledgerOf(repo).sources.filter((s) => s.state === 'generated');
   assert.deepEqual(
     generated.map((s) => s.path).sort(),
-    ['docs/architecture.md', 'docs/domain.md', 'docs/operations.md', 'docs/security-model.md', 'docs/testing.md'],
+    resolveDocSet({}).documents.filter((d) => d.writable).map((d) => d.path).sort(),
+    'every writable document in the set is registered with the sha256 init wrote',
   );
 
   await git(repo, 'add', '-A');
@@ -358,7 +391,7 @@ test('record refuses a claim aimed at a document the project does not have', asy
   ]);
   assert.equal(r.code, 1);
   assert.match(r.stderr, /targets "runbook"/);
-  assert.match(r.stderr, /architecture, domain, operations, testing, security/);
+  assert.ok(r.stderr.trim().endsWith(`docs.set: ${DEFAULT_DOC_SET.join(', ')}`), r.stderr);
 });
 
 test('record refuses a claim with no target rather than filing it nowhere', async () => {
