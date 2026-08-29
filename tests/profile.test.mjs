@@ -202,6 +202,18 @@ test('the transition log is joined in, so cost sits beside time and rework', () 
   );
 });
 
+test('a close an older version wrote without the # still joins', () => {
+  // profile joins spend through the branch name, and issueIdFromBranch always
+  // returns the `#` form — so a row written before #43 matched nothing and the
+  // ticket reported no outcome at all, despite being closed.
+  const rows = byTicket([{ branch: 'feat/12-thing', turns: 9, weighted: 90, usd: 2, totals: usage() }], {
+    config,
+    metrics: [{ id: '12', event: 'done', elapsedMs: 7_200_000, starts: 1, criteria: 'first-pass' }],
+  });
+
+  assert.deepEqual([rows[0].outcome, rows[0].elapsedMs, rows[0].starts], ['done', 7_200_000, 1]);
+});
+
 test('a ticket the log knows nothing about reports nulls, not zeros', () => {
   const rows = byTicket([{ branch: 'feat/12-thing', turns: 1, weighted: 1, usd: 1, totals: usage() }], { config });
   assert.deepEqual([rows[0].outcome, rows[0].elapsedMs, rows[0].criteria], [null, null, null]);
