@@ -13,19 +13,38 @@
  *
  * ## What it can and cannot see
  *
- * Coverage is bounded by the same convention `sync` is bounded by, and the
- * bound is worth stating rather than papering over: this reads **local
- * checkouts and pull requests**. A ticket somebody started on another machine,
- * or moved by hand in the tracker without ever branching, is invisible to it —
- * there is no "list the issues in state X" in the provider contract, and
- * inventing one per backend to fill this in would be a worse trade than saying
- * so.
+ * Three sources, and the third is the one that took a bug to add. Local
+ * checkouts and pull requests answer what is being *worked on*; `provider
+ * .listOpen` answers what is on the *board*. Without that third read this
+ * command could see only work somebody had already branched for, and it said
+ * so in a comment here — while still printing "nothing is waiting on you",
+ * which is a claim about the whole board made by something that never asked
+ * the board (#35).
+ *
+ * The bound that remains is real and is stated in the report rather than here:
+ * if the tracker cannot be reached, the open section says that instead of
+ * printing nothing, because an empty section and an unread tracker look
+ * identical and only one of them means the board is clear.
+ *
+ * What it still cannot see is anything a tracker calls closed. That is not a
+ * gap — a standup is about what is open.
  */
 import { rankOf } from './config.mjs';
 import { PR_UNKNOWN } from './status.mjs';
 
 /** Priority given to work that is waiting on somebody else. Never "next". */
 export const WAITING = 9;
+
+/**
+ * How many open issues the report prints before it summarises the rest.
+ *
+ * A cap rather than the whole list, and the reason is context rather than
+ * screen space: the SessionStart hook feeds this report into every session of
+ * every project that installs it, so each line is paid for by every turn
+ * afterwards. Eight rows plus a count is enough to know whether the board is
+ * three issues or ninety; the command to read the rest is printed beside it.
+ */
+export const OPEN_SHOWN = 8;
 
 /** Milliseconds in a day, named because the arithmetic below reads badly otherwise. */
 const DAY = 86_400_000;
@@ -158,6 +177,18 @@ export function pickNext(rows, config) {
   return ranked[0] ?? null;
 }
 
+/**
+ * Open rows, newest first: the highest issue number is the most recently filed.
+ *
+ * The opposite of `byRowId`, and deliberately so. In flight is a worklist and
+ * reads in the order the work was taken on; the board is a backlog, where what
+ * was filed last week matters more than what was filed last year.
+ */
+function byOpenId(a, b) {
+  const n = (row) => Number(String(row.id ?? '').replace(/\D+/g, '')) || 0;
+  return n(b) - n(a) || String(a.id ?? '').localeCompare(String(b.id ?? ''));
+}
+
 /** Rows with no issue sort last; otherwise by issue number, so #9 precedes #10. */
 function byRowId(a, b) {
   const n = (row) => Number(String(row.issue?.id ?? '').replace(/\D+/g, '')) || Infinity;
@@ -173,9 +204,14 @@ function byRowId(a, b) {
  * that silently omits "stale" reads identically whether nothing is stale or the
  * check never ran.
  *
+ * `open` is what the tracker answered, as `{rows, truncated, error}`. A null
+ * `error` with an empty `rows` means an empty board; a non-null one means
+ * nobody knows, and the two must never render the same.
+ *
  * @param {{
  *   rows: Array<object>, merged: Array<object>, config: object,
  *   since: string, cutoff: string, staleAfter: number,
+ *   open?: ?{rows?: Array<object>, truncated?: boolean, error?: ?string},
  *   now?: Date, prUnknown?: boolean,
  * }} facts
  */
@@ -187,6 +223,7 @@ export function describeStandup(facts) {
     since,
     cutoff,
     staleAfter,
+    open = null,
     now = new Date(),
     prUnknown = false,
   } = facts;
@@ -237,16 +274,68 @@ export function describeStandup(facts) {
     }
   }
 
+  // Everything the tracker calls open that nothing above has already accounted
+  // for. Filtering here rather than in the caller keeps the whole decision
+  // assertable without a tracker, and an issue listed twice in one report is
+  // noise that makes the section look wrong rather than new.
+  const accounted = new Set(
+    [...rows.map((r) => r.issue?.id), ...merged.map((m) => m.issue?.id)].filter(Boolean),
+  );
+  const unstarted = (open?.rows ?? []).filter((row) => !accounted.has(row.id));
+
+  // Not read and read-and-failed are two facts and one consequence: nobody
+  // knows what is on the board, so nothing below may speak for it.
+  const boardUnknown = !open || Boolean(open.error);
+
+  L.push('', 'open in the tracker');
+  if (open?.error) {
+    // The whole point of the section: an unreachable tracker must not render
+    // as a clear board.
+    L.push(`  (could not read the tracker: ${truncate(open.error, 60)})`);
+  } else if (!open) {
+    L.push('  (not read)');
+  } else if (!unstarted.length) {
+    L.push(
+      open.rows?.length
+        ? '  (nothing open that is not already in flight above)'
+        : '  (no open issues)',
+    );
+  } else {
+    for (const row of [...unstarted].sort(byOpenId).slice(0, OPEN_SHOWN)) {
+      L.push(`  ${row.id.padEnd(8)} ${String(row.state ?? '-').padEnd(13)} ${truncate(row.title, 52)}`);
+    }
+    const hidden = unstarted.length - Math.min(unstarted.length, OPEN_SHOWN);
+    if (hidden > 0 || open.truncated) {
+      const count = open.truncated ? `${hidden}+` : String(hidden);
+      // No command of ours lists open issues — `status --all` lists worktrees —
+      // so this points at the tracker rather than inventing one.
+      L.push(`  … and ${count} more open — see the tracker`);
+    }
+  }
+
   L.push('', 'next');
   const next = pickNext(rows, config);
-  if (!next) {
+  if (next) {
+    L.push(`  ${next.row.issue?.id ?? next.row.branch} — ${next.advice}`);
+  } else if (boardUnknown) {
+    // Scoped deliberately, and this sentence is the actual defect in #35. The
+    // old one asserted the state of the whole board from what happened to be
+    // checked out locally. With the board unread the only honest claim is
+    // about the part that was read.
+    L.push('  nothing in flight is waiting on you — the board is unread, so nothing here speaks for what is unstarted');
+  } else if (unstarted.length) {
+    // `next` still ranks in-flight work only and never picks from the tracker:
+    // starting something is a decision, and the section above is where it is
+    // made. This points at it rather than choosing from it.
+    L.push(
+      `  nothing in flight is waiting on you — ${unstarted.length} open above, unstarted: dev.mjs start <ISSUE-ID>`,
+    );
+  } else {
     L.push(
       rows.length
         ? '  nothing is waiting on you — everything in flight is with someone else'
-        : '  nothing in flight — pick a ticket: dev.mjs start <ISSUE-ID>',
+        : '  nothing in flight and nothing open — the board is clear',
     );
-  } else {
-    L.push(`  ${next.row.issue?.id ?? next.row.branch} — ${next.advice}`);
   }
 
   if (prUnknown) {

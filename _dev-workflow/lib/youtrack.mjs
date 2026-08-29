@@ -503,6 +503,48 @@ export function createYouTrackProvider({ config, fetch: fetchImpl, onWarn }) {
       return { ok: true, repaired: false, why: `${id}: the State field is its own representation` };
     },
 
+    /**
+     * Every unresolved issue in the project, whatever state it sits in.
+     *
+     * The same query `search` runs with its keywords removed — but it is a
+     * different question, and worth its own member for that reason: search is
+     * best-effort dup-checking, this has to be complete enough for a caller to
+     * count. `#Unresolved` is YouTrack's own definition of open, so no state
+     * list is spelled here and none can drift from the ladder.
+     *
+     * The State field rides along with the row rather than being fetched in a
+     * second batched read: it is one more field on a query already being made,
+     * and a caller that had to pair this with `getStates` would be back to two
+     * round trips for one question.
+     */
+    async listOpen({ limit = 100 } = {}) {
+      return withToken(async (token) => {
+        const r = await call(token, 'api/issues', {
+          params: {
+            query: `project: ${config.project} #Unresolved`,
+            fields: 'idReadable,summary,customFields(name,value(name))',
+            // One over, so a full page is distinguishable from a board that
+            // happens to be exactly `limit` long.
+            $top: limit + 1,
+          },
+        });
+        if (!r.ok) return r;
+
+        const all = r.data ?? [];
+        const truncated = all.length > limit;
+        const rows = all
+          .slice(0, limit)
+          .map((i) => ({
+            id: i.idReadable,
+            title: i.summary ?? '',
+            state: (i.customFields ?? []).find((f) => f.name === 'State')?.value?.name ?? UNKNOWN,
+            url: `${baseUrl}/issue/${i.idReadable}`,
+          }))
+          .sort((a, b) => a.id.localeCompare(b.id));
+        return { ok: true, data: rows, truncated };
+      });
+    },
+
     async search(keywords, { limit = 15 } = {}) {
       return withToken(async (token) => {
         const r = await call(token, 'api/issues', {

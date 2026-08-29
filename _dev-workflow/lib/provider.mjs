@@ -54,6 +54,25 @@
  * stale" and the caller needs no branch at all. A flag would only be a place to
  * forget the else.
  *
+ * ## Enumerating the board
+ *
+ * `getStates` answers "where are these tickets?" for IDs the caller already
+ * has, and every ID the core discovers comes from a branch name or a pull
+ * request. That makes the whole tool blind in one direction: an issue nobody
+ * has branched for contributes no ID, so nothing ever asks about it. `standup`
+ * used to state that bound in its own header and then assert "nothing is
+ * waiting on you" anyway — a claim about the whole board from a command that
+ * never read the board.
+ *
+ * `listOpen` closes it, and it is a *different question* from `search`: search
+ * takes keywords and is for dup-checking, where a fuzzy best-effort answer is
+ * fine. This takes none and must return the open issues, so a caller can say
+ * how many there are.
+ *
+ * Like the representation pair there is deliberately no capability flag. Every
+ * tracker can enumerate its own open issues — that is what makes it a tracker —
+ * so a flag would only be a place for a caller to forget the else.
+ *
  * Adding a backend means one new file plus a `case` here, and passing
  * `tests/provider.contract.mjs` unchanged. If a change to the core is needed to
  * add a backend, the abstraction is wrong — fix it here rather than special-
@@ -88,6 +107,19 @@ export const PROVIDERS = ['youtrack', 'github'];
  * @property {boolean} repaired  did anything actually change?
  * @property {string}  [state]   the state read back afterwards (rule 3)
  * @property {string}  [why]     what was stale, or why nothing was
+ */
+
+/**
+ * @typedef {Object} OpenIssueRow
+ * @property {string}  id     'ABC-22' | '#123'
+ * @property {string}  title
+ * @property {string}  state  a ladder state, or UNKNOWN
+ * @property {string}  url
+ *
+ * A row of `listOpen`. `state` arrives resolved to a ladder rung by the
+ * adapter, not to a backend's own vocabulary — an issue carrying no ladder
+ * marking at all reads as the first rung, which is what "untouched" means and
+ * is the case that was invisible before this existed.
  */
 
 /**
