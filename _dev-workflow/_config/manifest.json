@@ -1,8 +1,8 @@
 {
   "installation": {
-    "version": "1.11.0",
+    "version": "1.12.0",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-29T09:14:41.074Z"
+    "lastUpdated": "2026-08-29T16:09:47.394Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -13,7 +13,8 @@
     "dev-ingest-docs",
     "dev-init",
     "dev-standup",
-    "dev-task"
+    "dev-task",
+    "dev-tdd"
   ],
   "files": [
     {
@@ -38,7 +39,7 @@
     },
     {
       "path": "_dev-workflow/lib/config.mjs",
-      "sha256": "32851defc5f6416411a7fc4b211e7e2fc01619b04d17c6db90dda82f0caecf8b"
+      "sha256": "5089e22c2e93b83146a397e0113aad5903222fd5681a13ac880d1331e54604d3"
     },
     {
       "path": "_dev-workflow/lib/docset.mjs",
@@ -50,7 +51,7 @@
     },
     {
       "path": "_dev-workflow/lib/ingest.mjs",
-      "sha256": "6bfa865e112a89bade8470fb237c79050d39aa0286a897470a607463ab95268e"
+      "sha256": "70bc34dc07329e9cb474f1055eff26e357565ef6b9fcacfe3bfd1886ae6e0b77"
     },
     {
       "path": "_dev-workflow/lib/issueid.mjs",
@@ -122,7 +123,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/common.mjs",
-      "sha256": "062270945c127e667608fb0582df6507b7b2e318d869a0d5593b7f64bbe825e6"
+      "sha256": "2f2ae23fd518f763fde2aafd8e28dbb71239e9d7c566cc2a124a62347eb9821c"
     },
     {
       "path": "_dev-workflow/scripts/cmd/config.mjs",
@@ -142,11 +143,11 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/ingest.mjs",
-      "sha256": "91d92b9fb10e96d64c666155cec811cdeb499a982736ac63f080e430ba27bf06"
+      "sha256": "b736af927c83037060917ea4dce5fb5dd9df33921bcbcf7fe1b1b0e23a731468"
     },
     {
       "path": "_dev-workflow/scripts/cmd/land.mjs",
-      "sha256": "f923747e4ce3cf8344689d1766d95234e47be88f22bc9db32d84746f08478f8e"
+      "sha256": "3d214c1e3580a589992b99f4fdb94de98808f9c50369949804390e593a2150b9"
     },
     {
       "path": "_dev-workflow/scripts/cmd/note.mjs",
@@ -182,7 +183,7 @@
     },
     {
       "path": "_dev-workflow/scripts/dev.mjs",
-      "sha256": "36f4e66ec5a2fe5242afb7841a32d69ba99917e6712fa9fd2673d281fc8e5be7"
+      "sha256": "5dacc6cf6c6fb91a1d142a89f04f03bf4e9e1a62cf00a5c81707b3f9c46276f7"
     },
     {
       "path": ".claude/skills/dev-adr/SKILL.md",
@@ -214,7 +215,11 @@
     },
     {
       "path": ".claude/skills/dev-task/SKILL.md",
-      "sha256": "1199dd08c4571cdb8b0539d4d93a0158c5c71aac19d3db3f97c67358877f9263"
+      "sha256": "e0d1858d9831077fc9d02f1dadd9a28c70b23aa1431eef84b557f42d515ab42e"
+    },
+    {
+      "path": ".claude/skills/dev-tdd/SKILL.md",
+      "sha256": "d75fb55f05f33ab3eca7e720000497b0cfb0b5534ae3d09b319b9d439ea18702"
     }
   ]
 }

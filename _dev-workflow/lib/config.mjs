@@ -209,6 +209,22 @@ export const DEFAULTS = {
     adrImmutable: true,
   },
 
+  /**
+   * Whether `/dev-task` drives implementation through `/dev-tdd`.
+   *
+   * The switch follows the `hooks.*` precedent rather than becoming a wizard
+   * question: absent means **on**, so a `.dev-workflow.json` written before this
+   * existed keeps working untouched and express `--update` asks nobody about it.
+   * That is also why it stays out of `bin/lib/config-keys.mjs` — only keys
+   * `buildConfig` writes unconditionally may go there, and this one is not
+   * written at all.
+   *
+   * It is a property of the repository, not of the tracker: a project whose
+   * tests cannot be run one at a time gets nothing from the loop, and saying so
+   * once in the config is better than a session deciding it again every time.
+   */
+  tdd: { enabled: true },
+
   repos: [],
 };
 
@@ -405,6 +421,16 @@ export function formatConfig(config, file, notesFileContent = null) {
     config.metrics === false
       ? 'off'
       : `${config.metricsFile ?? '.dev-workflow.metrics.jsonl'}  (local, never sent anywhere)`,
+  );
+  // /dev-task §6 branches on this, and reads it here rather than opening the
+  // config file itself — the same reason the isolation and delivery modes are
+  // printed above. Absent reads as on, so this line says `on` for every project
+  // that has never heard of the key.
+  push(
+    'tdd:',
+    config.tdd?.enabled === false
+      ? 'off — implement directly; §7 still verifies every criterion'
+      : 'on — /dev-tdd drives one acceptance criterion at a time',
   );
 
   L.push('', 'repos:');
