@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.14.0",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-29T21:41:07.828Z"
+    "lastUpdated": "2026-08-30T03:30:41.754Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -107,7 +107,7 @@
     },
     {
       "path": "_dev-workflow/lib/youtrack.mjs",
-      "sha256": "7f987ad09c48fb46ff6a486f8d388390d431e2b579661f16028f17b3e7b6d081"
+      "sha256": "c80a3be74826666eddf44010ec8f09874cdf849b93d0564c84455ce4030a2b62"
     },
     {
       "path": "_dev-workflow/scripts/cmd/abandon.mjs",
