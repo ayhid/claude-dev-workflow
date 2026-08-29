@@ -309,3 +309,38 @@ test('direct delivery spells out the target, not the fork point', () => {
   assert.match(out, /fast-forward develop/);
   assert.doesNotMatch(out, /fast-forward main/, 'landing on the fork point is the bug being fixed');
 });
+
+// --- tdd.enabled: on unless a project says otherwise -------------------------
+//
+// The switch follows `hooks.*` rather than a wizard question: absent means on,
+// so no `.dev-workflow.json` written before it existed is rewritten and express
+// `--update` asks nobody about it. That property is what these tests hold.
+
+test('tdd is enabled by default', () => {
+  assert.equal(DEFAULTS.tdd.enabled, true);
+});
+
+test('a config with no tdd block reads as enabled', () => {
+  const root = scratch();
+  writeFileSync(join(root, '.dev-workflow.json'), JSON.stringify({ project: 'ABC' }));
+  const { config } = loadConfig({ dir: root, env: {} });
+  assert.equal(config.tdd.enabled, true, 'absent means never answered, and the answer is on');
+});
+
+test('tdd.enabled:false is honoured', () => {
+  const root = scratch();
+  writeFileSync(join(root, '.dev-workflow.json'), JSON.stringify({ tdd: { enabled: false } }));
+  const { config } = loadConfig({ dir: root, env: {} });
+  assert.equal(config.tdd.enabled, false);
+});
+
+// /dev-task reads this off the `config` call it already makes, so a skill needs
+// no second read of the config file — the same reason the isolation and
+// delivery modes are printed above.
+test('formatConfig reports the tdd switch in both positions', () => {
+  const on = deepMerge(DEFAULTS, { baseUrl: 'https://a.cloud', project: 'ABC' });
+  assert.match(formatConfig(on, null), /tdd:\s+on/);
+
+  const off = deepMerge(on, { tdd: { enabled: false } });
+  assert.match(formatConfig(off, null), /tdd:\s+off/);
+});
