@@ -124,10 +124,15 @@ in.
 
 A missing document is reported as one of two different facts, because they call for different
 commands. A document the ledger has never registered as generated has **never been scaffolded** —
-nobody has been asked about it, which is what an updated project sees for a document the set gained
-— and the fix is `docs init`. One the ledger *did* generate and that is now gone has claims and a
-sha256 behind it, so the fix is `docs render <key>`; `docs init` would rewrite it as a stub and lose
-them. The exit code is 1 either way: the document is still missing.
+nobody has been asked about it, which is what an updated project sees for a document the set gained.
+One the ledger *did* generate and that is now gone has claims and a sha256 behind it, so the fix is
+`docs render <key>`; `docs init` would rewrite it as a stub and lose them. The exit code is 1 either
+way: the document is still missing.
+
+The fix for the never-scaffolded one depends on the project's stage, because `docs init` refuses
+anything that is not `greenfield` — and a widened set reaches brownfield projects too. On a
+greenfield project it is `docs init`. Anywhere else it is the route the stub message already names:
+record claims against the key, then `docs render <key>`.
 
 It cannot fail spuriously with time. Nothing in a rendered document comes from the clock: dates are
 the `recordedAt` the ledger already holds, so the same ledger renders the same bytes a year later.

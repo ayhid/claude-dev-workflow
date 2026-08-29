@@ -64,7 +64,7 @@ export async function run(argv) {
     case 'render':
       return cmdRender({ root, documents, argv: rest });
     case 'check':
-      return cmdCheck({ root, documents });
+      return cmdCheck({ config, root, documents });
     default:
       throw new UserError(`unknown verb "${verb}"\n\n${USAGE}`);
   }
@@ -233,8 +233,10 @@ function cmdInit({ config, root, documents, argv }) {
  * stage sends the session down the wrong branch and nothing downstream would
  * notice, so `dev.mjs assess` proposes and a human settles it (rule 2).
  */
+const isGreenfield = (config) => config.stage === 'greenfield';
+
 function requireGreenfield(config) {
-  if (config.stage === 'greenfield') return;
+  if (isGreenfield(config)) return;
   if (config.stage === 'brownfield') {
     throw new UserError(
       'this project is configured as brownfield — it already has documentation to read.\n' +
@@ -364,7 +366,7 @@ function cmdRender({ root, documents, argv }) {
  * document that counted as finished the moment it existed would make this check
  * say nothing at all.
  */
-function cmdCheck({ root, documents }) {
+function cmdCheck({ config, root, documents }) {
   const ledger = loadLedger(root);
   const problems = [];
 
@@ -378,10 +380,19 @@ function cmdCheck({ root, documents }) {
       // drift. One the ledger *did* generate has claims and a sha256 behind it,
       // so `docs render` puts the file back; `docs init` would rewrite it as a
       // stub and lose them. The exit code is 1 either way: it is still missing.
+      //
+      // Which way to start it is the project's stage, and it has to be, because
+      // `docs init` refuses everything that is not greenfield. Printing it
+      // regardless would hand a brownfield project — the one a widened
+      // catalogue reaches through an update it never asked for — a command that
+      // answers the failure by refusing. There the route is the one `docs
+      // status` and the stub message already name: claims first, then render.
       problems.push(
-        generatedSha(ledger, doc.path) === null
-          ? `${doc.path} — has never been scaffolded; run: dev.mjs docs init`
-          : `${doc.path} — was generated and is now missing; run: dev.mjs docs render ${doc.key}`,
+        generatedSha(ledger, doc.path) !== null
+          ? `${doc.path} — was generated and is now missing; run: dev.mjs docs render ${doc.key}`
+          : isGreenfield(config)
+            ? `${doc.path} — has never been scaffolded; run: dev.mjs docs init`
+            : `${doc.path} — has never been scaffolded; record claims against "${doc.key}", then run: dev.mjs docs render ${doc.key}`,
       );
       continue;
     }
