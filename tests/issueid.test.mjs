@@ -89,6 +89,24 @@ test('a github id has one canonical spelling, whatever was typed', () => {
   assert.equal(s.canonical(null), '');
 });
 
+test('only the three github spellings are canonicalised, not everything ending in a number', () => {
+  // Reading the trailing digits out of any argument is the dangerous version of
+  // this: `start ABC-37` in a GitHub project would silently become `#37` and
+  // move an unrelated issue. Unrecognised goes through untouched so the adapter
+  // refuses it by name.
+  const s = idSyntaxFor({ provider: 'github' });
+  assert.equal(s.canonical('ABC-37'), 'ABC-37');
+  assert.equal(s.canonical('draft-37'), 'draft-37');
+  assert.equal(s.canonical('task37'), 'task37');
+  assert.equal(s.canonical('#12a'), '#12a');
+  assert.equal(s.canonical('acme/api12'), 'acme/api12');
+  assert.equal(s.canonical('v1.2.3'), 'v1.2.3');
+  // The three that are IDs still are, `owner/repo#n` included.
+  assert.equal(s.canonical('acme/api#12'), '#12');
+  assert.equal(s.canonical('#12'), '#12');
+  assert.equal(s.canonical('12'), '#12');
+});
+
 test('a youtrack id has only one legal spelling already', () => {
   const s = idSyntaxFor({ provider: 'youtrack', project: 'ABC' });
   assert.equal(s.canonical('ABC-12'), 'ABC-12');
