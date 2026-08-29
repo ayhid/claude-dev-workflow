@@ -49,7 +49,12 @@ import { MANIFEST_PATH, PAYLOAD_DIR, detectDrift, readJson, readManifest, sha256
 
 export { MANIFEST_PATH, PAYLOAD_DIR, detectDrift, readManifest };
 
-const SKILLS_DIR = join('.claude', 'skills');
+/**
+ * Where a project's skills live. Exported because `tools/check-payload.mjs`
+ * sweeps it for installed skills the source no longer plans, and a second
+ * spelling of this path there would be the drift this module exists to prevent.
+ */
+export const SKILLS_DIR = join('.claude', 'skills');
 const SETTINGS_PATH = join('.claude', 'settings.json');
 
 /** Directories copied verbatim from the distribution into `_dev-workflow/`. */

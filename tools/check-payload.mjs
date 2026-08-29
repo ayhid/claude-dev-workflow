@@ -34,10 +34,10 @@
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { dirname, join, relative, sep } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { MANIFEST_PATH, PAYLOAD_DIR, isOwnedPath, planFiles, readManifest } from '../bin/lib/payload.mjs';
+import { MANIFEST_PATH, PAYLOAD_DIR, SKILLS_DIR, isOwnedPath, planFiles, readManifest } from '../bin/lib/payload.mjs';
 
 /**
  * Unplanned paths that are nonetheless legitimate.
@@ -99,34 +99,27 @@ export function ownedRoots(planned) {
  * The roots to sweep: the ones an install plans, plus the ones already on disk.
  *
  * `ownedRoots` can only see what is still planned, and that is exactly blind to
- * the case worth catching. Delete `skills/dev-old/` from the source tree and no
- * planned path yields `.claude/skills/dev-old` any more, so the installed skill
+ * the case worth catching. `_dev-workflow` is one root that never stops being
+ * planned, but a skill is a root *per skill*: delete `skills/dev-old/` and no
+ * planned path yields `.claude/skills/dev-old` any more, so the installed copy
  * is never looked at — while `isOwnedPath` still calls every file in it ours and
- * the installer's delete pass would still remove them. `_dev-workflow` does not
- * have this problem because it is one root that never stops being planned; a
- * skill directory is a root per skill.
+ * the installer's delete pass would still remove them. Deleting the last skill
+ * in the source leaves nothing to derive from at all.
  *
- * The extra roots are *discovered*, not listed: look beside each derived root
- * and take any sibling directory that actually holds a file `isOwnedPath`
- * accepts. The boundary is still the one predicate, and `.claude/skills` is
- * still not written down here.
+ * So the skills directory is *asked* rather than inferred from the plan, and it
+ * is `payload.mjs`'s own `SKILLS_DIR` — the module that decides where skills
+ * land — rather than a second spelling of that path here. `isOwnedPath` stays
+ * the filter, so a directory belonging to another tool is passed over exactly
+ * as it is everywhere else.
  */
 function installedRoots(planned, projectDir) {
   const roots = new Set(ownedRoots(planned));
 
-  for (const root of [...roots]) {
-    const parent = dirname(root);
-    // `_dev-workflow` sits at the project root, and sweeping every sibling of
-    // *that* is the whole project — every other tool's payload included.
-    if (parent === '.' || parent === '') continue;
-
-    const absParent = join(projectDir, parent);
-    if (!existsSync(absParent)) continue;
-
-    for (const entry of readdirSync(absParent, { withFileTypes: true })) {
+  const absSkills = join(projectDir, SKILLS_DIR);
+  if (existsSync(absSkills)) {
+    for (const entry of readdirSync(absSkills, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
-      const candidate = join(parent, entry.name);
-      if (roots.has(candidate)) continue;
+      const candidate = join(SKILLS_DIR, entry.name);
       if (walk(join(projectDir, candidate), projectDir).some(isOwnedPath)) roots.add(candidate);
     }
   }
