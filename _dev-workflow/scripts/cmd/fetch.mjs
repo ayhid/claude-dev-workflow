@@ -12,6 +12,7 @@
  * already ISO-8601, so the same code prints a YouTrack issue and a GitHub one
  * identically — which is also what makes the output diffable across providers.
  */
+import { canonicalId } from '../../lib/issueid.mjs';
 import { context, must, UserError } from './common.mjs';
 
 /** ISO-8601 → `YYYY-MM-DD HH:MM UTC`. */
@@ -19,10 +20,12 @@ const timestamp = (iso) =>
   typeof iso === 'string' && iso ? `${iso.slice(0, 16).replace('T', ' ')} UTC` : 'unknown date';
 
 export async function run(args) {
-  const issueId = args[0];
-  if (!issueId) throw new UserError('usage: dev.mjs fetch <ISSUE-ID>   (e.g. ABC-22)');
+  const rawId = args[0];
+  if (!rawId) throw new UserError('usage: dev.mjs fetch <ISSUE-ID>   (e.g. ABC-22)');
 
-  const { provider } = await context();
+  const { config, provider } = await context();
+  // One spelling from here on — see canonicalId in lib/issueid.mjs (#43).
+  const issueId = canonicalId(config, rawId);
   const issue = must(await provider.getIssue(issueId));
 
   const out = [

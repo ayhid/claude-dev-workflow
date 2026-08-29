@@ -25,6 +25,7 @@
  * @property {string}  ere       POSIX ERE equivalent, for the bash hook
  * @property {string}  sample    shown in error messages
  * @property {(id: string) => number} numberOf
+ * @property {(id: string) => string} canonical  the one spelling of an ID
  */
 
 /** Escape a value for literal use inside a RegExp. */
@@ -51,6 +52,15 @@ export function idSyntaxFor(config) {
       ere: '#[0-9]+',
       sample: '#123',
       numberOf: (id) => Number(/(\d+)\s*$/.exec(String(id))?.[1] ?? 0),
+      // `#12`, `12` and `acme/api#12` all name the same issue once the repo is
+      // pinned by config, and the adapter accepts all three — so the spelling
+      // that reaches the tracker, the branch, the printed line and the metrics
+      // log has to be chosen here rather than by whoever typed it.
+      canonical: (id) => {
+        const raw = String(id ?? '').trim();
+        const n = /(\d+)\s*$/.exec(raw)?.[1];
+        return n ? `#${n}` : raw;
+      },
     };
   }
 
@@ -65,5 +75,30 @@ export function idSyntaxFor(config) {
     ere: DEFAULT_YOUTRACK_ERE,
     sample: key ? `${key}-123` : 'ABC-123',
     numberOf: (id) => Number(/(\d+)\s*$/.exec(String(id))?.[1] ?? 0),
+    // `PROJ-123` has no optional sigil and no second legal spelling, so there is
+    // nothing to normalise but the whitespace an argument list leaves behind.
+    // Case is deliberately left alone: upper-casing would be a guess about a
+    // project key we were given, which is the inference rule 2 forbids.
+    canonical: (id) => String(id ?? '').trim(),
   };
+}
+
+/**
+ * `id`, spelled the one way this project spells it.
+ *
+ * The convenience form of `idSyntaxFor(config).canonical`, because the callers
+ * that need it — every command that reads an ID out of argv — want the string
+ * and nothing else from the syntax.
+ *
+ * Applied once, where argv becomes an ID, so the tracker call, the branch name,
+ * the printed output and the metrics log all see the same spelling. Normalising
+ * further down instead — in the provider, or in the metrics wrapper — would fix
+ * the log and leave the printed `issue:` line disagreeing with it (#43).
+ *
+ * @param {object} config
+ * @param {string} id
+ * @returns {string}
+ */
+export function canonicalId(config, id) {
+  return idSyntaxFor(config).canonical(id);
 }

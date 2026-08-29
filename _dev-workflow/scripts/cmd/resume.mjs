@@ -24,6 +24,7 @@
  * `--print` reports and repairs nothing, which is what makes it safe to run
  * against someone else's branch.
  */
+import { canonicalId } from '../../lib/issueid.mjs';
 import { issueIdFromBranch, worktreePathFor } from '../../lib/branch.mjs';
 import { rankOf } from '../../lib/config.mjs';
 import { sh } from '../../lib/sh.mjs';
@@ -81,7 +82,9 @@ export async function run(args) {
   // same inference `land` makes, and for the same reason: resuming the thing you
   // are standing in should not require typing its number.
   const here = (await vcs.currentBranch(process.cwd())) ?? (await vcs.currentBranch(repoDir));
-  const id = rest[0] ?? (here ? issueIdFromBranch(config, here) : null);
+  // One spelling from here on — see canonicalId in lib/issueid.mjs (#43).
+  const fromBranch = here ? issueIdFromBranch(config, here) : null;
+  const id = rest[0] ? canonicalId(config, rest[0]) : fromBranch;
   if (!id) {
     throw new UserError(
       `no issue ID given, and "${here ?? 'a detached HEAD'}" carries none.\n\n${USAGE}`,

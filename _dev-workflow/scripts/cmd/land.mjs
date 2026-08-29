@@ -18,6 +18,7 @@
  * has shipped a write path whose plan was perfect and whose command the API
  * rejected, so `--apply` is the only thing that demonstrates the write works.
  */
+import { canonicalId } from '../../lib/issueid.mjs';
 import { issueIdFromBranch } from '../../lib/branch.mjs';
 import { deliveryBase, deliveryFor } from '../../lib/config.mjs';
 import { parseCriteria } from '../../lib/metrics.mjs';
@@ -127,7 +128,8 @@ export async function run(args) {
   // worktree at …".
   const repoDir = await vcs.mainCheckout(workDir);
 
-  const id = rest[0] ?? issueIdFromBranch(config, branch);
+  // One spelling from here on — see canonicalId in lib/issueid.mjs (#43).
+  const id = rest[0] ? canonicalId(config, rest[0]) : issueIdFromBranch(config, branch);
   if (!id) {
     throw new UserError(
       `could not read an issue ID out of the branch "${branch}" — pass one: dev.mjs land <ISSUE-ID>`,

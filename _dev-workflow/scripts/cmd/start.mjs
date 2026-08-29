@@ -18,6 +18,7 @@ import {
   worktreePathFor,
 } from '../../lib/branch.mjs';
 import { resolveBranchType } from '../../lib/config.mjs';
+import { canonicalId } from '../../lib/issueid.mjs';
 import { sh } from '../../lib/sh.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
 import { context, resolveRepo, UserError } from './common.mjs';
@@ -39,14 +40,16 @@ function parseArgs(args) {
 
 export async function run(args) {
   const { opts, rest } = parseArgs(args);
-  const id = rest[0];
-  if (!id) {
+  const rawId = rest[0];
+  if (!rawId) {
     throw new UserError(
       'usage: dev.mjs start <ISSUE-ID> [--type T] [--mode worktree|branch] [--repo PATH] [--print]',
     );
   }
 
   const { config, root, provider } = await context();
+  // One spelling from here on — see canonicalId in lib/issueid.mjs (#43).
+  const id = canonicalId(config, rawId);
   const configured = resolveRepo(config, root, opts.repo);
   const vcs = makeVcs({ run: sh });
 
