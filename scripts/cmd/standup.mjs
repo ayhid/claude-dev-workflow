@@ -3,10 +3,10 @@
  *
  *   dev.mjs standup [--since 1d] [--stale 7d] [--repo PATH]
  *
- * Four questions, one command: what merged, what is in flight, what has stopped
- * moving, and the single thing waiting on you. `status --all` answers the
- * middle one; the rest is what a session — or a person on a Monday — actually
- * needs before deciding anything.
+ * Five questions, one command: what merged, what is in flight, what has stopped
+ * moving, what is open on the board, and the single thing waiting on you.
+ * `status --all` answers the second; the rest is what a session — or a person
+ * on a Monday — actually needs before deciding anything.
  *
  * It reports and never writes, and that is a contract rather than an omission:
  * this is the first thing run in the morning, and a command that reconciles the
@@ -44,6 +44,31 @@ function parseArgs(argv) {
     else throw new UserError(`unknown argument '${a}'\n\n${USAGE}`);
   }
   return opts;
+}
+
+/**
+ * The board itself, as facts the renderer can print either way.
+ *
+ * Every other ID this command has came from a branch or a pull request, so an
+ * issue nobody has started contributes none and was invisible to the entire
+ * report — the defect in #35. This is the one read that does not depend on what
+ * happens to be checked out.
+ *
+ * A failure is carried rather than thrown, the same trade the `gh`-missing path
+ * already makes: "I cannot reach the tracker" is a sentence in the report, not
+ * a reason to refuse to say what is checked out. The catch is there for the
+ * SessionStart hook — a greeting that stack-traces because a tracker was down
+ * is worse than one that says the tracker was down.
+ */
+async function readBoard(provider) {
+  try {
+    const r = await provider.listOpen();
+    return r.ok
+      ? { rows: r.data ?? [], truncated: Boolean(r.truncated), error: null }
+      : { rows: [], truncated: false, error: r.error };
+  } catch (err) {
+    return { rows: [], truncated: false, error: err?.message ?? String(err) };
+  }
 }
 
 export async function run(argv) {
@@ -91,12 +116,22 @@ export async function run(argv) {
   // Per issue here would be a process spawn plus a round trip each on a
   // CLI-backed backend, for a command meant to be run every morning.
   const ids = [...new Set([...rows.map((r) => r.issueId), ...merged.map((m) => m.issueId)].filter(Boolean))];
-  const states = ids.length ? await provider.getStates(ids) : new Map();
+
+  // The two tracker reads are independent, so they go out together. Sequential
+  // they cost about half a second more, and this runs inside the SessionStart
+  // hook's 3s ceiling — past which the greeting is dropped entirely. On a
+  // CLI-backed backend the preflight is memoised, so the second call does not
+  // repeat it.
+  const [states, open] = await Promise.all([
+    ids.length ? provider.getStates(ids) : Promise.resolve(new Map()),
+    readBoard(provider),
+  ]);
   const issueOf = (id) => (id ? { id, state: states.get(id) ?? null } : null);
 
   const lines = describeStandup({
     rows: rows.map((row) => ({ ...row, issue: issueOf(row.issueId) })),
     merged: merged.map((pr) => ({ ...pr, issue: issueOf(pr.issueId) })),
+    open,
     config,
     since: opts.since,
     cutoff,
