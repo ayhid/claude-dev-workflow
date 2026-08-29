@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { DEFAULT_YOUTRACK_ERE, idSyntaxFor } from '../lib/issueid.mjs';
+import { canonicalId, DEFAULT_YOUTRACK_ERE, idSyntaxFor } from '../lib/issueid.mjs';
 import { byIssueNumber, extractIssueIds } from '../lib/sync.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -72,4 +72,35 @@ test('the github ERE matches what the hook derives for a github project', () => 
   const m = /if \.provider == "github" then "([^"]+)"/.exec(hook);
   assert.ok(m, 'could not find the github branch in the hook');
   assert.equal(m[1], idSyntaxFor({ provider: 'github' }).ere);
+});
+
+test('a github id has one canonical spelling, whatever was typed', () => {
+  // The bug: `dev.mjs start 37` logged `"id":"37"` while every other row spelled
+  // it `#37`, so nothing downstream could tell they were one ticket (#43).
+  const s = idSyntaxFor({ provider: 'github' });
+  assert.equal(s.canonical('#12'), '#12');
+  assert.equal(s.canonical('12'), '#12');
+  assert.equal(s.canonical(' 12 '), '#12');
+  assert.equal(s.canonical('acme/api#12'), '#12');
+  // Nothing to canonicalise is returned as it came: refusing here would turn a
+  // logging defect into a command that stops working.
+  assert.equal(s.canonical('nonsense'), 'nonsense');
+  assert.equal(s.canonical(''), '');
+  assert.equal(s.canonical(null), '');
+});
+
+test('a youtrack id has only one legal spelling already', () => {
+  const s = idSyntaxFor({ provider: 'youtrack', project: 'ABC' });
+  assert.equal(s.canonical('ABC-12'), 'ABC-12');
+  assert.equal(s.canonical('  ABC-12  '), 'ABC-12');
+  // No sigil to add and no case rule to apply: inventing one would be the guess
+  // rule 2 forbids.
+  assert.equal(s.canonical('abc-12'), 'abc-12');
+});
+
+test('canonicalId reaches the syntax without every caller building one', () => {
+  assert.equal(canonicalId({ provider: 'github' }, '37'), '#37');
+  assert.equal(canonicalId({ provider: 'youtrack', project: 'ABC' }, 'ABC-37'), 'ABC-37');
+  // No config at all is a youtrack project, the same default idSyntaxFor takes.
+  assert.equal(canonicalId(undefined, 'ABC-37'), 'ABC-37');
 });
