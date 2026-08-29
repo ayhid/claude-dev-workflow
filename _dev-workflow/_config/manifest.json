@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.14.0",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-29T19:07:14.197Z"
+    "lastUpdated": "2026-08-29T21:41:07.828Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -55,7 +55,7 @@
     },
     {
       "path": "_dev-workflow/lib/issueid.mjs",
-      "sha256": "8579461c94d376d06caca84dbcf342fc2790f0384769886c4436cbb8e8733e9d"
+      "sha256": "b22f4b3d5d5edbf33f0ea0f4a1cb0bacb00e4dc765a5586775f7f3757d01d056"
     },
     {
       "path": "_dev-workflow/lib/manifest.mjs",
