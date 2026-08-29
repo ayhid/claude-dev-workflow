@@ -132,13 +132,37 @@ export function parseLog(text) {
 }
 
 /**
+ * Do two log rows name the same ticket?
+ *
+ * The writer canonicalises now (`canonicalId` in lib/issueid.mjs), so every row
+ * appended from here on spells a GitHub id `#12`. Logs written before that do
+ * not: an id reached the log exactly as it was typed, so `dev.mjs start 37` and
+ * a close derived from the branch produced `37` and `#37` — two identities, one
+ * ticket, and a cycle whose elapsed time and start count were silently lost
+ * (#43). Fixing only the writer would leave every existing log wrong for ever.
+ *
+ * Deliberately the sigil and nothing else. Case is not folded and the number
+ * alone is not compared: `#` is optional on GitHub and that is the entire
+ * defect, while a looser rule would be a second guess with no evidence behind
+ * it — and this file must not grow an opinion about what a YouTrack key means.
+ *
+ * Reading only. The rows come back exactly as they were written; nothing here
+ * rewrites a log.
+ */
+export function sameIssue(a, b) {
+  const bare = (v) => String(v ?? '').trim().replace(/^#/, '');
+  const left = bare(a);
+  return left !== '' && left === bare(b);
+}
+
+/**
  * The events for `id` since it was last closed — its current cycle.
  *
  * A ticket that is reopened and worked again is a second cycle, and measuring
  * across both would report a fortnight for two days of work.
  */
 export function currentCycle(events, id) {
-  const mine = (events ?? []).filter((e) => e.id === id);
+  const mine = (events ?? []).filter((e) => sameIssue(e.id, id));
   let from = 0;
   for (let i = mine.length - 1; i >= 0; i--) {
     if (CLOSING.has(mine[i].event)) {
