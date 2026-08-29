@@ -43,7 +43,7 @@ import { join, resolve } from 'node:path';
 
 import { issueIdFromBranch } from '../lib/branch.mjs';
 import { loadConfig } from '../lib/config.mjs';
-import { metricsFileOf, parseLog } from '../lib/metrics.mjs';
+import { metricsFileOf, parseLog, sameIssue } from '../lib/metrics.mjs';
 
 /**
  * What one token of each kind costs, relative to one uncached input token.
@@ -217,7 +217,9 @@ export function byTicket(sessions, { config, metrics = [] } = {}) {
   // What the ticket cost in tokens is only half the question; the other half is
   // already recorded by the workflow itself.
   for (const [id, g] of groups) {
-    const closes = metrics.filter((e) => e.id === id && (e.event === 'done' || e.event === 'abandon'));
+    const closes = metrics.filter(
+      (e) => sameIssue(e.id, id) && (e.event === 'done' || e.event === 'abandon'),
+    );
     const close = closes[closes.length - 1];
     g.outcome = close?.event ?? null;
     g.elapsedMs = close?.elapsedMs ?? null;

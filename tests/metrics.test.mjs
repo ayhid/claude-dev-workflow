@@ -279,3 +279,35 @@ test('a bad --criteria is refused before the tracker is touched', async () => {
   assert.doesNotMatch(read('log'), /issue edit/, 'nothing was written to the tracker');
   assert.equal(existsSync(LOG(repo)), false);
 });
+
+// --- rows an older version wrote ---------------------------------------------
+
+// Before #43 the id reached the log exactly as it was typed, so a ticket started
+// with `dev.mjs start 37` and closed by anything that derives the id — `sync`,
+// which reads it back out of a branch — is two identities in one file. Every log
+// written by an older version still holds those rows, and the arithmetic has to
+// join them or the cycles they belong to are lost for good.
+const legacy = [
+  { at: '2026-08-01T09:00:00.000Z', event: 'start', id: '37', state: 'In Progress' },
+  { at: '2026-08-02T09:00:00.000Z', event: 'start', id: '#37', state: 'In Progress' },
+];
+
+test('a bare id and a #-prefixed one are one ticket to the arithmetic', () => {
+  assert.equal(startsSince(legacy, '#37'), 2, 'the close must find the start typed bare');
+  assert.equal(startsSince(legacy, '37'), 2, 'and the join is symmetric');
+  assert.equal(elapsedSince(legacy, '#37', at('2026-08-03T09:00:00.000Z')), 2 * 86_400_000);
+  assert.deepEqual(
+    currentCycle(legacy, '#37').map((e) => e.id),
+    ['37', '#37'],
+    'the rows come back as they were written — this reads the log, it does not rewrite it',
+  );
+});
+
+test('the leniency is the sigil and nothing else', () => {
+  // Narrow on purpose. `#` is optional on GitHub and that is the whole defect;
+  // folding case, or matching on the number alone, would be a second rule with
+  // no evidence behind it — and `ABC-37` is not `#37` under any provider.
+  assert.equal(startsSince([{ event: 'start', id: 'ABC-37' }], '#37'), 0);
+  assert.equal(startsSince([{ event: 'start', id: 'abc-37' }], 'ABC-37'), 0);
+  assert.equal(startsSince([{ event: 'start', id: '#137' }], '#37'), 0);
+});
