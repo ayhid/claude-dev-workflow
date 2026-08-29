@@ -24,7 +24,7 @@ project**: nothing is registered globally, so the skills exist only in repos tha
 | `/dev-done`    | Re-reads the ticket, verifies each criterion with evidence, runs the checks, then lands the work the way the project delivers: pull request, or straight onto the base branch. |
 | `/dev-standup` | Everything in flight across every configured repo: what merged, what is checked out, what has stopped moving, what is still open on the tracker, and the one thing waiting on you. **Never writes.** |
 | `/dev-ingest-docs` | Reads a brownfield project's existing documentation into a verified map: every claim anchored to the code that proves it, contradictions found, and the questions only a person can settle put to you. Runs in steps across sessions. **Never rewrites your docs.** |
-| `/dev-docs-init` | Gives a greenfield project the documents it does not have yet — architecture, domain, operations, testing, security — filled a claim at a time, every line carrying the anchor or the attribution that would show it false. **Writes no prose of its own.** [Reference →](docs/documentation.md) |
+| `/dev-docs-init` | Gives a greenfield project the documents it does not have yet — context, architecture, domain, api, ux, operations, testing, security — filled a claim at a time, every line carrying the anchor or the attribution that would show it false. **Writes no prose of its own.** [Reference →](docs/documentation.md) |
 | `/dev-adr` | Records an architecture decision while the rejected alternatives are still known, then freezes it. An accepted record is superseded, never edited — a hook enforces it. [Reference →](docs/decisions.md) |
 
 Nothing installed is project-specific: instance, project, ticket language, repo layout, state

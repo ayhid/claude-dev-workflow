@@ -1,6 +1,6 @@
 ---
 name: dev-docs-init
-description: Scaffold a greenfield project's documentation — create the architecture, domain, operations, testing and security documents, then fill them a claim at a time, each line carrying the evidence that would show it false. Use when a new project has no documentation yet, when /dev-init reports greenfield, or when the user types /dev-docs-init.
+description: Scaffold a greenfield project's documentation — create the context, architecture, domain, api, ux, operations, testing and security documents, then fill them a claim at a time, each line carrying the evidence that would show it false. Use when a new project has no documentation yet, when /dev-init reports greenfield, or when the user types /dev-docs-init.
 argument-hint: "[optional: one document key, e.g. architecture]"
 ---
 

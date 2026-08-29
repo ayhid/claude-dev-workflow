@@ -447,15 +447,18 @@ Where `/dev-docs-init` writes a greenfield project's documentation, which docume
 
 `deepMerge` merges objects recursively and **replaces arrays outright** — the same rule that lets
 you narrow `commit.types` to three without inheriting the other eight. So listing three documents
-gives you exactly three. Written as an object it would give you those three *plus* the five
+gives you exactly three. Written as an object it would give you those three *plus* the eight
 defaults, silently, which is why an object here is refused rather than merged.
 
 The keys and the filenames they map to:
 
 | key | file | holds |
 | --- | --- | --- |
+| `context` | `docs/context.md` | why this exists, who it is for, what it deliberately does not do |
 | `architecture` | `docs/architecture.md` | components, boundaries, data flow |
 | `domain` | `docs/domain.md` | the glossary — terms, and what they mean *here* |
+| `api` | `docs/api.md` | the external contract: what callers may depend on, and what may change |
+| `ux` | `docs/ux.md` | the user-facing surface: flows, screens, states, and their rules |
 | `operations` | `docs/operations.md` | the runbook: run it, deploy it, what breaks |
 | `testing` | `docs/testing.md` | what is tested, how to run it, what deliberately is not |
 | `security` | `docs/security-model.md` | trust boundaries, secrets, what is assumed |
