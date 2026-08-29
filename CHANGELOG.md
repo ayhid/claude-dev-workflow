@@ -1,3 +1,12 @@
+# [1.14.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.13.0...v1.14.0) (2026-08-29)
+
+
+### Features
+
+* **config:** tdd.enabled — on unless a project says otherwise ([#49](https://github.com/ayhid/claude-dev-workflow/issues/49)) ([4ec6522](https://github.com/ayhid/claude-dev-workflow/commit/4ec6522a96816c65782cec59a61c1e3e45f23196))
+* **task:** hand implementation off to /dev-tdd ([#49](https://github.com/ayhid/claude-dev-workflow/issues/49)) ([1c25c82](https://github.com/ayhid/claude-dev-workflow/commit/1c25c8210bfffc688e02c53a9dc8ba5d1a1ab4b7))
+* **tdd:** the red/green/refactor loop as a shipped skill ([#49](https://github.com/ayhid/claude-dev-workflow/issues/49)) ([adbac24](https://github.com/ayhid/claude-dev-workflow/commit/adbac24d1eea3ddef941162b03e933b2697a05d6))
+
 # [1.13.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.12.0...v1.13.0) (2026-08-29)
 
 
