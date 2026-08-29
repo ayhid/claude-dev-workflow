@@ -20,6 +20,7 @@ import {
   humanAge,
   inFlight,
   mergedSince,
+  OPEN_SHOWN,
   pickNext,
   WAITING,
 } from '../lib/standup.mjs';
@@ -171,8 +172,19 @@ const facts = (patch = {}) => ({
   since: '1d',
   cutoff: daysAgo(1),
   staleAfter: 7,
+  // A tracker that was read and found nothing — the ordinary case. The tests
+  // that care about an unread board say so by passing `open: null` or an error.
+  open: { rows: [], truncated: false, error: null },
   now: NOW,
   ...patch,
+});
+
+/** An open-issue row as `provider.listOpen` returns one. */
+const openRow = (n, state = 'Backlog', title = `issue ${n}`) => ({
+  id: `#${n}`,
+  title,
+  state,
+  url: `https://github.com/o/r/issues/${n}`,
 });
 
 test('every section says it is empty rather than vanishing', () => {
@@ -180,7 +192,8 @@ test('every section says it is empty rather than vanishing', () => {
   assert.match(out, /nothing merged in the window/);
   assert.match(out, /no ticket branches/);
   assert.match(out, /nothing has been sitting that long/);
-  assert.match(out, /nothing in flight — pick a ticket/);
+  assert.match(out, /no open issues/);
+  assert.match(out, /nothing in flight and nothing open/);
 });
 
 test('the same facts print the same bytes', () => {
@@ -211,6 +224,82 @@ test('stale is a measurement, and the threshold is always printed', () => {
   assert.match(out, /stale — no commit for 7d/);
   assert.match(out, /#19 {6}3w/);
   assert.doesNotMatch(out, /#12 {6}1d {5}\d+ commit/, 'a branch touched yesterday is not stale');
+});
+
+// --- the board itself (#35) -------------------------------------------------------
+
+test('open issues nothing has branched for get a section of their own', () => {
+  const out = describeStandup(facts({
+    open: { rows: [openRow(14), openRow(33, 'In Progress', 'cost of a workflow change')], truncated: false, error: null },
+  })).join('\n');
+
+  assert.match(out, /open in the tracker/);
+  // Newest first: a backlog is read from the top, unlike a worklist.
+  assert.match(out, /#33 +In Progress +cost of a workflow change/);
+  assert.match(out, /#14 +Backlog/);
+  assert.ok(out.indexOf('#33') < out.indexOf('#14'), 'newest first');
+});
+
+test('an issue already in flight is not listed a second time', () => {
+  const out = describeStandup(facts({
+    rows: [{ issue: { id: '#14', state: 'In Progress' }, branch: 'fix/14-x', dirty: 0, commits: 3, lastCommit: daysAgo(0), pr: null }],
+    merged: [{ number: 27, title: 'feat: done', mergedAt: daysAgo(0), issue: { id: '#25', state: 'Done' } }],
+    open: { rows: [openRow(14), openRow(25)], truncated: false, error: null },
+  })).join('\n');
+
+  const section = out.slice(out.indexOf('open in the tracker'), out.indexOf('\nnext'));
+  assert.doesNotMatch(section, /#14/, 'it is in the in-flight table above');
+  assert.doesNotMatch(section, /#25/, 'it is in the merged section above');
+  assert.match(section, /nothing open that is not already in flight above/);
+});
+
+test('an unreachable tracker says so instead of reading as a clear board', () => {
+  const out = describeStandup(facts({
+    open: { rows: [], truncated: false, error: 'gh is not authenticated — run: gh auth login' },
+  })).join('\n');
+
+  assert.match(out, /could not read the tracker: gh is not authenticated/);
+  // The defect in #35: a claim about the whole board from a command that never
+  // read it. With the board unread the sentence must be scoped to what was.
+  assert.match(out, /the board is unread/);
+  assert.doesNotMatch(out, /the board is clear/);
+});
+
+test('a board that was never read is not a board that is empty', () => {
+  const out = describeStandup(facts({ open: null })).join('\n');
+  assert.match(out, /\(not read\)/);
+  assert.match(out, /the board is unread/);
+  assert.doesNotMatch(out, /no open issues/);
+});
+
+test('the open list is capped, and says how many it did not print', () => {
+  const rows = Array.from({ length: OPEN_SHOWN + 3 }, (_, i) => openRow(100 + i));
+  const out = describeStandup(facts({ open: { rows, truncated: false, error: null } })).join('\n');
+
+  const section = out.slice(out.indexOf('open in the tracker'), out.indexOf('\nnext'));
+  assert.equal(section.split('\n').filter((l) => /^ {2}#\d/.test(l)).length, OPEN_SHOWN);
+  assert.match(section, /… and 3 more open — see the tracker/);
+});
+
+test('a truncated read counts open-endedly rather than under-reporting', () => {
+  const rows = Array.from({ length: OPEN_SHOWN + 1 }, (_, i) => openRow(100 + i));
+  const out = describeStandup(facts({ open: { rows, truncated: true, error: null } })).join('\n');
+  // 1 hidden that we know of, and an unknown number we never fetched. Printing
+  // a bare "1 more" would be the same over-claim in miniature.
+  assert.match(out, /… and 1\+ more open/);
+});
+
+test('next points at the board when nothing in flight is yours, and never picks from it', () => {
+  const out = describeStandup(facts({
+    rows: [{ issue: { id: '#3', state: 'In Review' }, pr: { number: 1, state: 'OPEN' }, dirty: 0, branch: 'b3' }],
+    open: { rows: [openRow(41), openRow(42)], truncated: false, error: null },
+  })).join('\n');
+
+  const next = out.slice(out.indexOf('\nnext'));
+  assert.match(next, /2 open above, unstarted: dev\.mjs start <ISSUE-ID>/);
+  // Ranking stays in-flight-only: starting something is a decision, and the
+  // section above is where it gets made.
+  assert.doesNotMatch(next, /#41|#42/);
 });
 
 test('an unreadable PR state is reported once, not as "no PR"', () => {
@@ -251,6 +340,12 @@ test('standup reports the board, and writes nothing', async () => {
   assert.match(r.stdout, /next\n {2}#12 — 1 uncommitted change/);
   assert.doesNotMatch(r.stdout, /main/, 'the base branch is not work in flight');
 
+  // #35: an issue with no branch and no PR contributes no ID to any other read
+  // here, so this section is the only thing that can see it at all.
+  assert.match(r.stdout, /open in the tracker\n {2}#41 +Backlog +nobody has started this/);
+  const board = r.stdout.slice(r.stdout.indexOf('open in the tracker'), r.stdout.indexOf('\nnext'));
+  assert.doesNotMatch(board, /#12/, '#12 is in the in-flight table above');
+
   // A report writes nothing, ever.
   const log = read('log');
   assert.doesNotMatch(log, /issue edit/);
@@ -264,4 +359,10 @@ test('standup runs without the GitHub CLI and says which half is missing', async
   assert.equal(r.code, 0, 'a missing gh is not a reason to refuse to say what is checked out');
   assert.match(r.stdout, /in flight/);
   assert.match(r.stdout, /PR state unavailable/);
+
+  // The board degrades the same way, and must not read as an empty one: an
+  // unread tracker and a clear board are the same picture otherwise (#35).
+  assert.match(r.stdout, /could not read the tracker/);
+  assert.doesNotMatch(r.stdout, /no open issues/);
+  assert.match(r.stdout, /the board is unread/);
 });

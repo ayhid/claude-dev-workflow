@@ -52,8 +52,18 @@ case "\${1:-} \${2:-}" in
   "issue view")
     printf '{"number":12,"title":"Half a thing","body":"","state":"OPEN","stateReason":null,"url":"https://github.com/o/r/issues/12","labels":[%s],"assignees":[],"author":{"login":"a"},"createdAt":"2026-01-01T00:00:00Z","comments":[]}\\n' "$(cat "$GH_STATE")"
     ;;
+  # Two questions share this verb. \`--search\` is the dup-check, and answers
+  # about issue 12 as it always has. A plain listing is \`listOpen\`, and has to
+  # carry an issue nobody has branched for — otherwise the standup section for
+  # exactly that case can never be exercised end to end.
   "issue list")
-    printf '[{"number":12,"state":"OPEN","stateReason":null,"labels":[%s]}]\\n' "$(cat "$GH_STATE")"
+    has_search=""
+    for a in "$@"; do [ "$a" = "--search" ] && has_search=1; done
+    if [ -n "$has_search" ]; then
+      printf '[{"number":12,"state":"OPEN","stateReason":null,"labels":[%s]}]\\n' "$(cat "$GH_STATE")"
+    else
+      printf '[{"number":41,"title":"nobody has started this","state":"OPEN","stateReason":null,"url":"https://github.com/o/r/issues/41","labels":[]},{"number":12,"title":"Half a thing","state":"OPEN","stateReason":null,"url":"https://github.com/o/r/issues/12","labels":[%s]}]\\n' "$(cat "$GH_STATE")"
+    fi
     ;;
   "api graphql")
     # The batched state read. Answers by exact number, like the real one: the

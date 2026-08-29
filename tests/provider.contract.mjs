@@ -43,6 +43,7 @@ export function runContractSuite(label, h) {
       'getState',
       'getStates',
       'search',
+      'listOpen',
       'resolveProject',
       'whoami',
       'setState',
@@ -130,6 +131,57 @@ export function runContractSuite(label, h) {
     const p = await h.make();
     const batch = await p.getStates([]);
     assert.equal(batch.size, 0);
+  });
+
+  // --- enumerating the board ---------------------------------------------------
+  //
+  // The question `getStates` cannot answer: it needs IDs, and every ID the core
+  // has came from a branch or a PR. An issue nobody branched for is invisible
+  // to every other read in this interface.
+
+  t('listOpen returns rows carrying an id, a title, a state and a url', async () => {
+    const p = await h.make();
+    const r = await p.listOpen();
+    assert.ok(r.ok, r.error);
+    assert.ok(Array.isArray(r.data), 'listOpen returns an array');
+    assert.equal(typeof r.truncated, 'boolean', 'a caller must be able to tell a full page from the whole board');
+
+    for (const row of r.data) {
+      assert.equal(typeof row.id, 'string');
+      assert.ok(row.id.length > 0, 'a row with no id cannot be acted on');
+      assert.equal(typeof row.title, 'string', 'title is a string even when empty');
+      assert.equal(typeof row.state, 'string', 'state arrives resolved, not as a backend value shape');
+      assert.equal(typeof row.url, 'string');
+    }
+  });
+
+  t('rule 4: listOpen returns the same bytes twice', async () => {
+    const p = await h.make();
+    const a = await p.listOpen();
+    const b = await p.listOpen();
+    assert.deepEqual(a.data, b.data, 'an unsorted listing reorders run to run');
+  });
+
+  t('listOpen honours its limit and says when it hit it', async () => {
+    const p = await h.make();
+    const all = await p.listOpen();
+    assert.ok(all.ok, all.error);
+    if (all.data.length === 0) return; // nothing to truncate; the shape is asserted above
+
+    const one = await p.listOpen({ limit: 1 });
+    assert.ok(one.ok, one.error);
+    assert.ok(one.data.length <= 1, 'limit is a cap, not a suggestion');
+    if (all.data.length > 1) {
+      assert.equal(one.truncated, true, 'a caller that saw one of many must be told so');
+    }
+  });
+
+  t('a failing transport makes listOpen report rather than throw', async () => {
+    const p = await h.makeFailing();
+    const r = await p.listOpen();
+    assert.equal(r.ok, false, 'an unreachable tracker is not an empty board');
+    assert.equal(typeof r.error, 'string');
+    assert.ok(r.error.length > 0, 'a failure must say why — the caller prints this');
   });
 
   // --- state vs. its representation -------------------------------------------
