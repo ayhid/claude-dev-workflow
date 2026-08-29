@@ -371,7 +371,18 @@ function cmdCheck({ root, documents }) {
   for (const doc of writable(documents)) {
     const abs = resolve(root, doc.path);
     if (!existsSync(abs)) {
-      problems.push(`${doc.path} — does not exist; run: dev.mjs docs init`);
+      // Absent from disk is two different facts, and the ledger is what tells
+      // them apart. A document it has never registered as generated is one
+      // nobody has been asked about — which is every project's experience of a
+      // widened catalogue (#53) — so it is reported as work not started, not as
+      // drift. One the ledger *did* generate has claims and a sha256 behind it,
+      // so `docs render` puts the file back; `docs init` would rewrite it as a
+      // stub and lose them. The exit code is 1 either way: it is still missing.
+      problems.push(
+        generatedSha(ledger, doc.path) === null
+          ? `${doc.path} — has never been scaffolded; run: dev.mjs docs init`
+          : `${doc.path} — was generated and is now missing; run: dev.mjs docs render ${doc.key}`,
+      );
       continue;
     }
     const text = readFileSync(abs, 'utf8');
