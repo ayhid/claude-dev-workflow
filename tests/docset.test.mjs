@@ -23,6 +23,7 @@ import {
   DEFAULT_DOC_SET,
   DOC_CATALOGUE,
   DOC_KEYS,
+  docSetPaths,
   isPlaceholder,
   PLACEHOLDER_MARKER,
   renderDocument,
@@ -137,10 +138,21 @@ function sources(dir = '', out = []) {
 
 // --- the collision the filename sidesteps --------------------------------------
 
-test('every document in the catalogue is something ingest scan would inventory', () => {
-  for (const d of resolveDocSet({}).documents) {
-    if (!d.writable) continue;
-    assert.equal(classifyPath(d.path), 'doc', `${d.path} is invisible to ingest scan`);
+test('every path the catalogue can emit is something ingest scan would inventory', () => {
+  // Over `docSetPaths`, not over the default set: it resolves the **whole**
+  // catalogue, so an entry a project has to opt into is covered too. That is
+  // the security-model.md lesson (#41) generalised — `GENERATED` tests the
+  // basename before the `docs/` rule, so a target the set emits can be a
+  // document `ingest scan` never inventories, and nothing but this notices.
+  //
+  // The decisions pointer is the one exclusion: it is a directory, not a file,
+  // and there is no classification to make about it.
+  const decisions = resolveDocSet({}).documents.find((d) => !d.writable).path;
+  const paths = docSetPaths({}).filter((p) => p !== decisions);
+
+  assert.equal(paths.length, DOC_KEYS.length - 1, 'docSetPaths must cover the whole catalogue');
+  for (const path of paths) {
+    assert.equal(classifyPath(path), 'doc', `${path} is invisible to ingest scan`);
   }
 });
 
