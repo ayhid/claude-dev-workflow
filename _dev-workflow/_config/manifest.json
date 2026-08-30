@@ -1,8 +1,8 @@
 {
   "installation": {
-    "version": "1.15.0",
+    "version": "1.15.1",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-30T03:37:02.498Z"
+    "lastUpdated": "2026-08-30T10:12:33.208Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -12,6 +12,7 @@
     "dev-done",
     "dev-ingest-docs",
     "dev-init",
+    "dev-review",
     "dev-standup",
     "dev-task",
     "dev-tdd"
@@ -103,7 +104,7 @@
     },
     {
       "path": "_dev-workflow/lib/vcs.mjs",
-      "sha256": "61101506c72a14119cc504ba65c7ff6edff55ca96468221a2f127696c96f5c73"
+      "sha256": "5183d17be44dd746ac1aa73b46e23bb202a453254f1a3dc61dff66e7f7b6aa0b"
     },
     {
       "path": "_dev-workflow/lib/youtrack.mjs",
@@ -158,6 +159,10 @@
       "sha256": "d871e82bae7a82a142485dbdbca446780ca304a98ec409c5d7319fc7ac3263f3"
     },
     {
+      "path": "_dev-workflow/scripts/cmd/review.mjs",
+      "sha256": "448cb018474f8682de34ac8e5aa53110c70fa814ddd1a3ccbfbedd610199264d"
+    },
+    {
       "path": "_dev-workflow/scripts/cmd/standup.mjs",
       "sha256": "9ad4ba78d4d9126f478915ebc4b6b3717c4a7b023d1956e6cfc53b10a6bc5244"
     },
@@ -183,7 +188,7 @@
     },
     {
       "path": "_dev-workflow/scripts/dev.mjs",
-      "sha256": "5dacc6cf6c6fb91a1d142a89f04f03bf4e9e1a62cf00a5c81707b3f9c46276f7"
+      "sha256": "aefe3e9faf784498248e65c33c28d92cbdf6755fe8103e6c2ba130f66922085a"
     },
     {
       "path": ".claude/skills/dev-adr/SKILL.md",
@@ -208,6 +213,22 @@
     {
       "path": ".claude/skills/dev-init/SKILL.md",
       "sha256": "3670cfbe0b486eee24e7e247c248d45b09dcf7aed2ff44ea803f36451fc2aef8"
+    },
+    {
+      "path": ".claude/skills/dev-review/lenses/audit.md",
+      "sha256": "379657f77f24eafb3bc1d4202f205e9edbcd05c9f906b596f54ecbb88bd4a15c"
+    },
+    {
+      "path": ".claude/skills/dev-review/lenses/blind.md",
+      "sha256": "8e9d962ee0c0d8b80896f8b2f6ae7f94f4f54da02a8c11131a4e4d0507fc4dee"
+    },
+    {
+      "path": ".claude/skills/dev-review/lenses/edge.md",
+      "sha256": "fbc51ea517d6026976d027ff0e8ebdab2fc20876b93f36003112e2ea26fa6832"
+    },
+    {
+      "path": ".claude/skills/dev-review/SKILL.md",
+      "sha256": "62a0efa553ebcfa19e549e1d12d9c5ce91cb1ee7fbadf16964b8218c5a741341"
     },
     {
       "path": ".claude/skills/dev-standup/SKILL.md",
