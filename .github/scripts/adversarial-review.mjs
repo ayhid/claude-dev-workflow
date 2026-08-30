@@ -8,7 +8,7 @@
  *
  * Env:
  *   MISTRAL_API_KEY   required
- *   MISTRAL_MODEL     optional, defaults to mistral-large-latest
+ *   MISTRAL_MODEL     optional, defaults to mistral-small-latest
  *   DIFF_PATH         required, path to the unified diff
  *   CONTEXT_PATH      optional, concatenated source of the changed files
  *   INTENT_PATH       optional, PR title + body + linked issue text
@@ -51,6 +51,24 @@ function read(path, cap) {
 }
 
 /**
+ * How long to wait before retrying a rate-limited call.
+ *
+ * The server's own Retry-After wins when it sends one — it knows when the window
+ * reopens and we are guessing. Otherwise exponential from 2s, which clears a
+ * per-second free-tier limit without making a stuck job wait minutes.
+ */
+export function backoffDelay(attempt, retryAfter) {
+  const stated = Number(retryAfter);
+  if (Number.isFinite(stated) && stated > 0) return Math.min(stated * 1000, 30_000);
+  return Math.min(2000 * 2 ** attempt, 30_000);
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Retried only on 429. A 403 or a 400 says the same thing however long you wait. */
+const RATE_LIMIT_RETRIES = 3;
+
+/**
  * One lens. Returns findings, never prose.
  *
  * `response_format: json_object` is the ask, but not the guarantee — a model can
@@ -59,41 +77,52 @@ function read(path, cap) {
  * loses one lens is worth more than one that posts nothing.
  */
 async function call(system, user, lens) {
-  let res;
-  try {
-    res = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.MISTRAL_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        temperature: 0.2,
-        max_tokens: 4000,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-      }),
-    });
-  } catch (err) {
-    return { name: lens, error: `request failed: ${err.message}` };
+  for (let attempt = 0; ; attempt++) {
+    let res;
+    try {
+      res = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.MISTRAL_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          temperature: 0.2,
+          max_tokens: 4000,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+        }),
+      });
+    } catch (err) {
+      return { name: lens, error: `request failed: ${err.message}` };
+    }
+
+    // A rate limit is a "not yet". Every other status says the same thing
+    // however long you wait, so only this one is worth coming back for.
+    if (res.status === 429 && attempt < RATE_LIMIT_RETRIES) {
+      const wait = backoffDelay(attempt, res.headers.get("retry-after"));
+      console.error(`${lens}: rate limited, retrying in ${wait}ms (${attempt + 1}/${RATE_LIMIT_RETRIES})`);
+      await sleep(wait);
+      continue;
+    }
+
+    if (!res.ok) {
+      const body = await res.text();
+      return { name: lens, error: `HTTP ${res.status} — ${body.slice(0, 200)}` };
+    }
+
+    const content = (await res.json()).choices?.[0]?.message?.content ?? "";
+    const parsed = parseFindings(content);
+    if (!parsed) return { name: lens, error: "returned something that was not JSON" };
+
+    const { findings, dropped } = normalizeFindings(parsed, lens);
+    if (dropped) console.error(`${lens}: dropped ${dropped} finding(s) with nothing to act on`);
+    return { name: lens, findings };
   }
-
-  if (!res.ok) {
-    const body = await res.text();
-    return { name: lens, error: `HTTP ${res.status} — ${body.slice(0, 200)}` };
-  }
-
-  const content = (await res.json()).choices?.[0]?.message?.content ?? "";
-  const parsed = parseFindings(content);
-  if (!parsed) return { name: lens, error: "returned something that was not JSON" };
-
-  const { findings, dropped } = normalizeFindings(parsed, lens);
-  if (dropped) console.error(`${lens}: dropped ${dropped} finding(s) with nothing to act on`);
-  return { name: lens, findings };
 }
 
 /** Tolerate a fenced block or leading prose around the object we asked for. */
@@ -139,11 +168,19 @@ const auditPayload =
   `<intent>\n${intent || "No intent was supplied. This is itself your first finding."}\n</intent>\n\n` +
   `<diff>\n${diff}\n</diff>\n\n<changed_files>\n${context}\n</changed_files>`;
 
-const lenses = await Promise.all([
-  call(BLIND, blindPayload, "blind"),
-  call(EDGE, edgePayload, "edge"),
-  call(AUDIT, auditPayload, "audit"),
-]);
+// Sequential, not Promise.all. Three simultaneous calls on one key is precisely
+// the shape that trips a per-second rate limit, and it did: a whole review lost
+// to 429s that a second of spacing avoids. The lenses are independent in what
+// they SEE, which is the property that matters; firing them at one instant buys
+// a few seconds of wall clock and costs the review.
+const lenses = [];
+for (const [system, payload, name] of [
+  [BLIND, blindPayload, "blind"],
+  [EDGE, edgePayload, "edge"],
+  [AUDIT, auditPayload, "audit"],
+]) {
+  lenses.push(await call(system, payload, name));
+}
 
 for (const l of lenses) if (l.error) console.error(`${l.name}: ${l.error}`);
 
