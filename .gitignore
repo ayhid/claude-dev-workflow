@@ -21,3 +21,6 @@ node_modules/
 # the drift signal `git diff _dev-workflow/` gives. Same rule as the two above —
 # ours to add, because the installer writes only the paths it plans.
 _dev-workflow/_config/updatecheck.json
+
+# coverage, produced by npm run test:coverage
+lcov.info

@@ -9,6 +9,7 @@
   "scripts": {
     "lint": "bash tests/lint.sh",
     "test:unit": "node --test tests/*.test.mjs",
+  "test:coverage": "node --test --experimental-test-coverage --test-coverage-exclude='tests/**' --test-coverage-exclude='commitlint.config.mjs' --test-reporter=lcov --test-reporter-destination=lcov.info --test-reporter=spec --test-reporter-destination=stdout tests/*.test.mjs",
     "test:hook": "bash tests/hook.test.sh && bash tests/adr-hook.test.sh && bash tests/session-hook.test.sh",
     "test": "npm run lint && npm run check:payload && npm run test:unit && npm run test:hook",
     "check:payload": "node tools/check-payload.mjs",
