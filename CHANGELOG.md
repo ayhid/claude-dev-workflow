@@ -1,3 +1,16 @@
+# [1.17.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.16.0...v1.17.0) (2026-08-30)
+
+
+### Bug Fixes
+
+* **no-ticket:** do not review what the installer generated ([f1176d6](https://github.com/ayhid/claude-dev-workflow/commit/f1176d677a66f95cb1e3ec0ab86f07a740d2e8f7))
+
+
+### Features
+
+* **no-ticket:** build the review payloads in one command ([0904e6d](https://github.com/ayhid/claude-dev-workflow/commit/0904e6d041d081947fc37a397b60dea0b70b08a4))
+* **no-ticket:** three adversarial review lenses, in one place ([547724a](https://github.com/ayhid/claude-dev-workflow/commit/547724a24cd62f27da24e6b7c79035d63e56c25f))
+
 # [1.16.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.15.1...v1.16.0) (2026-08-30)
 
 
