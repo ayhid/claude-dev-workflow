@@ -22,6 +22,7 @@ const MAX_CONTEXT_CHARS = 200_000;
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { normalizeFindings, renderReport } from "../../lib/review.mjs";
 
 // The lenses are not defined here. They live in skills/dev-review/lenses/ and are
 // the same files the /dev-review skill reads, so a lens edited for one consumer
@@ -49,31 +50,66 @@ function read(path, cap) {
     : raw;
 }
 
-async function call(system, user, label) {
-  const res = await fetch(API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.MISTRAL_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      temperature: 0.2,
-      max_tokens: 3000,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-    }),
-  });
+/**
+ * One lens. Returns findings, never prose.
+ *
+ * `response_format: json_object` is the ask, but not the guarantee — a model can
+ * still return a fenced block or an apology. Parsing is therefore forgiving and a
+ * failure degrades to a reported lens rather than a failed run: a review that
+ * loses one lens is worth more than one that posts nothing.
+ */
+async function call(system, user, lens) {
+  let res;
+  try {
+    res = await fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.MISTRAL_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        temperature: 0.2,
+        max_tokens: 4000,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      }),
+    });
+  } catch (err) {
+    return { name: lens, error: `request failed: ${err.message}` };
+  }
 
   if (!res.ok) {
     const body = await res.text();
-    return `_${label} failed: HTTP ${res.status}._\n\n\`\`\`\n${body.slice(0, 500)}\n\`\`\``;
+    return { name: lens, error: `HTTP ${res.status} — ${body.slice(0, 200)}` };
   }
 
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content?.trim() || "_Empty response._";
+  const content = (await res.json()).choices?.[0]?.message?.content ?? "";
+  const parsed = parseFindings(content);
+  if (!parsed) return { name: lens, error: "returned something that was not JSON" };
+
+  const { findings, dropped } = normalizeFindings(parsed, lens);
+  if (dropped) console.error(`${lens}: dropped ${dropped} finding(s) with nothing to act on`);
+  return { name: lens, findings };
+}
+
+/** Tolerate a fenced block or leading prose around the object we asked for. */
+function parseFindings(text) {
+  const attempts = [text, text.replace(/^[\s\S]*?```(?:json)?\n/, "").replace(/```[\s\S]*$/, "")];
+  const brace = text.indexOf("{");
+  if (brace >= 0) attempts.push(text.slice(brace, text.lastIndexOf("}") + 1));
+  for (const a of attempts) {
+    try {
+      const v = JSON.parse(a);
+      if (v && typeof v === "object") return v;
+    } catch {
+      /* try the next shape */
+    }
+  }
+  return null;
 }
 
 const OUT = process.env.OUT_PATH || "review.md";
@@ -103,49 +139,22 @@ const auditPayload =
   `<intent>\n${intent || "No intent was supplied. This is itself your first finding."}\n</intent>\n\n` +
   `<diff>\n${diff}\n</diff>\n\n<changed_files>\n${context}\n</changed_files>`;
 
-const [blind, edge, audit] = await Promise.all([
-  call(BLIND, blindPayload, "Blind hunter"),
-  call(EDGE, edgePayload, "Edge case hunter"),
-  call(AUDIT, auditPayload, "Acceptance auditor"),
+const lenses = await Promise.all([
+  call(BLIND, blindPayload, "blind"),
+  call(EDGE, edgePayload, "edge"),
+  call(AUDIT, auditPayload, "audit"),
 ]);
 
-const report = `## Adversarial review
+for (const l of lenses) if (l.error) console.error(`${l.name}: ${l.error}`);
 
-Three passes over the same diff, run independently. Model: \`${MODEL}\`.
-
-<details open>
-<summary><b>Blind hunter</b> — reviewed the diff with no PR description, issue or commit messages</summary>
-
-${blind}
-
-</details>
-
-<details open>
-<summary><b>Edge case hunter</b> — the inputs that break it</summary>
-
-${edge}
-
-</details>
-
-<details open>
-<summary><b>Acceptance auditor</b> — code against intent, and intent against itself</summary>
-
-${audit}
-
-</details>
-
----
-
-**Triage.** Sort each finding into one bucket before acting on it.
-_intent-gap_: the code is wrong, fix the code.
-_bad-spec_: the code faithfully implements a wrong spec, fix the spec first.
-_patch_: a real local defect, fix it now.
-_deferred_: legitimate but out of scope, open an issue.
-
-A finding raised only by the blind hunter that the intent already covers is usually a
-readability problem, not a defect. A finding raised by both the blind hunter and the
-auditor is almost always real.
-`;
+const report = renderReport({
+  lenses,
+  model: MODEL,
+  meta: {
+    files: Number(process.env.CHANGED_FILES) || undefined,
+    lines: Number(process.env.CHANGED_LINES) || undefined,
+  },
+});
 
 writeFileSync(OUT, report);
 console.error("Report written.");

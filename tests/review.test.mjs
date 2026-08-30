@@ -15,6 +15,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { makeVcs, DEFAULT_DIFF_EXCLUDES } from '../lib/vcs.mjs';
+import { normalizeFindings, markAgreement, renderReport, anchorOf } from '../lib/review.mjs';
 import { buildContext } from '../scripts/cmd/review.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -159,4 +160,126 @@ test('the skill points at the lenses it ships beside', () => {
   for (const lens of ['blind', 'edge', 'audit']) {
     assert.ok(skill.includes(`lenses/${lens}.md`), `SKILL.md should name lenses/${lens}.md`);
   }
+});
+
+// --- findings: schema and rendering -------------------------------------------
+
+const F = (over = {}) => ({
+  file: 'lib/a.mjs', line: 10, severity: 'major', bucket: 'patch',
+  title: 'a thing is wrong', problem: 'it does the wrong thing',
+  consequence: 'callers get bad data', fix: 'do the right thing', ...over,
+});
+
+test('a finding with no title has nothing to act on and is dropped', () => {
+  const { findings, dropped } = normalizeFindings({ findings: [F(), { file: 'x.mjs' }, null] }, 'blind');
+  assert.equal(findings.length, 1);
+  assert.equal(dropped, 2);
+});
+
+test('a model that returns a bad severity does not fail the review', () => {
+  const { findings } = normalizeFindings({ findings: [F({ severity: 'catastrophic' })] }, 'blind');
+  assert.equal(findings[0].severity, 'minor', 'falls back rather than printing a severity nobody defined');
+});
+
+test('a line given as a string is still an anchor', () => {
+  const { findings } = normalizeFindings({ findings: [F({ line: '42' })] }, 'edge');
+  assert.equal(findings[0].line, 42);
+  assert.equal(anchorOf(findings[0]), 'lib/a.mjs:42');
+});
+
+test('an unplaceable finding degrades to the file rather than claiming line 0', () => {
+  const { findings } = normalizeFindings({ findings: [F({ line: null })] }, 'edge');
+  assert.equal(findings[0].line, null);
+  assert.equal(anchorOf(findings[0]), 'lib/a.mjs');
+});
+
+test('ids are stable across runs, so a repeat finding is recognisable', () => {
+  const a = normalizeFindings({ findings: [F()] }, 'blind').findings[0];
+  const b = normalizeFindings({ findings: [F()] }, 'blind').findings[0];
+  assert.equal(a.id, b.id);
+  const c = normalizeFindings({ findings: [F()] }, 'edge').findings[0];
+  assert.notEqual(a.id, c.id, 'the same defect from a different lens is a different finding');
+});
+
+test('two lenses landing on one line is the signal worth surfacing', () => {
+  const marked = markAgreement([
+    ...normalizeFindings({ findings: [F()] }, 'blind').findings,
+    ...normalizeFindings({ findings: [F({ title: 'said differently' })] }, 'audit').findings,
+    ...normalizeFindings({ findings: [F({ line: 99 })] }, 'edge').findings,
+  ]);
+  assert.deepEqual(marked[0].alsoRaisedBy, ['audit']);
+  assert.deepEqual(marked[1].alsoRaisedBy, ['blind']);
+  assert.deepEqual(marked[2].alsoRaisedBy, [], 'a lone finding agrees with nobody');
+});
+
+test('unanchored findings are never called agreement', () => {
+  const marked = markAgreement([
+    ...normalizeFindings({ findings: [F({ line: null })] }, 'blind').findings,
+    ...normalizeFindings({ findings: [F({ line: null })] }, 'audit').findings,
+  ]);
+  assert.deepEqual(marked[0].alsoRaisedBy, []);
+});
+
+test('the report is ordered worst-first and byte-identical on a re-render', () => {
+  const input = {
+    model: 'm',
+    meta: { files: 2, lines: 40 },
+    lenses: [
+      { name: 'blind', findings: normalizeFindings({ findings: [F({ severity: 'nit', title: 'z' }), F({ severity: 'blocker', title: 'a' })] }, 'blind').findings },
+    ],
+  };
+  const once = renderReport(input);
+  assert.equal(once, renderReport(input), 'same input, same bytes');
+  assert.ok(once.indexOf('### Blockers') < once.indexOf('### Nits'));
+});
+
+test('every finding renders as a checkbox an agent can address', () => {
+  const out = renderReport({
+    lenses: [{ name: 'blind', findings: normalizeFindings({ findings: [F()] }, 'blind').findings }],
+  });
+  assert.match(out, /- \[ \] `lib\/a\.mjs:10` — \*\*a thing is wrong\*\*/);
+  assert.match(out, /\*\*Fix:\*\* do the right thing/);
+});
+
+test('the JSON block carries every finding, so an agent can read only that', () => {
+  const out = renderReport({
+    model: 'mistral-large-latest',
+    meta: { files: 1, lines: 12 },
+    lenses: [
+      { name: 'blind', findings: normalizeFindings({ findings: [F()] }, 'blind').findings },
+      { name: 'edge', findings: normalizeFindings({ findings: [F({ line: 77, trigger: 'ids = []' })] }, 'edge').findings },
+    ],
+  });
+  const json = JSON.parse(out.match(/```json\n([\s\S]*?)\n```/)[1]);
+  assert.equal(json.findings.length, 2);
+  assert.equal(json.model, 'mistral-large-latest');
+  assert.ok(json.findings.every((f) => f.id && f.severity && f.title));
+  assert.equal(json.findings.find((f) => f.lens === 'edge').trigger, 'ids = []');
+});
+
+test('a lens that failed is named in the report rather than silently missing', () => {
+  const out = renderReport({
+    lenses: [
+      { name: 'blind', findings: normalizeFindings({ findings: [F()] }, 'blind').findings },
+      { name: 'edge', error: 'HTTP 429 — rate limited' },
+    ],
+  });
+  assert.match(out, /### Lenses that did not report/);
+  assert.match(out, /\*\*edge\*\* — HTTP 429/);
+  assert.match(out, /across 1 lens\b/, 'and the count reflects what actually ran');
+});
+
+test('a clean diff says so instead of printing empty headings', () => {
+  const out = renderReport({ lenses: [{ name: 'blind', findings: [] }, { name: 'edge', findings: [] }] });
+  assert.match(out, /No findings across 2 lenses/);
+  assert.ok(!out.includes('### Blockers'));
+});
+
+test('a trigger containing backticks does not close its own code span', () => {
+  const out = renderReport({
+    lenses: [{ name: 'edge', findings: normalizeFindings({ findings: [F({ trigger: 'ids = `[]`' })] }, 'edge').findings }],
+  });
+  // The exact input is the field that makes an edge finding actionable; a span
+  // that closes early renders the rest as prose and loses it.
+  assert.match(out, /\*Trigger:\* `` ids = `\[\]` ``/);
 });
