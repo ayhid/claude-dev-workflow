@@ -288,6 +288,11 @@ touches the network.
 Abandoned tickets are recorded exactly like finished ones — a log that counts only successes
 answers a question nobody asked.
 
+`metricsFile` is resolved against the repository's **main checkout**, not against whichever
+directory the command was run in. In worktree mode the config file is tracked, so every worktree
+carries a copy and each ticket would otherwise get a log of its own — one that `land` then deletes
+along with the worktree, taking the close it had just written with it. One project, one log.
+
 > [!IMPORTANT]
 > **Add it to your `.gitignore`.** Every developer appends to it, so a shared copy conflicts on
 > every merge. The workflow says this once, the first time it creates the file, rather than editing
