@@ -48,6 +48,16 @@ export const DEFAULT_DIFF_EXCLUDES = [
   // output is packages/x/dist/, and a root-anchored pattern lets all of it through.
   /(^|\/)dist\//,
   /\.generated\./,
+  // What this tool installs into a project is generated, committed, and reviewed
+  // by nobody: it is a byte-identical copy of source that is already in the diff.
+  // Counting it doubles every payload change and pushes routine work past the
+  // review ceiling on files that are, by construction, not the work.
+  //
+  // The line is `isOwnedPath`'s boundary exactly, and narrow for the same reason:
+  // `.claude/skills/` at large is the user's, and a hand-written skill there is
+  // real work. Only the `dev-*` namespace this installer owns is generated.
+  /(^|\/)_dev-workflow\//,
+  /(^|\/)\.claude\/skills\/dev-[^/]*\//,
 ];
 
 /**

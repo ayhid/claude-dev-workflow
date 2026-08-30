@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.15.1",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-30T10:12:33.208Z"
+    "lastUpdated": "2026-08-30T10:26:49.936Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -104,7 +104,7 @@
     },
     {
       "path": "_dev-workflow/lib/vcs.mjs",
-      "sha256": "5183d17be44dd746ac1aa73b46e23bb202a453254f1a3dc61dff66e7f7b6aa0b"
+      "sha256": "57ed77809dffdf0dd0500560b5d95d80abf46621d6650ebc9caaf8af75816c1d"
     },
     {
       "path": "_dev-workflow/lib/youtrack.mjs",
