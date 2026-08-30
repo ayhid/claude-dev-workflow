@@ -44,6 +44,7 @@ const USAGE = `usage: dev.mjs <command> [args]
   adr    [new|accept|reject|supersede|list|index]  architecture decision records
   standup [--since 1d] [--stale 7d] [--repo PATH]
   sync   [--apply] [--since 30d] [--repo PATH] [--deep] [--limit N]
+  review [--base REF] [--out DIR] [--no-intent]   build the adversarial review payloads
   version [--json] [--offline] [--upgrade]
 
 Config comes from .dev-workflow.json (or .claude/dev-workflow.json), then the
@@ -66,6 +67,7 @@ const COMMANDS = {
   sync: () => import('./cmd/sync.mjs'),
   note: () => import('./cmd/note.mjs'),
   status: () => import('./cmd/status.mjs'),
+  review: () => import('./cmd/review.mjs'),
   // `version` reports and, with --upgrade, rewrites the workflow's own files.
   // Not `upgrade`: one letter from `update` above, which writes to the tracker.
   version: () => import('./cmd/version.mjs'),
