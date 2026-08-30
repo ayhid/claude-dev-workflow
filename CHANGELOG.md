@@ -1,3 +1,23 @@
+# [1.15.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.14.0...v1.15.0) (2026-08-30)
+
+
+### Bug Fixes
+
+* **cli:** canonicalise the issue ID where argv becomes one ([#43](https://github.com/ayhid/claude-dev-workflow/issues/43)) ([8a21c2c](https://github.com/ayhid/claude-dev-workflow/commit/8a21c2cd2e97554b045c64319041b34044b638d1))
+* **issueid:** canonicalise the three github spellings only ([#43](https://github.com/ayhid/claude-dev-workflow/issues/43)) ([8cd480c](https://github.com/ayhid/claude-dev-workflow/commit/8cd480cdf5ed3159ed5e143c9cd340807cecd1bc))
+* **issueid:** one canonical spelling per backend ([#43](https://github.com/ayhid/claude-dev-workflow/issues/43)) ([3ce60cd](https://github.com/ayhid/claude-dev-workflow/commit/3ce60cdb551fb6ca63aee222dccbbee5d6dc6e51))
+* **metrics:** join a log row an older version wrote without the # ([#43](https://github.com/ayhid/claude-dev-workflow/issues/43)) ([225d6b0](https://github.com/ayhid/claude-dev-workflow/commit/225d6b0d6586465b725e54ac3a1d8e7b6fd35f80))
+* **tools:** ask the skills directory for orphans instead of deriving it ([#50](https://github.com/ayhid/claude-dev-workflow/issues/50)) ([a2e0a6e](https://github.com/ayhid/claude-dev-workflow/commit/a2e0a6e57420950a2e0524c35557a25efcb66803))
+* **tools:** match the entry script under --preserve-symlinks-main too ([#50](https://github.com/ayhid/claude-dev-workflow/issues/50)) ([e16e925](https://github.com/ayhid/claude-dev-workflow/commit/e16e925581bbe063f98afd82e01c6270d07e21f0))
+* **tools:** report a file where the skills directory belongs ([#50](https://github.com/ayhid/claude-dev-workflow/issues/50)) ([f63269c](https://github.com/ayhid/claude-dev-workflow/commit/f63269caec1bf7f8e15e8c39b764affebac9a392))
+* **tools:** run the payload check when its own path has a space or symlink ([#50](https://github.com/ayhid/claude-dev-workflow/issues/50)) ([2fddb99](https://github.com/ayhid/claude-dev-workflow/commit/2fddb9981722447fa37a29cf3abd83eefda36fb6))
+* **tools:** survive an absent entry script and a directory at a planned path ([#50](https://github.com/ayhid/claude-dev-workflow/issues/50)) ([807022d](https://github.com/ayhid/claude-dev-workflow/commit/807022df083f82a2c11e5dc7c69cf5e42bdbbcb1))
+
+
+### Features
+
+* **tools:** sweep installed skill directories the source no longer plans ([#50](https://github.com/ayhid/claude-dev-workflow/issues/50)) ([21b8fe2](https://github.com/ayhid/claude-dev-workflow/commit/21b8fe256c5fbe6f61b9ebf90eb075b848c2e74a))
+
 # [1.14.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.13.0...v1.14.0) (2026-08-29)
 
 
