@@ -1,3 +1,10 @@
+## [1.15.1](https://github.com/ayhid/claude-dev-workflow/compare/v1.15.0...v1.15.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* **youtrack:** converge on the brace spelling an instance accepts ([#14](https://github.com/ayhid/claude-dev-workflow/issues/14)) ([d6567c1](https://github.com/ayhid/claude-dev-workflow/commit/d6567c1574551bdfb0c3dc2789cbb3379aebae4d))
+
 # [1.15.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.14.0...v1.15.0) (2026-08-30)
 
 
