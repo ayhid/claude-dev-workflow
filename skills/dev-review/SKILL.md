@@ -85,23 +85,44 @@ looks for.
 
 ## 3. Report
 
-One report, lenses in separate sections, each finding carrying the shape its lens asks for.
-Then sort every finding into exactly one bucket — this is the part that makes the output
-actionable rather than a wall of text:
+Each lens returns JSON — an object with a `findings` array, fields as its lens file
+specifies. Do not paraphrase them into prose: the same shape is what the CI review posts, and an
+agent picking the work up reads the fields rather than the sentences.
+
+Render the three lenses into **one** report, worst severity first, each finding as a checkbox line
+an agent can address on its own:
+
+```
+- [ ] `path:line` — **the defect in under twelve words**  <sub>lens · bucket</sub>
+      one sentence on what is wrong
+      *Consequence:* what it costs
+      **Fix:** the concrete change
+```
+
+Then a fenced `json` block containing every finding, so the report has a machine half and a human
+half that cannot disagree — the prose above is rendered *from* that block, never written beside it.
+
+Two readings that only exist once the lenses are put together, and they are the reason for running
+more than one:
+
+- A finding **two lenses reach independently** — same file, same line — is almost always real.
+  Mark it and put it first.
+- A finding raised **only by the blind lens** that the intent already covers is usually a
+  readability problem rather than a defect: the code works and fails to say so. Report it as such
+  rather than as a bug.
+
+Sort every finding into exactly one bucket. This is what makes the report actionable rather than a
+wall of text:
 
 - **intent-gap** — the code is wrong. Fix the code.
 - **bad-spec** — the code faithfully implements a wrong spec. Fix the spec first, or the fix
   encodes the same mistake.
 - **patch** — a real local defect. Fix it now.
+- **scope-creep** — correct, but nobody agreed to maintain it.
 - **deferred** — legitimate but out of scope. Offer to file it with `/dev-bug`.
 
-Two cross-lens readings worth stating explicitly, because they are the value of running more than
-one lens at all:
-
-- A finding raised **only by the blind lens** that the intent already covers is usually a
-  readability problem rather than a defect — the code works and fails to say so. Report it as such.
-- A finding raised by **both the blind lens and the audit** is almost always real: the code does
-  not say what it does *and* does not do what was asked.
+**A lens that failed is named, never dropped.** "Two lenses ran, the edge lens returned nothing
+usable" is an honest report; silently printing two lenses' findings as though three ran is not.
 
 ## 4. Do not fix, and do not land
 

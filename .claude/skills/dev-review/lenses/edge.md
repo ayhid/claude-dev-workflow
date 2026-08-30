@@ -23,11 +23,27 @@ Floating promises.
 Environment: timezone and DST, month ends, leap years. Locale-dependent parsing and
 collation. Pagination past the last page. Payload, pool and rate limits.
 
-Output markdown. Per finding: path:line, severity, then three labelled lines.
-Trigger: the exact input, written concretely ("orderIds = []", never "empty input").
-Behavior: what actually happens.
-Test: a runnable test name or Given/When/Then scenario, matching the framework already
-used in the provided files.
+Return JSON only, no prose around it: an object with one key, `findings`, an array.
+Every finding carries:
 
-If every path you traced is handled, output: No findings.
-Then list the axes you checked, one line, so the reader knows the coverage was real.
+  file         path as it appears in the diff
+  line         a line number in the NEW file, or null if you cannot place it
+  severity     blocker | major | minor | nit
+  bucket       patch | intent-gap
+  title        the defect in under twelve words, no trailing period
+  problem      one sentence on what is wrong
+  consequence  one sentence on what it costs
+  fix          the concrete change, specific enough to apply without asking
+
+`findings: []` is the correct answer for a clean diff, and a better one than a
+padded list. A fabricated finding costs more than a missed nit, because the next
+reader stops trusting the whole report.
+
+Add three fields of your own to every finding:
+
+  trigger      the exact input, written concretely ("orderIds = []", never "empty input")
+  behavior     what actually happens when that input arrives
+  test         a runnable test name or Given/When/Then, in the framework the
+               provided files already use
+
+A finding with a vague trigger is not actionable and should not be reported.

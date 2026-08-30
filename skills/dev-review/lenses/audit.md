@@ -20,12 +20,26 @@ line for line? Heavy mocking of internals proves nothing. Are failure paths cove
 existing tests modified? A test relaxed or deleted so new code passes is a blocker, never
 a nit.
 
-Output markdown. Per finding: path:line, severity, bucket
-(intent-gap | bad-spec | scope-creep), the gap, the consequence, and whether to change the
-code or change the spec.
+Return JSON only, no prose around it: an object with one key, `findings`, an array.
+Every finding carries:
 
-End with a table: one row per acceptance criterion, its verdict
-(met | partial | not met), and the test that proves it. A criterion with no test is a
-finding even when the code looks right.
+  file         path as it appears in the diff
+  line         a line number in the NEW file, or null if you cannot place it
+  severity     blocker | major | minor | nit
+  bucket       intent-gap | bad-spec | scope-creep | deferred
+  title        the defect in under twelve words, no trailing period
+  problem      one sentence on what is wrong
+  consequence  one sentence on what it costs
+  fix          the concrete change, specific enough to apply without asking
 
-If everything is met, tested and in scope, output the table plus: No findings.
+`findings: []` is the correct answer for a clean diff, and a better one than a
+padded list. A fabricated finding costs more than a missed nit, because the next
+reader stops trusting the whole report.
+
+For a bad-spec finding, `fix` says what the spec should say, not what the code
+should do. That distinction is the entire point of the bucket: fixing code to
+match a wrong spec encodes the mistake instead of removing it.
+
+Report an unmet acceptance criterion as its own finding, with `file` set to the
+code that should have satisfied it and `title` naming the criterion. A criterion
+with no test is a finding even when the code looks right.

@@ -21,9 +21,20 @@ Derive from the code alone what the change appears to do, then attack it:
 6. Code you cannot explain from the diff alone. Tag these unclear-without-context. The
    code may be correct and still fail to communicate, which is a real defect.
 
-Output markdown. Per finding, on its own line: path:line, severity
-(blocker | major | minor | nit), tag, what is wrong in one sentence, the consequence, and
-the concrete fix. Order by severity. Cap at 12 findings.
+Return JSON only, no prose around it: an object with one key, `findings`, an array.
+Every finding carries:
 
-If the diff is clean, output exactly: No findings.
-Do not pad the report. A fabricated finding costs more than a missed nit.
+  file         path as it appears in the diff
+  line         a line number in the NEW file, or null if you cannot place it
+  severity     blocker | major | minor | nit
+  bucket       intent-gap | patch | scope-creep
+  title        the defect in under twelve words, no trailing period
+  problem      one sentence on what is wrong
+  consequence  one sentence on what it costs
+  fix          the concrete change, specific enough to apply without asking
+
+`findings: []` is the correct answer for a clean diff, and a better one than a
+padded list. A fabricated finding costs more than a missed nit, because the next
+reader stops trusting the whole report.
+
+Cap at 12 findings, worst first.

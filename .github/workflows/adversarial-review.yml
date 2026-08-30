@@ -47,6 +47,7 @@ jobs:
             : > /tmp/review/change.diff
             : > /tmp/review/context.txt
             echo "lines=0" >> "$GITHUB_OUTPUT"
+            echo "files=0" >> "$GITHUB_OUTPUT"
           else
             # The diff. Every layer gets this — and it is the FILTERED diff, or the
             # blind layer spends its whole context on a regenerated lockfile.
@@ -57,6 +58,7 @@ jobs:
               | xargs -0 git diff --numstat "$BASE_SHA...$HEAD_SHA" -- \
               | awk '{ a += ($1 == "-" ? 0 : $1); d += ($2 == "-" ? 0 : $2) } END { print a + d + 0 }')
             echo "lines=$LINES" >> "$GITHUB_OUTPUT"
+            echo "files=$(wc -l < /tmp/review/changed.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
 
             # Full source of changed files. Edge case and audit layers only.
             : > /tmp/review/context.txt
@@ -88,11 +90,14 @@ jobs:
         if: steps.payloads.outputs.lines <= 800
         env:
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-          MISTRAL_MODEL: mistral-large-latest
+          # large returns 403 tier_not_allowed on this account's plan.
+          MISTRAL_MODEL: mistral-small-latest
           DIFF_PATH: /tmp/review/change.diff
           CONTEXT_PATH: /tmp/review/context.txt
           INTENT_PATH: /tmp/review/intent.md
           OUT_PATH: /tmp/review/report.md
+          CHANGED_FILES: ${{ steps.payloads.outputs.files }}
+          CHANGED_LINES: ${{ steps.payloads.outputs.lines }}
         run: node .github/scripts/adversarial-review.mjs
 
       - name: Post the report
