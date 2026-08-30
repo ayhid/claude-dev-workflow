@@ -6,13 +6,14 @@
 
 [![npm](https://img.shields.io/npm/v/claude-dev-workflow?style=flat-square)](https://www.npmjs.com/package/claude-dev-workflow)
 [![ci](https://img.shields.io/github/actions/workflow/status/ayhid/claude-dev-workflow/ci.yml?branch=main&style=flat-square&label=ci)](https://github.com/ayhid/claude-dev-workflow/actions/workflows/ci.yml)
+[![codecov](https://img.shields.io/codecov/c/github/ayhid/claude-dev-workflow?style=flat-square)](https://codecov.io/github/ayhid/claude-dev-workflow)
 [![node](https://img.shields.io/node/v/claude-dev-workflow?style=flat-square)](https://nodejs.org)
 [![license](https://img.shields.io/npm/l/claude-dev-workflow?style=flat-square)](LICENSE)
 
 ![The install wizard verifying a token, listing the projects it can see, reading that project's real State values, and writing .dev-workflow.json](https://raw.githubusercontent.com/ayhid/claude-dev-workflow/main/.github/assets/wizard.gif)
 
 Ticket-driven development against your issue tracker, [YouTrack](https://www.jetbrains.com/youtrack/)
-or [GitHub Issues](docs/configuration.md#github-issues), as nine Claude Code skills. It installs **per
+or [GitHub Issues](docs/configuration.md#github-issues), as ten Claude Code skills. It installs **per
 project**: nothing is registered globally, so the skills exist only in repos that use a tracker.
 
 | Skill         | What it does |
@@ -76,7 +77,7 @@ names your instance may not have.
 To amend an existing config later, or to talk it through rather than click, run `/dev-init` in
 Claude Code instead.
 
-Either way you now have the nine skills. Start work:
+Either way you now have the ten skills. Start work:
 
 ```
 /dev-task ABC-42
