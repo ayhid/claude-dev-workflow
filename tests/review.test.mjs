@@ -141,18 +141,14 @@ test('every lens the skill names exists and carries no frontmatter', () => {
   }
 });
 
-test('the CI action reads the lenses from the skill rather than carrying its own copy', () => {
-  const script = join(ROOT, '.github', 'scripts', 'adversarial-review.mjs');
-  if (!existsSync(script)) return; // repo-local action, absent in the published tarball
-  const text = readFileSync(script, 'utf8');
-
-  assert.ok(
-    text.includes('skills/dev-review/lenses/'),
-    'the action must read skills/dev-review/lenses/, not inline its own prompts',
-  );
-  for (const marker of ['const BLIND = `', 'const EDGE = `', 'const AUDIT = `']) {
-    assert.ok(!text.includes(marker), `the action still inlines a lens (${marker.trim()})`);
-  }
+test('the renderer is reachable from the shipped payload, not only from CI', () => {
+  // lib/review.mjs ships into every consumer project. When the GitHub action was
+  // removed it became the only thing importing it, so the renderer had to gain a
+  // caller inside the payload or become 458 lines nobody could run.
+  const cmd = readFileSync(join(ROOT, 'scripts', 'cmd', 'review.mjs'), 'utf8');
+  assert.match(cmd, /from '\.\.\/\.\.\/lib\/review\.mjs'/);
+  assert.match(cmd, /--render/, 'dev.mjs review --render is how the skill renders findings');
+  assert.match(cmd, /LENS_PAYLOADS/, 'and evidence is still checked per lens, not against one pile');
 });
 
 test('the skill points at the lenses it ships beside', () => {
@@ -640,4 +636,36 @@ test('a merged entry is not a composite of two different findings', () => {
     /rename p to payloadPath/,
     'the nit is demoted, not deleted — its fix survives too',
   );
+});
+
+// --- dev.mjs review --render --------------------------------------------------
+
+test('a lens that reported nothing usable is named, not dropped, when rendering', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rv-'));
+  writeFileSync(join(dir, 'findings.json'), JSON.stringify({
+    lenses: [
+      { name: 'blind', findings: [{ file: 'a.mjs', line: 1, severity: 'major', title: 'real', fix: 'f' }] },
+      { name: 'edge', error: 'HTTP 429 — rate limited' },
+    ],
+  }));
+  const { run } = await import('../scripts/cmd/review.mjs');
+  const chunks = [];
+  const write = process.stdout.write.bind(process.stdout);
+  process.stdout.write = (c) => { chunks.push(c); return true; };
+  try {
+    await run(['--render', join(dir, 'findings.json')]);
+  } finally {
+    process.stdout.write = write;
+  }
+  const out = chunks.join('');
+  assert.match(out, /across 1 lens\b/, 'the count reflects what actually reported');
+  assert.match(out, /\*\*edge\*\* — HTTP 429/);
+  assert.match(out, /- \[ \] `a\.mjs:1`/);
+});
+
+test('rendering refuses a file with no lenses rather than printing an empty report', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rv-'));
+  writeFileSync(join(dir, 'empty.json'), JSON.stringify({ lenses: [] }));
+  const { run } = await import('../scripts/cmd/review.mjs');
+  await assert.rejects(() => run(['--render', join(dir, 'empty.json')]), /no lenses in/);
 });

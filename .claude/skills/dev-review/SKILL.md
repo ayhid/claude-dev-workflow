@@ -105,18 +105,26 @@ Two arrays are not findings and must never be counted as them:
   was real without having to produce a finding to prove it. A long `axesChecked` beside an empty
   `findings` is good work, not a lazy review.
 
-Render the three lenses into **one** report, worst severity first, each finding as a checkbox line
-an agent can address on its own:
+Write the three lenses' JSON to one file and let the command render it:
 
-```
-- [ ] `path:line` — **the defect in under twelve words**  <sub>lens · bucket</sub>
-      one sentence on what is wrong
-      *Consequence:* what it costs
-      **Fix:** the concrete change
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" review --render findings.json --payloads <the dir from §1>
 ```
 
-Then a fenced `json` block containing every finding, so the report has a machine half and a human
-half that cannot disagree — the prose above is rendered *from* that block, never written beside it.
+```json
+{ "lenses": [ { "name": "blind", "findings": [...], "questions": [...] },
+              { "name": "edge",  "findings": [...], "axesChecked": [...] },
+              { "name": "audit", "findings": [...] } ] }
+```
+
+Do not write the markdown yourself. The command owns the format — severity order, the checkbox
+line, the JSON block an agent reads — so a report from this skill and a report from anywhere else
+are the same bytes, and `--payloads` re-checks every `evidence` quote against the payload **its own
+lens** saw. Findings quoting code that is not there are held back automatically rather than printed
+as fact, which is a check you cannot perform reliably by eye.
+
+A lens that failed gets `{"name": "edge", "error": "..."}` instead of findings. Say what happened;
+never quietly render two lenses as though three ran.
 
 Two readings that only exist once the lenses are put together, and they are the reason for running
 more than one:

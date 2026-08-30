@@ -32,6 +32,7 @@ import { deliveryBase, deliveryFor } from '../../lib/config.mjs';
 import { issueIdFromBranch } from '../../lib/branch.mjs';
 import { sh } from '../../lib/sh.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
+import { normalizeFindings, renderReport, verifyEvidence } from '../../lib/review.mjs';
 import { context, UserError } from './common.mjs';
 
 /** Past this, a model's review quality collapses and it starts inventing findings. */
@@ -41,17 +42,91 @@ export const LINE_CEILING = 800;
 const MAX_CONTEXT_BYTES = 200_000;
 
 function parseArgs(args) {
-  const opts = { base: '', out: '', intent: true };
+  const opts = { base: '', out: '', intent: true, render: '', payloads: '' };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--base') opts.base = args[++i] ?? '';
     else if (a === '--out') opts.out = args[++i] ?? '';
     else if (a === '--no-intent') opts.intent = false;
+    else if (a === '--render') opts.render = args[++i] ?? '';
+    else if (a === '--payloads') opts.payloads = args[++i] ?? '';
     else throw new UserError(
-      `unknown argument '${a}' — usage: dev.mjs review [--base REF] [--out DIR] [--no-intent]`,
+      `unknown argument '${a}' — usage: dev.mjs review [--base REF] [--out DIR] [--no-intent]\n` +
+        '                  dev.mjs review --render FINDINGS.json [--payloads DIR]',
     );
   }
   return opts;
+}
+
+/**
+ * Which payload each lens was given, and therefore what its quotes may be
+ * checked against.
+ *
+ * The blind lens is not shown the intent. Verifying its evidence against a file
+ * it never saw would launder exactly the blindness that makes it worth running,
+ * so the map is per lens rather than one pile of everything.
+ */
+const LENS_PAYLOADS = {
+  blind: ['change.diff'],
+  edge: ['change.diff', 'context.txt'],
+  audit: ['change.diff', 'context.txt', 'intent.md'],
+};
+
+/**
+ * Render lens output into the review comment.
+ *
+ *   dev.mjs review --render findings.json [--payloads DIR]
+ *
+ * The skill collects three lenses' JSON and hands it here rather than writing
+ * the markdown itself. One definition of the format, in code, tested — the same
+ * reason `lib/vcs.mjs` owns the git rules instead of each caller restating them.
+ *
+ * `--payloads` is the directory an earlier `dev.mjs review` wrote. Given it,
+ * every finding's quoted evidence is checked against the payload ITS lens saw,
+ * and anything quoting code that is not there is held back rather than printed
+ * as fact.
+ */
+async function render(opts) {
+  let input;
+  try {
+    input = JSON.parse(readFileSync(resolve(opts.render), 'utf8'));
+  } catch (err) {
+    throw new UserError(`could not read findings from ${opts.render}: ${err.message}`);
+  }
+
+  const raw = Array.isArray(input) ? input : (input.lenses ?? []);
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new UserError(
+      `no lenses in ${opts.render} — expected {"lenses": [{"name": "blind", "findings": [...]}, ...]}`,
+    );
+  }
+
+  const lenses = raw.map((l) => {
+    const name = String(l?.name ?? '').trim() || 'unnamed';
+    if (l?.error || l?.skipped) return { name, error: l.error, skipped: l.skipped };
+
+    const { findings, dropped, questions, axesChecked } = normalizeFindings(l, name);
+    if (dropped) process.stderr.write(`${name}: dropped ${dropped} finding(s) with nothing to act on\n`);
+
+    let checked = findings;
+    if (opts.payloads) {
+      const source = (LENS_PAYLOADS[name] ?? [])
+        .map((f) => {
+          const path = join(resolve(opts.payloads), f);
+          return existsSync(path) ? readFileSync(path, 'utf8') : '';
+        })
+        .join('\n');
+      checked = verifyEvidence(findings, source);
+      const bad = checked.filter((f) => f.verified === false).length;
+      if (bad) process.stderr.write(`${name}: ${bad} of ${checked.length} finding(s) quoted code not in its payload\n`);
+    }
+    return { name, findings: checked, questions, axesChecked };
+  });
+
+  process.stdout.write(
+    renderReport({ lenses, model: String(input.model ?? 'unknown'), meta: input.meta ?? {} }),
+  );
+  return 0;
 }
 
 /**
@@ -118,6 +193,11 @@ async function buildIntent({ provider, config, branch }) {
 
 export async function run(argv) {
   const opts = parseArgs(argv);
+  // Rendering needs no repository and no tracker: it is a pure function of the
+  // findings it is handed, which is what makes it testable and what lets a
+  // reader re-render a saved review months later.
+  if (opts.render) return render(opts);
+
   const { config, root, provider } = await context();
   const vcs = makeVcs({ run: sh });
 
