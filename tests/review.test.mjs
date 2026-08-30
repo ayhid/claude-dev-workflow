@@ -15,7 +15,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { makeVcs, DEFAULT_DIFF_EXCLUDES } from '../lib/vcs.mjs';
-import { normalizeFindings, markAgreement, renderReport, anchorOf } from '../lib/review.mjs';
+import { normalizeFindings, markAgreement, renderReport, anchorOf, verifyEvidence } from '../lib/review.mjs';
 import { buildContext } from '../scripts/cmd/review.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -298,4 +298,103 @@ test('every lens failing is reported as no review, never as a clean one', () => 
   assert.match(out, /\*\*This review did not run\.\*\*/);
   assert.match(out, /Do not read this as a pass/);
   assert.ok(!out.includes('No findings'), 'must not say "No findings" when nothing ran');
+});
+
+// --- evidence: the check a model cannot talk its way past ---------------------
+
+const SOURCE = `
+export function normalizeFindings(raw, lens) {
+  const line = Number.isFinite(Number(lineRaw)) && Number(lineRaw) > 0 ? Number(lineRaw) : null;
+}
+`;
+
+test('a finding quoting code that is really there stands', () => {
+  const [f] = verifyEvidence(
+    normalizeFindings({ findings: [F({ evidence: 'Number.isFinite(Number(lineRaw)) && Number(lineRaw) > 0' })] }, 'edge').findings,
+    SOURCE,
+  );
+  assert.equal(f.verified, true);
+});
+
+test('a quote survives being re-indented or carrying a diff prefix', () => {
+  const [f] = verifyEvidence(
+    normalizeFindings({ findings: [F({ evidence: '  Number.isFinite(Number(lineRaw))\n        && Number(lineRaw) > 0' })] }, 'edge').findings,
+    SOURCE,
+  );
+  assert.equal(f.verified, true, 'whitespace differences are not evidence of invention');
+});
+
+test('a finding quoting code that is not in the payload is marked unverified', () => {
+  const [f] = verifyEvidence(
+    normalizeFindings({ findings: [F({ evidence: 'if (lineRaw === Infinity) throw new Error("nope")' })] }, 'edge').findings,
+    SOURCE,
+  );
+  assert.equal(f.verified, false);
+});
+
+test('a quote too short to mean anything does not count as evidence', () => {
+  const [f] = verifyEvidence(normalizeFindings({ findings: [F({ evidence: '}' })] }, 'edge').findings, SOURCE);
+  assert.equal(f.verified, false, '"}" appears in every file and proves nothing');
+});
+
+test('no evidence at all is unverified, not verified by default', () => {
+  const [f] = verifyEvidence(normalizeFindings({ findings: [F()] }, 'edge').findings, SOURCE);
+  assert.equal(f.verified, false);
+});
+
+test('unverified findings are held back from the list but never deleted', () => {
+  const findings = verifyEvidence(
+    normalizeFindings({ findings: [
+      F({ title: 'real one', evidence: 'Number.isFinite(Number(lineRaw))' }),
+      F({ title: 'imagined one', evidence: 'const x = somethingThatIsNotThere(42);' }),
+    ] }, 'edge').findings,
+    SOURCE,
+  );
+  const out = renderReport({ lenses: [{ name: 'edge', findings }] });
+
+  assert.match(out, /\*\*1 finding\*\* across 1 lens/, 'the count is what a reader can act on');
+  assert.match(out, /1 more quoted code that is not in this diff/);
+  assert.ok(out.indexOf('real one') < out.indexOf('quoted code was not found'));
+  assert.ok(out.includes('imagined one'), 'held back, not deleted');
+
+  const json = JSON.parse(out.match(/```json\n([\s\S]*?)\n```/)[1]);
+  assert.equal(json.findings.length, 2, 'an agent still sees both, with the verdict attached');
+  assert.equal(json.findings.find((f) => f.title === 'imagined one').verified, false);
+});
+
+test('the run that motivated this: four boundary claims against a guard that handles them', () => {
+  // Replayed from the first live review, which reported line 0, negative,
+  // Infinity and "NaN" as unhandled. The guard rejects all four.
+  for (const v of [0, '0', -1, '-1', Infinity, 'NaN']) {
+    const { findings } = normalizeFindings({ findings: [F({ line: v })] }, 'edge');
+    assert.equal(findings[0].line, null, `${JSON.stringify(v)} should not survive as a line`);
+  }
+  // The one it got right, and the reason the finding was worth reading at all.
+  assert.equal(normalizeFindings({ findings: [F({ line: 1.5 })] }, 'edge').findings[0].line, 1.5);
+});
+
+// --- the non-finding channels -------------------------------------------------
+
+test('a lens can show coverage without producing a finding to prove it', () => {
+  const { axesChecked, findings } = normalizeFindings(
+    { findings: [], axesChecked: ['negative line: rejected by `Number(x) > 0`', '', 42] },
+    'edge',
+  );
+  assert.deepEqual(findings, []);
+  assert.deepEqual(axesChecked, ['negative line: rejected by `Number(x) > 0`'], 'blanks and non-strings dropped');
+
+  const out = renderReport({ lenses: [{ name: 'edge', findings: [], axesChecked }] });
+  assert.match(out, /What was checked and found handled/);
+  assert.match(out, /No findings across 1 lens/);
+});
+
+test('what a lens cannot explain is a question, not a defect', () => {
+  const { questions } = normalizeFindings({ findings: [], questions: ['why did the model name change?'] }, 'blind');
+  const out = renderReport({ lenses: [{ name: 'blind', findings: [], questions }] });
+
+  assert.match(out, /could not explain from the diff alone/);
+  assert.match(out, /why did the model name change\?/);
+  // The whole point: this must not be counted or presented as a finding.
+  assert.match(out, /No findings across 1 lens/);
+  assert.ok(!out.includes('### Blockers'));
 });

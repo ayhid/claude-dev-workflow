@@ -25,12 +25,25 @@ Every finding carries:
 
   file         path as it appears in the diff
   line         a line number in the NEW file, or null if you cannot place it
-  severity     blocker | major | minor | nit
+  severity     blocker  data is lost, it crashes, or it opens a hole, on an input
+                        a real caller would send
+               major    wrong output, or a broken contract a caller depends on
+               minor    a genuine defect that costs quality, not correctness
+               nit      naming, wording, style
+               Judge by the consequence, not by how much of the diff it touches.
+               If everything is major, the severities have stopped meaning anything.
   bucket       intent-gap | bad-spec | scope-creep | deferred
   title        the defect in under twelve words, no trailing period
   problem      one sentence on what is wrong
   consequence  one sentence on what it costs
   fix          the concrete change, specific enough to apply without asking
+  evidence     the line or lines you are accusing, copied VERBATIM from the diff
+               or the files you were given. Not a description of them, not a
+               paraphrase, not a line number — the characters themselves.
+
+A finding whose `evidence` is not present in what you were given is discarded
+before anyone reads it, so quoting code you did not see wastes the finding rather
+than strengthening it.
 
 `findings: []` is the correct answer for a clean diff, and a better one than a
 padded list. A fabricated finding costs more than a missed nit, because the next
