@@ -369,8 +369,12 @@ test('the run that motivated this: four boundary claims against a guard that han
     const { findings } = normalizeFindings({ findings: [F({ line: v })] }, 'edge');
     assert.equal(findings[0].line, null, `${JSON.stringify(v)} should not survive as a line`);
   }
-  // The one it got right, and the reason the finding was worth reading at all.
-  assert.equal(normalizeFindings({ findings: [F({ line: 1.5 })] }, 'edge').findings[0].line, 1.5);
+  // The one it got right, now fixed: a line number is a positive integer or it
+  // is not a line number.
+  for (const v of [1.5, '1.5']) {
+    assert.equal(normalizeFindings({ findings: [F({ line: v })] }, 'edge').findings[0].line, null);
+  }
+  assert.equal(normalizeFindings({ findings: [F({ line: '42' })] }, 'edge').findings[0].line, 42);
 });
 
 // --- the non-finding channels -------------------------------------------------
