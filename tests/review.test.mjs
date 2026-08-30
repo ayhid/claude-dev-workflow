@@ -15,7 +15,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { makeVcs, DEFAULT_DIFF_EXCLUDES } from '../lib/vcs.mjs';
-import { normalizeFindings, markAgreement, renderReport, anchorOf, verifyEvidence } from '../lib/review.mjs';
+import { normalizeFindings, mergeFindings, renderReport, anchorOf, verifyEvidence } from '../lib/review.mjs';
 import { buildContext } from '../scripts/cmd/review.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -201,19 +201,45 @@ test('ids are stable across runs, so a repeat finding is recognisable', () => {
   assert.notEqual(a.id, c.id, 'the same defect from a different lens is a different finding');
 });
 
-test('two lenses landing on one line is the signal worth surfacing', () => {
-  const marked = markAgreement([
-    ...normalizeFindings({ findings: [F()] }, 'blind').findings,
-    ...normalizeFindings({ findings: [F({ title: 'said differently' })] }, 'audit').findings,
-    ...normalizeFindings({ findings: [F({ line: 99 })] }, 'edge').findings,
+test('two lenses landing on one defect become one finding, not two', () => {
+  const merged = mergeFindings([
+    ...normalizeFindings({ findings: [F({ severity: 'minor', title: 'off-by-one drops a finding', fix: 'use MAX_PER_GROUP not MAX_PER_GROUP - 1' })] }, 'blind').findings,
+    ...normalizeFindings({ findings: [F({ severity: 'blocker', title: 'off-by-one in the slice', fix: 'change MAX_PER_GROUP - 1 to MAX_PER_GROUP' })] }, 'audit').findings,
+    ...normalizeFindings({ findings: [F({ line: 99, title: 'somewhere else entirely', fix: 'unrelated change' })] }, 'edge').findings,
   ]);
-  assert.deepEqual(marked[0].alsoRaisedBy, ['audit']);
-  assert.deepEqual(marked[1].alsoRaisedBy, ['blind']);
-  assert.deepEqual(marked[2].alsoRaisedBy, [], 'a lone finding agrees with nobody');
+
+  assert.equal(merged.length, 2, 'the restatement collapsed; the unrelated one did not');
+  const both = merged.find((f) => f.line === 10);
+  assert.deepEqual(both.lenses, ['audit', 'blind']);
+  assert.equal(both.severity, 'blocker', 'one lens calling it minor does not downgrade the other');
+  assert.equal(both.alsoSaid.length, 1, 'the other phrasing travels with it rather than being lost');
+  assert.deepEqual(merged.find((f) => f.line === 99).lenses, ['edge']);
+});
+
+test('everything said about one line becomes one entry with one checkbox', () => {
+  // Six findings landed on one line in the run that motivated this, four of them
+  // the same off-by-one in different words. Whether they are the same defect is
+  // not decidable from the text, so the only claim made is that they are about
+  // the same line — and an agent fixing that line addresses all of them.
+  const merged = mergeFindings(
+    normalizeFindings({ findings: [
+      { ...F(), title: 'off-by-one in MAX_PER_GROUP slice', fix: 'change group.slice(0, MAX_PER_GROUP - 1) to group.slice(0, MAX_PER_GROUP)', trigger: 'group.length === 10', test: 'renders all ten' },
+      { ...F(), title: 'MAX_PER_GROUP silently drops findings', fix: 'change MAX_PER_GROUP - 1 to MAX_PER_GROUP' },
+      { ...F(), title: 'MAX_PER_GROUP comment misstates intent', fix: 'update the comment' },
+    ] }, 'edge').findings,
+  );
+
+  assert.equal(merged.length, 1, 'one line, one entry');
+  assert.equal(merged[0].alsoSaid.length, 2, 'the other phrasings are kept, not discarded');
+  assert.match(merged[0].title, /off-by-one in MAX_PER_GROUP slice/, 'the most detailed one leads');
+
+  const out = renderReport({ lenses: [{ name: 'edge', findings: merged }] });
+  assert.equal((out.match(/^- \[ \]/gm) ?? []).length, 1, 'one checkbox, not three');
+  assert.match(out, /also: edge: MAX_PER_GROUP comment misstates intent/);
 });
 
 test('unanchored findings are never called agreement', () => {
-  const marked = markAgreement([
+  const marked = mergeFindings([
     ...normalizeFindings({ findings: [F({ line: null })] }, 'blind').findings,
     ...normalizeFindings({ findings: [F({ line: null })] }, 'audit').findings,
   ]);
@@ -225,7 +251,7 @@ test('the report is ordered worst-first and byte-identical on a re-render', () =
     model: 'm',
     meta: { files: 2, lines: 40 },
     lenses: [
-      { name: 'blind', findings: normalizeFindings({ findings: [F({ severity: 'nit', title: 'z' }), F({ severity: 'blocker', title: 'a' })] }, 'blind').findings },
+      { name: 'blind', findings: normalizeFindings({ findings: [F({ severity: 'nit', title: 'z', line: 3, fix: 'rename it' }), F({ severity: 'blocker', title: 'a', line: 9, fix: 'guard the null' })] }, 'blind').findings },
     ],
   };
   const once = renderReport(input);
@@ -345,8 +371,8 @@ test('no evidence at all is unverified, not verified by default', () => {
 test('unverified findings are held back from the list but never deleted', () => {
   const findings = verifyEvidence(
     normalizeFindings({ findings: [
-      F({ title: 'real one', evidence: 'Number.isFinite(Number(lineRaw))' }),
-      F({ title: 'imagined one', evidence: 'const x = somethingThatIsNotThere(42);' }),
+      F({ title: 'real one', line: 3, fix: 'guard it', evidence: 'Number.isFinite(Number(lineRaw))' }),
+      F({ title: 'imagined one', line: 9, fix: 'rewrite it', evidence: 'const x = somethingThatIsNotThere(42);' }),
     ] }, 'edge').findings,
     SOURCE,
   );
@@ -369,8 +395,12 @@ test('the run that motivated this: four boundary claims against a guard that han
     const { findings } = normalizeFindings({ findings: [F({ line: v })] }, 'edge');
     assert.equal(findings[0].line, null, `${JSON.stringify(v)} should not survive as a line`);
   }
-  // The one it got right, and the reason the finding was worth reading at all.
-  assert.equal(normalizeFindings({ findings: [F({ line: 1.5 })] }, 'edge').findings[0].line, 1.5);
+  // The one it got right, now fixed: a line number is a positive integer or it
+  // is not a line number. A numeric string still is one.
+  for (const v of [1.5, '1.5']) {
+    assert.equal(normalizeFindings({ findings: [F({ line: v })] }, 'edge').findings[0].line, null);
+  }
+  assert.equal(normalizeFindings({ findings: [F({ line: '42' })] }, 'edge').findings[0].line, 42);
 });
 
 // --- the non-finding channels -------------------------------------------------
@@ -397,4 +427,17 @@ test('what a lens cannot explain is a question, not a defect', () => {
   // The whole point: this must not be counted or presented as a finding.
   assert.match(out, /No findings across 1 lens/);
   assert.ok(!out.includes('### Blockers'));
+});
+
+test('merging an already-merged set changes nothing', () => {
+  // renderReport merges what it is given, so a caller that merged first must not
+  // silently lose the phrasings gathered in the first pass.
+  const raw = normalizeFindings({ findings: [
+    F({ title: 'first phrasing', fix: 'a' }),
+    F({ title: 'second phrasing', fix: 'b' }),
+  ] }, 'edge').findings;
+  const once = mergeFindings(raw);
+  const twice = mergeFindings(once);
+  assert.deepEqual(twice, once);
+  assert.equal(twice[0].alsoSaid.length, 1);
 });
