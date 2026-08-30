@@ -16,7 +16,7 @@
  */
 
 const API_URL = "https://api.mistral.ai/v1/chat/completions";
-const MODEL = process.env.MISTRAL_MODEL || "mistral-large-latest";
+const MODEL = process.env.MISTRAL_MODEL || "mistral-small-latest";
 const MAX_DIFF_CHARS = 120_000;
 const MAX_CONTEXT_CHARS = 200_000;
 
