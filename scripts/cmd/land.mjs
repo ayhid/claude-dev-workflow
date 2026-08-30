@@ -253,6 +253,16 @@ export async function run(args) {
   for (const s of landed.steps) L.push(`          ${s}`);
   L.push(`landed:   ${base} at ${landed.head}`);
 
+  // The tracker is written before anything is destroyed — the rule `abandon`
+  // already follows, and `land` was the one command that did not. Here it is
+  // load-bearing rather than tidy: the metrics log resolves its path against the
+  // repository the working directory belongs to (#42), and a working directory
+  // that has just been deleted belongs to nothing. Cleanup still runs either
+  // way; the commits are on the base by now, so a tracker that refused the move
+  // costs a retry and not a worktree.
+  if (opts.criteria) provider.annotate({ criteria: opts.criteria });
+  const moved = await provider.setState(id, 'done');
+
   if (delivery.cleanup !== false) {
     const worktreeDir = config.branch?.worktreeDir ?? '.worktrees';
     const cleaned = await vcs.cleanupWork({
@@ -265,8 +275,8 @@ export async function run(args) {
     for (const n of cleaned.notes) L.push(`          ${n}`);
   }
 
-  if (opts.criteria) provider.annotate({ criteria: opts.criteria });
-  const moved = await provider.setState(id, 'done');
+  // Pushed after the cleanup notes so stdout reads in the order it always has,
+  // rather than in the order the two steps now happen.
   L.push(moved.ok ? `state:    ${moved.state}` : `state:    NOT MOVED — ${moved.error}`);
 
   if (workDir !== repoDir) L.push('', `cd ${repoDir}`);
