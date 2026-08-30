@@ -1,3 +1,10 @@
+# [1.18.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.17.0...v1.18.0) (2026-08-30)
+
+
+### Features
+
+* **no-ticket:** review findings a dev agent can act on ([2da9ab0](https://github.com/ayhid/claude-dev-workflow/commit/2da9ab0a28418e9c2aa16d8f3586f1fbeee576b5))
+
 # [1.17.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.16.0...v1.17.0) (2026-08-30)
 
 
