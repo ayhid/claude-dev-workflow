@@ -4,8 +4,8 @@
  * Two properties are worth a test here. `diffRange` decides what a reviewer is
  * shown, and getting the range operator wrong is invisible until a reviewer is
  * handed somebody else's commits as if the branch had made them. And the lens
- * files are read by two independent consumers — the /dev-review skill and the
- * CI action — which is exactly the drift this repo refuses everywhere else.
+ * files are the single definition of each lens, read by the /dev-review skill,
+ * which is exactly the drift this repo refuses everywhere else.
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -20,6 +20,44 @@ import { buildContext } from '../scripts/cmd/review.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const LENSES = join(ROOT, 'skills', 'dev-review', 'lenses');
+
+/** A findings file on disk, since --render takes a path rather than an object. */
+function findingsFile(obj) {
+  const dir = mkdtempSync(join(tmpdir(), 'rv-'));
+  const path = join(dir, 'findings.json');
+  writeFileSync(path, typeof obj === 'string' ? obj : JSON.stringify(obj));
+  return path;
+}
+
+/** A payload directory holding the named lens files. */
+function payloadDir(files) {
+  const dir = mkdtempSync(join(tmpdir(), 'rp-'));
+  for (const [name, body] of Object.entries(files)) writeFileSync(join(dir, name), body);
+  return dir;
+}
+
+/**
+ * Drive `dev.mjs review --render` and return what it printed.
+ *
+ * The command writes to stdout rather than returning the report, so a test that
+ * wants to assert on it has to intercept. Both streams are restored in a finally:
+ * a leaked patch would silently swallow every later test's output.
+ */
+async function renderCli(argv) {
+  const { run } = await import('../scripts/cmd/review.mjs');
+  const out = [];
+  const stdout = process.stdout.write.bind(process.stdout);
+  const stderr = process.stderr.write.bind(process.stderr);
+  process.stdout.write = (c) => { out.push(c); return true; };
+  process.stderr.write = () => true;
+  try {
+    await run(argv);
+  } finally {
+    process.stdout.write = stdout;
+    process.stderr.write = stderr;
+  }
+  return out.join('');
+}
 
 function fakeRun(replies = {}) {
   const calls = [];
@@ -141,18 +179,19 @@ test('every lens the skill names exists and carries no frontmatter', () => {
   }
 });
 
-test('the CI action reads the lenses from the skill rather than carrying its own copy', () => {
-  const script = join(ROOT, '.github', 'scripts', 'adversarial-review.mjs');
-  if (!existsSync(script)) return; // repo-local action, absent in the published tarball
-  const text = readFileSync(script, 'utf8');
-
-  assert.ok(
-    text.includes('skills/dev-review/lenses/'),
-    'the action must read skills/dev-review/lenses/, not inline its own prompts',
-  );
-  for (const marker of ['const BLIND = `', 'const EDGE = `', 'const AUDIT = `']) {
-    assert.ok(!text.includes(marker), `the action still inlines a lens (${marker.trim()})`);
-  }
+test('the renderer is reachable from the shipped payload, not only from CI', async () => {
+  // lib/review.mjs ships into every consumer project. When the GitHub action was
+  // removed it became the only thing importing it, so the renderer had to gain a
+  // caller inside the payload or become 458 lines nobody could run.
+  //
+  // Driven, not grepped. The version of this that asserted the source text matched
+  // /--render/ also matched the usage string and the doc comment, so it stayed
+  // green with the parseArgs branch deleted — a guard that cannot fail for the
+  // reason it was written.
+  const out = await renderCli(['--render', findingsFile({
+    lenses: [{ name: 'blind', findings: [{ file: 'a.mjs', line: 1, severity: 'major', title: 'reached', fix: 'f' }] }],
+  })]);
+  assert.match(out, /- \[ \] `a\.mjs:1`/, 'the payload can reach the renderer end to end');
 });
 
 test('the skill points at the lenses it ships beside', () => {
@@ -179,6 +218,19 @@ test('a finding with no title has nothing to act on and is dropped', () => {
 test('a model that returns a bad severity does not fail the review', () => {
   const { findings } = normalizeFindings({ findings: [F({ severity: 'catastrophic' })] }, 'blind');
   assert.equal(findings[0].severity, 'minor', 'falls back rather than printing a severity nobody defined');
+});
+
+test('an invalid bucket is omitted from the JSON rather than printed as an empty string', () => {
+  // Unlike severity, bucket has no safe fallback — guessing a triage category is
+  // worse than leaving it for a person to sort. It used to be printed as "" in
+  // the machine block regardless, which an agent could read as a fifth,
+  // legitimate category rather than as "nothing was given".
+  const { findings } = normalizeFindings({ findings: [F({ bucket: 'not-a-real-bucket' })] }, 'blind');
+  assert.equal(findings[0].bucket, '', 'internally it is still the empty string normalizeFindings always used');
+
+  const out = renderReport({ lenses: [{ name: 'blind', findings }], model: 'm' });
+  const json = JSON.parse(out.split('```json\n')[1].split('\n```')[0]);
+  assert.ok(!('bucket' in json.findings[0]), 'omitted, not printed as ""');
 });
 
 test('a line given as a string is still an anchor', () => {
@@ -265,6 +317,17 @@ test('the report is ordered worst-first and byte-identical on a re-render', () =
   const once = renderReport(input);
   assert.equal(once, renderReport(input), 'same input, same bytes');
   assert.ok(once.indexOf('### Blockers') < once.indexOf('### Nits'));
+});
+
+test('a finding with a file but no title is dropped, not rendered blank', () => {
+  // The doc comment on normalizeFindings used to say a finding is dropped only
+  // when it has "no anchor and no title", but the code always dropped on a
+  // missing title alone. That is the right call, not a bug: a checkbox line is
+  // `**${title}**`, and a file path with nothing to call it renders as a blank
+  // bold headline, not a more actionable entry.
+  const { findings, dropped } = normalizeFindings({ findings: [{ file: 'a.mjs', line: 3 }] }, 'blind');
+  assert.equal(findings.length, 0);
+  assert.equal(dropped, 1);
 });
 
 test('every finding renders as a checkbox an agent can address', () => {
@@ -639,5 +702,118 @@ test('a merged entry is not a composite of two different findings', () => {
     f.alsoSaid.join(' '),
     /rename p to payloadPath/,
     'the nit is demoted, not deleted — its fix survives too',
+  );
+});
+
+// --- dev.mjs review --render --------------------------------------------------
+
+test('a lens that reported nothing usable is named, not dropped, when rendering', async () => {
+  const out = await renderCli(['--render', findingsFile({
+    lenses: [
+      { name: 'blind', findings: [{ file: 'a.mjs', line: 1, severity: 'major', title: 'real', fix: 'f' }] },
+      { name: 'edge', error: 'HTTP 429 — rate limited' },
+    ],
+  })]);
+  assert.match(out, /across 1 lens\b/, 'the count reflects what actually reported');
+  assert.match(out, /\*\*edge\*\* — HTTP 429/);
+  assert.match(out, /- \[ \] `a\.mjs:1`/);
+});
+
+test('rendering refuses a file with no lenses rather than printing an empty report', async () => {
+  const { run } = await import('../scripts/cmd/review.mjs');
+  await assert.rejects(() => run(['--render', findingsFile({ lenses: [] })]), /no lenses in/);
+});
+
+// --- a missing flag value is an error, never a different command -------------
+//
+// `args[++i] ?? ''` made an absent value indistinguishable from an absent flag,
+// so `--render` with no path quietly ran the payload build against the branch and
+// `--payloads` with no directory quietly skipped the evidence check. Both then
+// reported success, which is the property that makes this worth a test each.
+
+test('--render with no value is refused rather than running the payload build', async () => {
+  const { run } = await import('../scripts/cmd/review.mjs');
+  await assert.rejects(() => run(['--render']), /--render needs a value/);
+});
+
+test('--payloads with no value is refused rather than skipping verification', async () => {
+  const { run } = await import('../scripts/cmd/review.mjs');
+  await assert.rejects(
+    () => run(['--render', findingsFile({ lenses: [] }), '--payloads']),
+    /--payloads needs a value/,
+  );
+});
+
+test('a flag swallowed by the next flag is refused too', async () => {
+  const { run } = await import('../scripts/cmd/review.mjs');
+  await assert.rejects(() => run(['--render', '--no-intent']), /--render needs a value/);
+});
+
+test('a findings file containing null names the file rather than throwing a TypeError', async () => {
+  const { run } = await import('../scripts/cmd/review.mjs');
+  await assert.rejects(() => run(['--render', findingsFile('null')]), /no lenses in/);
+});
+
+// --- --payloads actually verifies, and says when it did not ------------------
+
+test('--payloads holds back a quote that is not in the payload, and keeps one that is', async () => {
+  const dir = payloadDir({ 'change.diff': '+  const ceiling = 800;\n+  return ceiling;\n' });
+  const out = await renderCli(['--render', findingsFile({
+    lenses: [{ name: 'blind', findings: [
+      { file: 'a.mjs', line: 1, severity: 'major', title: 'quoted the real code', fix: 'f',
+        evidence: 'const ceiling = 800;' },
+      { file: 'a.mjs', line: 9, severity: 'major', title: 'quoted code it never saw', fix: 'f',
+        evidence: 'const ceiling = 1200;' },
+    ] }],
+  }), '--payloads', dir]);
+
+  assert.match(out, /1 finding\*\* across 1 lens/, 'only the verified one is counted');
+  assert.match(out, /quoted code it never saw/, 'the held-back one is segregated, never deleted');
+  assert.match(out, /whose quoted code was not found in the diff/);
+});
+
+test('a report with no --payloads says on its face that nothing was checked', async () => {
+  const out = await renderCli(['--render', findingsFile({
+    lenses: [{ name: 'blind', findings: [
+      { file: 'a.mjs', line: 1, severity: 'major', title: 'unchecked', fix: 'f', evidence: 'whatever it claims' },
+    ] }],
+  })]);
+  assert.match(out, /Evidence was not checked/, 'silence here reads as a pass');
+});
+
+test('a verified report does not carry the unchecked warning', async () => {
+  const dir = payloadDir({ 'change.diff': '+  const ceiling = 800;\n' });
+  const out = await renderCli(['--render', findingsFile({
+    lenses: [{ name: 'blind', findings: [
+      { file: 'a.mjs', line: 1, severity: 'major', title: 'checked', fix: 'f', evidence: 'const ceiling = 800;' },
+    ] }],
+  }), '--payloads', dir]);
+  assert.doesNotMatch(out, /Evidence was not checked/);
+});
+
+test('verifying against a directory with no payload files is refused, not failed silently', async () => {
+  const { run } = await import('../scripts/cmd/review.mjs');
+  const dir = payloadDir({});
+  await assert.rejects(
+    () => run(['--render', findingsFile({
+      lenses: [{ name: 'blind', findings: [
+        { file: 'a.mjs', line: 1, severity: 'major', title: 't', fix: 'f', evidence: 'const ceiling = 800;' },
+      ] }],
+    }), '--payloads', dir]),
+    /no payload files for lens "blind"/,
+    'an empty haystack would mark every real finding unverified',
+  );
+});
+
+test('a lens name with no recorded payload is refused rather than verified against nothing', async () => {
+  const { run } = await import('../scripts/cmd/review.mjs');
+  const dir = payloadDir({ 'change.diff': '+  const ceiling = 800;\n' });
+  await assert.rejects(
+    () => run(['--render', findingsFile({
+      lenses: [{ name: 'Blind', findings: [
+        { file: 'a.mjs', line: 1, severity: 'major', title: 't', fix: 'f', evidence: 'const ceiling = 800;' },
+      ] }],
+    }), '--payloads', dir]),
+    /cannot verify lens "Blind"/,
   );
 });

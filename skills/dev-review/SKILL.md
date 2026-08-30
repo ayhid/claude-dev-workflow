@@ -22,8 +22,12 @@ is what produces the finding:
 | audit | diff + source + the ticket | code that does not match the intent, **and intent that is wrong** |
 
 The lens text lives in `lenses/blind.md`, `lenses/edge.md` and `lenses/audit.md` next to this
-file. Read the one you are running and follow it as written — it is the same file the CI review
-runs on, so a finding here and a finding on the PR come from identical instructions.
+file. Read the one you are running and follow it as written — that file is the single definition
+of the lens, so two runs of the same lens come from identical instructions.
+
+This review runs **locally, for a person to read**. Nothing here posts to a pull request: the
+automated reviewer that used to do that was measured and retired, because confabulation scaled
+with diff size faster than the findings did (docs/decisions/0002).
 
 ## 0. Load the project's workflow config
 
@@ -86,8 +90,8 @@ looks for.
 ## 3. Report
 
 Each lens returns JSON — an object with a `findings` array, fields as its lens file
-specifies. Do not paraphrase them into prose: the same shape is what the CI review posts, and an
-agent picking the work up reads the fields rather than the sentences.
+specifies. Do not paraphrase them into prose: the same shape is what `--render` below consumes, and
+an agent picking the work up reads the fields rather than the sentences.
 
 **Check every `evidence` quote against the payload before you report the finding.** The quote is
 verbatim code the lens claims to be accusing; if those characters are not in `change.diff` or
@@ -105,18 +109,35 @@ Two arrays are not findings and must never be counted as them:
   was real without having to produce a finding to prove it. A long `axesChecked` beside an empty
   `findings` is good work, not a lazy review.
 
-Render the three lenses into **one** report, worst severity first, each finding as a checkbox line
-an agent can address on its own:
+Write the three lenses' JSON to one file and let the command render it:
 
-```
-- [ ] `path:line` — **the defect in under twelve words**  <sub>lens · bucket</sub>
-      one sentence on what is wrong
-      *Consequence:* what it costs
-      **Fix:** the concrete change
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" review --render findings.json --payloads <the dir from §1>
 ```
 
-Then a fenced `json` block containing every finding, so the report has a machine half and a human
-half that cannot disagree — the prose above is rendered *from* that block, never written beside it.
+```json
+{ "model": "the model that ran the lenses",
+  "meta":  { "files": 6, "lines": 493 },
+  "lenses": [ { "name": "blind", "findings": [...], "questions": [...] },
+              { "name": "edge",  "findings": [...], "axesChecked": [...] },
+              { "name": "audit", "findings": [...] } ] }
+```
+
+`model` and `meta` are read too, and omitting them costs the report its scope line — take the file
+and line counts from §1's output. The lens `name` must be exactly `blind`, `edge` or `audit`:
+that is the key deciding which payload its quotes are checked against, so a fourth name is refused
+rather than waved through unverified.
+
+Do not write the markdown yourself. The command owns the format — severity order, the checkbox
+line, the JSON block an agent reads — so a report from this skill and a report from anywhere else
+are the same bytes, and `--payloads` re-checks every `evidence` quote against the payload **its own
+lens** saw. Findings quoting code that is not there are held back automatically rather than printed
+as fact, which is a check you cannot perform reliably by eye. Omit `--payloads` and the report
+says on its face that the quotes were never checked, so an unverified review cannot be mistaken
+for a verified one.
+
+A lens that failed gets `{"name": "edge", "error": "..."}` instead of findings. Say what happened;
+never quietly render two lenses as though three ran.
 
 Two readings that only exist once the lenses are put together, and they are the reason for running
 more than one:

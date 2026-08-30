@@ -45,6 +45,7 @@ const USAGE = `usage: dev.mjs <command> [args]
   standup [--since 1d] [--stale 7d] [--repo PATH]
   sync   [--apply] [--since 30d] [--repo PATH] [--deep] [--limit N]
   review [--base REF] [--out DIR] [--no-intent]   build the adversarial review payloads
+  review --render FINDINGS.json [--payloads DIR]  render lens output into the report
   version [--json] [--offline] [--upgrade]
 
 Config comes from .dev-workflow.json (or .claude/dev-workflow.json), then the

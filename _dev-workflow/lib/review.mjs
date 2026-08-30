@@ -104,10 +104,11 @@ export function findingId(lens, f) {
 /**
  * Coerce one lens's JSON into findings we are willing to print.
  *
- * A model asked for JSON will occasionally return a field as a number, omit one,
+A model asked for JSON will occasionally return a field as a number, omit one,
  * or wrap the array in another key. None of that is worth failing a review over,
  * so the shape is repaired where it can be and the finding is dropped only when
- * it has no anchor and no title — at which point there is nothing to act on.
+ * it has no title — a location with nothing to call it renders as a checkbox
+ * line with a blank headline, which is not more actionable, just unreadable.
  *
  * @returns {{findings: object[], dropped: number}}
  */
@@ -327,10 +328,15 @@ function renderFinding(f) {
 /**
  * The whole comment.
  *
+ * `evidenceChecked` defaults to false, and the default is the safe direction: a
+ * caller that did not say whether it verified the quotes did not verify them, and
+ * a report that cannot promise the check must not read like one that can.
+ *
  * @param {{lenses: {name: string, findings?: object[], error?: string, skipped?: string}[],
- *          model?: string, meta?: {files?: number, lines?: number}}} input
+ *          model?: string, meta?: {files?: number, lines?: number},
+ *          evidenceChecked?: boolean}} input
  */
-export function renderReport({ lenses = [], model = 'unknown', meta = {} } = {}) {
+export function renderReport({ lenses = [], model = 'unknown', meta = {}, evidenceChecked = false } = {}) {
   const all = mergeFindings(lenses.flatMap((l) => l.findings ?? []));
   // Unverified findings are held back rather than deleted: the quote may have been
   // reformatted rather than invented. But they do not get to sit in the list a
@@ -373,6 +379,17 @@ export function renderReport({ lenses = [], model = 'unknown', meta = {} } = {})
         `${unverified.length} more quoted code that is not in this diff, and ${
           unverified.length === 1 ? 'is' : 'are'
         } held back below.`,
+        '',
+      );
+    }
+    // Said out loud, because the alternative is silence that reads as a pass: an
+    // unchecked report and a checked one were byte-identical, so a reader had no
+    // way to tell a verified quote from a lens's unsupported claim.
+    if (!evidenceChecked && sorted.length) {
+      out.push(
+        '**Evidence was not checked.** No payload directory was given, so every quote below is ' +
+          'what the lens said it was accusing, not text matched against the code. Re-run with ' +
+          '`--payloads` to have them verified.',
         '',
       );
     }
@@ -453,7 +470,13 @@ export function renderReport({ lenses = [], model = 'unknown', meta = {} } = {})
         model,
         ...meta,
         findings: [...sorted, ...unverified].map(({ lens, id, file, line, severity, bucket, title, problem, consequence, fix, trigger, behavior, test, alsoRaisedBy, alsoSaid, evidence, verified, unchecked, lenses }) => ({
-          id, lens, file, line, severity, bucket, title,
+          id, lens, file, line, severity, title,
+          // '' means the lens gave no bucket BUCKETS recognises. severity has a
+          // real fallback ('minor'); bucket does not, because guessing a triage
+          // category is worse than leaving it for a person to sort. Omitted
+          // rather than printed as "", which an agent could otherwise read as
+          // a fifth, valid category.
+          ...(bucket ? { bucket } : {}),
           ...(lenses?.length > 1 ? { lenses } : {}),
           // The prose half renders these; a machine half that drops them is the
           // two halves disagreeing, which is the one thing this block promises
