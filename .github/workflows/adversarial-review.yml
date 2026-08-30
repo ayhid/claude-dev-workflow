@@ -38,7 +38,7 @@ jobs:
           # Paths no reviewer reads. Kept in step with DEFAULT_DIFF_EXCLUDES in
           # lib/vcs.mjs — `.lock$` alone misses package-lock.json and
           # pnpm-lock.yaml, which are the two that actually blow the line ceiling.
-          EXCLUDE='(\.lock$|(^|/)(package-lock|npm-shrinkwrap)\.json$|(^|/)pnpm-lock\.ya?ml$|(^|/)dist/|\.generated\.)'
+          EXCLUDE='(\.lock$|(^|/)(package-lock|npm-shrinkwrap)\.json$|(^|/)pnpm-lock\.ya?ml$|(^|/)dist/|\.generated\.|(^|/)_dev-workflow/|(^|/)\.claude/skills/dev-[^/]*/)'
 
           git diff --name-only -z "$BASE_SHA...$HEAD_SHA" \
             | tr '\0' '\n' | grep -vE "$EXCLUDE" > /tmp/review/changed.txt || true

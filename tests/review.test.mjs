@@ -81,6 +81,23 @@ test('a binary file counts as zero reviewable lines rather than NaN', async () =
   assert.equal(r.lines, 4);
 });
 
+test('what the installer generates is not reviewable work', () => {
+  const hit = (f) => DEFAULT_DIFF_EXCLUDES.some((re) => re.test(f));
+
+  // A byte-identical copy of source already in the diff. Counting it doubles
+  // every payload change and pushes routine work past the review ceiling.
+  assert.ok(hit('_dev-workflow/lib/vcs.mjs'));
+  assert.ok(hit('.claude/skills/dev-review/SKILL.md'));
+  assert.ok(hit('.claude/skills/dev-review/lenses/blind.md'));
+
+  // But only the namespace the installer owns. A hand-written skill beside ours
+  // is the user's own work and must still be reviewed — the same line
+  // isOwnedPath draws.
+  assert.ok(!hit('.claude/skills/my-own-skill/SKILL.md'));
+  assert.ok(!hit('.claude/settings.json'));
+  assert.ok(!hit('skills/dev-review/SKILL.md'), 'the source of a skill is reviewable');
+});
+
 test('the exclude list is exported so the CI payload and the command agree', () => {
   assert.ok(DEFAULT_DIFF_EXCLUDES.some((re) => re.test('pnpm-lock.yaml')));
   assert.ok(DEFAULT_DIFF_EXCLUDES.some((re) => re.test('dist/x.js')));
