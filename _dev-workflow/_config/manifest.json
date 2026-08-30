@@ -1,8 +1,8 @@
 {
   "installation": {
-    "version": "1.15.1",
+    "version": "1.17.0",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-30T10:26:49.936Z"
+    "lastUpdated": "2026-08-30T10:48:14.774Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -73,6 +73,10 @@
     {
       "path": "_dev-workflow/lib/provider.mjs",
       "sha256": "07978cf75668bc390336b4ba9e291d50a0dad40b576271716c34d56a6bc1e5a3"
+    },
+    {
+      "path": "_dev-workflow/lib/review.mjs",
+      "sha256": "f75ce42672ecf25194c691431fcd790bc2af3c6f4918ff8f3de5ce435c2b30ea"
     },
     {
       "path": "_dev-workflow/lib/sh.mjs",
@@ -216,19 +220,19 @@
     },
     {
       "path": ".claude/skills/dev-review/lenses/audit.md",
-      "sha256": "379657f77f24eafb3bc1d4202f205e9edbcd05c9f906b596f54ecbb88bd4a15c"
+      "sha256": "af5d2ec270f8e16e310064e00a5ddae4d1be6b41cbe6906ab118e64f544cf0b9"
     },
     {
       "path": ".claude/skills/dev-review/lenses/blind.md",
-      "sha256": "8e9d962ee0c0d8b80896f8b2f6ae7f94f4f54da02a8c11131a4e4d0507fc4dee"
+      "sha256": "71c1713d40d42e390507f74f2d10731d229698b9181efe394c9a6f9f256749e9"
     },
     {
       "path": ".claude/skills/dev-review/lenses/edge.md",
-      "sha256": "fbc51ea517d6026976d027ff0e8ebdab2fc20876b93f36003112e2ea26fa6832"
+      "sha256": "633a847b7454a30f744da0fe4985771274e8881e303e5587b0b501750277a92f"
     },
     {
       "path": ".claude/skills/dev-review/SKILL.md",
-      "sha256": "62a0efa553ebcfa19e549e1d12d9c5ce91cb1ee7fbadf16964b8218c5a741341"
+      "sha256": "20d2fcba397e9ceaf11c5a60f62b73da5704db3eae997d28fbcc5cbc4ea65662"
     },
     {
       "path": ".claude/skills/dev-standup/SKILL.md",
