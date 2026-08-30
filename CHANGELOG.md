@@ -1,3 +1,10 @@
+## [1.18.1](https://github.com/ayhid/claude-dev-workflow/compare/v1.18.0...v1.18.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* **no-ticket:** stop the lenses inventing failures, and check that they didn't ([add962e](https://github.com/ayhid/claude-dev-workflow/commit/add962edfd63f1bba058921e18b474c48a3aad4b))
+
 # [1.18.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.17.0...v1.18.0) (2026-08-30)
 
 
