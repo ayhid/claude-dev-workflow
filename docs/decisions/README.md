@@ -5,3 +5,4 @@
 | # | Title | Status | Date |
 | --- | --- | --- | --- |
 | [0001](0001-a-pretooluse-hook-enforces-adr-immutability.md) | A PreToolUse hook enforces ADR immutability | accepted | 2026-08-28 |
+| [0002](0002-retire-the-ci-posted-adversarial-reviewer.md) | Retire the CI-posted adversarial reviewer; keep the lenses local | accepted | 2026-08-30 |

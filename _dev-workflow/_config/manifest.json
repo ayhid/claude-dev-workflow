@@ -1,8 +1,8 @@
 {
   "installation": {
-    "version": "1.17.0",
+    "version": "1.18.0",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-30T21:10:24.323Z"
+    "lastUpdated": "2026-08-30T22:08:16.758Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -232,7 +232,7 @@
     },
     {
       "path": ".claude/skills/dev-review/SKILL.md",
-      "sha256": "ebf8a23deed260f35e2ccb2c0bf2ec793e291c23c738a28af230803046be242d"
+      "sha256": "4e291ca9c52244cc4b91ddf9d2fc82f47bf3b1b18a36078b0e7cccca632f5aab"
     },
     {
       "path": ".claude/skills/dev-standup/SKILL.md",

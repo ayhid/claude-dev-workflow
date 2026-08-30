@@ -27,7 +27,7 @@ of the lens, so two runs of the same lens come from identical instructions.
 
 This review runs **locally, for a person to read**. Nothing here posts to a pull request: the
 automated reviewer that used to do that was measured and retired, because confabulation scaled
-with diff size faster than the findings did.
+with diff size faster than the findings did (docs/decisions/0002).
 
 ## 0. Load the project's workflow config
 
