@@ -1,3 +1,10 @@
+## [1.18.2](https://github.com/ayhid/claude-dev-workflow/compare/v1.18.1...v1.18.2) (2026-08-30)
+
+
+### Bug Fixes
+
+* **no-ticket:** tune the lenses, retire the CI reviewer ([0bf943d](https://github.com/ayhid/claude-dev-workflow/commit/0bf943df8217ceda3f1b650dfeb2ccc8c930a58f)), closes [#67](https://github.com/ayhid/claude-dev-workflow/issues/67) [#67](https://github.com/ayhid/claude-dev-workflow/issues/67) [#67](https://github.com/ayhid/claude-dev-workflow/issues/67)
+
 ## [1.18.1](https://github.com/ayhid/claude-dev-workflow/compare/v1.18.0...v1.18.1) (2026-08-30)
 
 
