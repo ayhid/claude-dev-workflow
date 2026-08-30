@@ -220,6 +220,19 @@ test('a model that returns a bad severity does not fail the review', () => {
   assert.equal(findings[0].severity, 'minor', 'falls back rather than printing a severity nobody defined');
 });
 
+test('an invalid bucket is omitted from the JSON rather than printed as an empty string', () => {
+  // Unlike severity, bucket has no safe fallback — guessing a triage category is
+  // worse than leaving it for a person to sort. It used to be printed as "" in
+  // the machine block regardless, which an agent could read as a fifth,
+  // legitimate category rather than as "nothing was given".
+  const { findings } = normalizeFindings({ findings: [F({ bucket: 'not-a-real-bucket' })] }, 'blind');
+  assert.equal(findings[0].bucket, '', 'internally it is still the empty string normalizeFindings always used');
+
+  const out = renderReport({ lenses: [{ name: 'blind', findings }], model: 'm' });
+  const json = JSON.parse(out.split('```json\n')[1].split('\n```')[0]);
+  assert.ok(!('bucket' in json.findings[0]), 'omitted, not printed as ""');
+});
+
 test('a line given as a string is still an anchor', () => {
   const { findings } = normalizeFindings({ findings: [F({ line: '42' })] }, 'edge');
   assert.equal(findings[0].line, 42);
@@ -304,6 +317,17 @@ test('the report is ordered worst-first and byte-identical on a re-render', () =
   const once = renderReport(input);
   assert.equal(once, renderReport(input), 'same input, same bytes');
   assert.ok(once.indexOf('### Blockers') < once.indexOf('### Nits'));
+});
+
+test('a finding with a file but no title is dropped, not rendered blank', () => {
+  // The doc comment on normalizeFindings used to say a finding is dropped only
+  // when it has "no anchor and no title", but the code always dropped on a
+  // missing title alone. That is the right call, not a bug: a checkbox line is
+  // `**${title}**`, and a file path with nothing to call it renders as a blank
+  // bold headline, not a more actionable entry.
+  const { findings, dropped } = normalizeFindings({ findings: [{ file: 'a.mjs', line: 3 }] }, 'blind');
+  assert.equal(findings.length, 0);
+  assert.equal(dropped, 1);
 });
 
 test('every finding renders as a checkbox an agent can address', () => {

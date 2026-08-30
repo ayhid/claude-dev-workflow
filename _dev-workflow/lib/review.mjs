@@ -104,10 +104,11 @@ export function findingId(lens, f) {
 /**
  * Coerce one lens's JSON into findings we are willing to print.
  *
- * A model asked for JSON will occasionally return a field as a number, omit one,
+A model asked for JSON will occasionally return a field as a number, omit one,
  * or wrap the array in another key. None of that is worth failing a review over,
  * so the shape is repaired where it can be and the finding is dropped only when
- * it has no anchor and no title — at which point there is nothing to act on.
+ * it has no title — a location with nothing to call it renders as a checkbox
+ * line with a blank headline, which is not more actionable, just unreadable.
  *
  * @returns {{findings: object[], dropped: number}}
  */
@@ -469,7 +470,13 @@ export function renderReport({ lenses = [], model = 'unknown', meta = {}, eviden
         model,
         ...meta,
         findings: [...sorted, ...unverified].map(({ lens, id, file, line, severity, bucket, title, problem, consequence, fix, trigger, behavior, test, alsoRaisedBy, alsoSaid, evidence, verified, unchecked, lenses }) => ({
-          id, lens, file, line, severity, bucket, title,
+          id, lens, file, line, severity, title,
+          // '' means the lens gave no bucket BUCKETS recognises. severity has a
+          // real fallback ('minor'); bucket does not, because guessing a triage
+          // category is worse than leaving it for a person to sort. Omitted
+          // rather than printed as "", which an agent could otherwise read as
+          // a fifth, valid category.
+          ...(bucket ? { bucket } : {}),
           ...(lenses?.length > 1 ? { lenses } : {}),
           // The prose half renders these; a machine half that drops them is the
           // two halves disagreeing, which is the one thing this block promises
