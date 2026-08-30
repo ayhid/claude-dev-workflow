@@ -15,7 +15,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { makeVcs, DEFAULT_DIFF_EXCLUDES } from '../lib/vcs.mjs';
-import { normalizeFindings, markAgreement, renderReport, anchorOf } from '../lib/review.mjs';
+import { normalizeFindings, mergeFindings, renderReport, anchorOf, sortFindings, verifyEvidence } from '../lib/review.mjs';
 import { buildContext } from '../scripts/cmd/review.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -201,19 +201,53 @@ test('ids are stable across runs, so a repeat finding is recognisable', () => {
   assert.notEqual(a.id, c.id, 'the same defect from a different lens is a different finding');
 });
 
-test('two lenses landing on one line is the signal worth surfacing', () => {
-  const marked = markAgreement([
-    ...normalizeFindings({ findings: [F()] }, 'blind').findings,
-    ...normalizeFindings({ findings: [F({ title: 'said differently' })] }, 'audit').findings,
-    ...normalizeFindings({ findings: [F({ line: 99 })] }, 'edge').findings,
+test('two lenses landing on one defect become one finding, not two', () => {
+  const merged = mergeFindings([
+    ...normalizeFindings({ findings: [F({ severity: 'minor', title: 'off-by-one drops a finding', fix: 'use MAX_PER_GROUP not MAX_PER_GROUP - 1' })] }, 'blind').findings,
+    ...normalizeFindings({ findings: [F({ severity: 'blocker', title: 'off-by-one in the slice', fix: 'change MAX_PER_GROUP - 1 to MAX_PER_GROUP' })] }, 'audit').findings,
+    ...normalizeFindings({ findings: [F({ line: 99, title: 'somewhere else entirely', fix: 'unrelated change' })] }, 'edge').findings,
   ]);
-  assert.deepEqual(marked[0].alsoRaisedBy, ['audit']);
-  assert.deepEqual(marked[1].alsoRaisedBy, ['blind']);
-  assert.deepEqual(marked[2].alsoRaisedBy, [], 'a lone finding agrees with nobody');
+
+  assert.equal(merged.length, 2, 'the restatement collapsed; the unrelated one did not');
+  const both = merged.find((f) => f.line === 10);
+  assert.deepEqual(both.lenses, ['audit', 'blind']);
+  assert.equal(both.severity, 'blocker', 'one lens calling it minor does not downgrade the other');
+  assert.equal(both.alsoSaid.length, 1, 'the other phrasing travels with it rather than being lost');
+  assert.match(
+    both.alsoSaid[0],
+    /use MAX_PER_GROUP not MAX_PER_GROUP - 1/,
+    'and its fix travels too — a title alone is not the phrasing',
+  );
+  assert.match(both.title, /off-by-one in the slice/, 'the entry reads as the severity it carries');
+  assert.match(both.fix, /change MAX_PER_GROUP - 1 to MAX_PER_GROUP/, 'with that finding\'s own fix');
+  assert.deepEqual(merged.find((f) => f.line === 99).lenses, ['edge']);
+});
+
+test('everything said about one line becomes one entry with one checkbox', () => {
+  // Six findings landed on one line in the run that motivated this, four of them
+  // the same off-by-one in different words. Whether they are the same defect is
+  // not decidable from the text, so the only claim made is that they are about
+  // the same line — and an agent fixing that line addresses all of them.
+  const merged = mergeFindings(
+    normalizeFindings({ findings: [
+      { ...F(), title: 'off-by-one in MAX_PER_GROUP slice', fix: 'change group.slice(0, MAX_PER_GROUP - 1) to group.slice(0, MAX_PER_GROUP)', trigger: 'group.length === 10', test: 'renders all ten' },
+      { ...F(), title: 'MAX_PER_GROUP silently drops findings', fix: 'change MAX_PER_GROUP - 1 to MAX_PER_GROUP' },
+      { ...F(), title: 'MAX_PER_GROUP comment misstates intent', fix: 'update the comment' },
+    ] }, 'edge').findings,
+  );
+
+  assert.equal(merged.length, 1, 'one line, one entry');
+  assert.equal(merged[0].alsoSaid.length, 2, 'the other phrasings are kept, not discarded');
+  assert.match(merged[0].alsoSaid.join(' '), /update the comment/, 'including their fixes');
+  assert.match(merged[0].title, /off-by-one in MAX_PER_GROUP slice/, 'the most detailed one leads');
+
+  const out = renderReport({ lenses: [{ name: 'edge', findings: merged }] });
+  assert.equal((out.match(/^- \[ \]/gm) ?? []).length, 1, 'one checkbox, not three');
+  assert.match(out, /also: edge: MAX_PER_GROUP comment misstates intent/);
 });
 
 test('unanchored findings are never called agreement', () => {
-  const marked = markAgreement([
+  const marked = mergeFindings([
     ...normalizeFindings({ findings: [F({ line: null })] }, 'blind').findings,
     ...normalizeFindings({ findings: [F({ line: null })] }, 'audit').findings,
   ]);
@@ -225,7 +259,7 @@ test('the report is ordered worst-first and byte-identical on a re-render', () =
     model: 'm',
     meta: { files: 2, lines: 40 },
     lenses: [
-      { name: 'blind', findings: normalizeFindings({ findings: [F({ severity: 'nit', title: 'z' }), F({ severity: 'blocker', title: 'a' })] }, 'blind').findings },
+      { name: 'blind', findings: normalizeFindings({ findings: [F({ severity: 'nit', title: 'z', line: 3, fix: 'rename it' }), F({ severity: 'blocker', title: 'a', line: 9, fix: 'guard the null' })] }, 'blind').findings },
     ],
   };
   const once = renderReport(input);
@@ -298,4 +332,312 @@ test('every lens failing is reported as no review, never as a clean one', () => 
   assert.match(out, /\*\*This review did not run\.\*\*/);
   assert.match(out, /Do not read this as a pass/);
   assert.ok(!out.includes('No findings'), 'must not say "No findings" when nothing ran');
+});
+
+// --- evidence: the check a model cannot talk its way past ---------------------
+
+const SOURCE = `
+export function normalizeFindings(raw, lens) {
+  const line = Number.isFinite(Number(lineRaw)) && Number(lineRaw) > 0 ? Number(lineRaw) : null;
+}
+`;
+
+test('a finding quoting code that is really there stands', () => {
+  const [f] = verifyEvidence(
+    normalizeFindings({ findings: [F({ evidence: 'Number.isFinite(Number(lineRaw)) && Number(lineRaw) > 0' })] }, 'edge').findings,
+    SOURCE,
+  );
+  assert.equal(f.verified, true);
+});
+
+test('a quote survives being re-indented or carrying a diff prefix', () => {
+  const [f] = verifyEvidence(
+    normalizeFindings({ findings: [F({ evidence: '  Number.isFinite(Number(lineRaw))\n        && Number(lineRaw) > 0' })] }, 'edge').findings,
+    SOURCE,
+  );
+  assert.equal(f.verified, true, 'whitespace differences are not evidence of invention');
+});
+
+test('a finding quoting code that is not in the payload is marked unverified', () => {
+  const [f] = verifyEvidence(
+    normalizeFindings({ findings: [F({ evidence: 'if (lineRaw === Infinity) throw new Error("nope")' })] }, 'edge').findings,
+    SOURCE,
+  );
+  assert.equal(f.verified, false);
+});
+
+test('a quote too short to mean anything does not count as evidence', () => {
+  const [f] = verifyEvidence(normalizeFindings({ findings: [F({ evidence: '}' })] }, 'edge').findings, SOURCE);
+  assert.notEqual(f.verified, true, '"}" appears in every file and proves nothing');
+  // It is not evidence, and it is also not a fabrication. This asserted `false`
+  // until a no-quote blocker was found hidden in the held-back block under
+  // "quoted something that is not in the payload" — an accusation nothing had
+  // grounds for. `null` is the state that says neither.
+  assert.equal(f.verified, null);
+  assert.equal(f.unchecked, 'quote too short to check');
+});
+
+test('no evidence at all is unverified, not verified by default', () => {
+  const [f] = verifyEvidence(normalizeFindings({ findings: [F()] }, 'edge').findings, SOURCE);
+  assert.notEqual(f.verified, true, 'nothing was checked, so nothing is confirmed');
+  assert.equal(f.verified, null);
+  assert.equal(f.unchecked, 'no evidence quoted');
+});
+
+test('unverified findings are held back from the list but never deleted', () => {
+  const findings = verifyEvidence(
+    normalizeFindings({ findings: [
+      F({ title: 'real one', line: 3, fix: 'guard it', evidence: 'Number.isFinite(Number(lineRaw))' }),
+      F({ title: 'imagined one', line: 9, fix: 'rewrite it', evidence: 'const x = somethingThatIsNotThere(42);' }),
+    ] }, 'edge').findings,
+    SOURCE,
+  );
+  const out = renderReport({ lenses: [{ name: 'edge', findings }] });
+
+  assert.match(out, /\*\*1 finding\*\* across 1 lens/, 'the count is what a reader can act on');
+  assert.match(out, /1 more quoted code that is not in this diff/);
+  assert.ok(out.indexOf('real one') < out.indexOf('quoted code was not found'));
+  assert.ok(out.includes('imagined one'), 'held back, not deleted');
+
+  const json = JSON.parse(out.match(/```json\n([\s\S]*?)\n```/)[1]);
+  assert.equal(json.findings.length, 2, 'an agent still sees both, with the verdict attached');
+  assert.equal(json.findings.find((f) => f.title === 'imagined one').verified, false);
+});
+
+test('the run that motivated this: four boundary claims against a guard that handles them', () => {
+  // Replayed from the first live review, which reported line 0, negative,
+  // Infinity and "NaN" as unhandled. The guard rejects all four.
+  for (const v of [0, '0', -1, '-1', Infinity, 'NaN']) {
+    const { findings } = normalizeFindings({ findings: [F({ line: v })] }, 'edge');
+    assert.equal(findings[0].line, null, `${JSON.stringify(v)} should not survive as a line`);
+  }
+  // The one it got right, now fixed: a line number is a positive integer or it
+  // is not a line number. A numeric string still is one.
+  for (const v of [1.5, '1.5']) {
+    assert.equal(normalizeFindings({ findings: [F({ line: v })] }, 'edge').findings[0].line, null);
+  }
+  assert.equal(normalizeFindings({ findings: [F({ line: '42' })] }, 'edge').findings[0].line, 42);
+});
+
+// --- the non-finding channels -------------------------------------------------
+
+test('a lens can show coverage without producing a finding to prove it', () => {
+  const { axesChecked, findings } = normalizeFindings(
+    { findings: [], axesChecked: ['negative line: rejected by `Number(x) > 0`', '', 42] },
+    'edge',
+  );
+  assert.deepEqual(findings, []);
+  assert.deepEqual(axesChecked, ['negative line: rejected by `Number(x) > 0`'], 'blanks and non-strings dropped');
+
+  const out = renderReport({ lenses: [{ name: 'edge', findings: [], axesChecked }] });
+  assert.match(out, /What was checked and found handled/);
+  assert.match(out, /No findings across 1 lens/);
+});
+
+test('what a lens cannot explain is a question, not a defect', () => {
+  const { questions } = normalizeFindings({ findings: [], questions: ['why did the model name change?'] }, 'blind');
+  const out = renderReport({ lenses: [{ name: 'blind', findings: [], questions }] });
+
+  assert.match(out, /could not explain from the diff alone/);
+  assert.match(out, /why did the model name change\?/);
+  // The whole point: this must not be counted or presented as a finding.
+  assert.match(out, /No findings across 1 lens/);
+  assert.ok(!out.includes('### Blockers'));
+});
+
+test('merging an already-merged set changes nothing', () => {
+  // renderReport merges what it is given, so a caller that merged first must not
+  // silently lose the phrasings gathered in the first pass.
+  const raw = normalizeFindings({ findings: [
+    F({ title: 'first phrasing', fix: 'a' }),
+    F({ title: 'second phrasing', fix: 'b' }),
+  ] }, 'edge').findings;
+  const once = mergeFindings(raw);
+  const twice = mergeFindings(once);
+  assert.deepEqual(twice, once);
+  assert.equal(twice[0].alsoSaid.length, 1);
+});
+
+// --- what the review of the review found (PR #62) ------------------------------
+
+test('two unattributed findings on the same line are not agreement', () => {
+  // The contract is "same file, same line". A finding with no file is anchored
+  // to `(unattributed)`, and two of those sharing a line number are not about
+  // the same code — merging them manufactures the one signal the report tells
+  // a reader to trust most.
+  const merged = mergeFindings([
+    ...normalizeFindings({ findings: [F({ file: '', line: 42, title: 'one thing' })] }, 'blind').findings,
+    ...normalizeFindings({ findings: [F({ file: '', line: 42, title: 'a different thing' })] }, 'edge').findings,
+  ]);
+
+  assert.equal(merged.length, 2, 'they stay separate');
+  assert.ok(merged.every((f) => !f.alsoRaisedBy?.length), 'and neither claims corroboration');
+});
+
+test('a finding two lenses reached sorts above one only a single lens raised', () => {
+  // skills/dev-review/SKILL.md: "A finding two lenses reach independently —
+  // same file, same line — is almost always real. Mark it and put it first."
+  // Severity still outranks it; within a severity, agreement leads.
+  const agreed = mergeFindings([
+    ...normalizeFindings({ findings: [F({ file: 'z.mjs', line: 9, title: 'both saw this' })] }, 'blind').findings,
+    ...normalizeFindings({ findings: [F({ file: 'z.mjs', line: 9, title: 'both saw this' })] }, 'edge').findings,
+  ]);
+  const alone = normalizeFindings({ findings: [F({ file: 'a.mjs', line: 1, title: 'only blind saw this' })] }, 'blind').findings;
+
+  const sorted = sortFindings([...alone, ...agreed]);
+  assert.equal(sorted[0].title, 'both saw this', 'agreement leads, even from a later file');
+
+  const worse = normalizeFindings({ findings: [F({ file: 'z.mjs', line: 99, severity: 'blocker', title: 'worse' })] }, 'blind').findings;
+  assert.equal(sortFindings([...agreed, ...worse])[0].title, 'worse', 'but severity still outranks it');
+});
+
+test('merging never lets an unverified finding ride in on a verified one', () => {
+  // The report holds unverified findings back precisely because a quote that is
+  // absent from the payload has not been shown to be about this diff. Two
+  // findings at one location with different verdicts are two different claims,
+  // and `...primary` was handing the whole merged entry whichever verdict the
+  // primary happened to carry.
+  const real = verifyEvidence(
+    normalizeFindings({ findings: [F({ file: 'x.mjs', line: 3, evidence: 'Number.isFinite(Number(lineRaw))' })] }, 'blind').findings,
+    SOURCE,
+  );
+  const invented = verifyEvidence(
+    normalizeFindings({ findings: [F({ file: 'x.mjs', line: 3, evidence: 'a quote that appears nowhere at all' })] }, 'edge').findings,
+    SOURCE,
+  );
+  assert.equal(real[0].verified, true);
+  assert.equal(invented[0].verified, false);
+
+  const merged = mergeFindings([...real, ...invented]);
+  assert.equal(merged.length, 2, 'a different verdict is a different claim');
+  assert.deepEqual(merged.map((f) => f.verified).sort(), [false, true]);
+  assert.ok(merged.every((f) => !f.alsoRaisedBy?.length), 'and neither corroborates the other');
+});
+
+test('a multi-line quote matches a unified diff it was copied out of', () => {
+  // squash() collapses whitespace, so a leading `+` survives *between* the
+  // joined lines. A model quoting two consecutive added lines verbatim then
+  // fails to match the diff it was reading, and a real finding is held back.
+  const diff = ['+const a = readConfig(path);', '+if (!a) return null;'].join('\n');
+  const [f] = verifyEvidence(
+    normalizeFindings({ findings: [F({ evidence: 'const a = readConfig(path);\nif (!a) return null;' })] }, 'edge').findings,
+    diff,
+  );
+  assert.equal(f.verified, true);
+});
+
+test('lenses that were skipped are not reported as having failed', () => {
+  const out = renderReport({ lenses: [{ name: 'audit', skipped: 'no intent' }], model: 'm' });
+  assert.match(out, /did not run/, 'it is still not a pass');
+  assert.doesNotMatch(out, /lens failed/, 'but nothing failed — it was skipped');
+});
+
+test('the JSON half keeps the alternate wordings the markdown half prints', () => {
+  // The whole point of the block: "a machine half and a human half that cannot
+  // disagree". alsoSaid was rendered in prose and dropped from the JSON.
+  const out = renderReport({
+    lenses: [
+      { name: 'blind', findings: normalizeFindings({ findings: [F({ file: 'z.mjs', line: 9, title: 'the primary wording' })] }, 'blind').findings },
+      { name: 'edge', findings: normalizeFindings({ findings: [F({ file: 'z.mjs', line: 9, title: 'the other wording' })] }, 'edge').findings },
+    ],
+    model: 'm',
+  });
+  const json = JSON.parse(out.split('```json')[1].split('```')[0]);
+  const f = json.findings.find((x) => x.alsoSaid?.length);
+  assert.ok(f, 'the JSON carries the alternate wording too');
+  assert.match(f.alsoSaid.join(' '), /the other wording|the primary wording/);
+});
+
+test('a change set filtered down to nothing reports its zero scope', () => {
+  // Zero is a measurement, not an absence. The report that omitted it read
+  // exactly like one that was never told the scope at all.
+  const out = renderReport({ lenses: [{ name: 'blind', error: 'boom' }], model: 'm', meta: { files: 0, lines: 0 } });
+  assert.match(out, /0 files, 0 changed lines/);
+});
+
+// --- `false` is an accusation, and it is reserved ----------------------------
+//
+// verifyEvidence used to collapse three states into one. A finding that supplied
+// no quote, and one whose quote was too short to tell a match from an accident,
+// were both filed under "quoted code that is not in this diff" — which hid them
+// from the main list while saying something about them that was not true. A
+// blocker whose author omitted one field disappeared exactly that way.
+
+test('a finding that quoted nothing is not accused of inventing a quote', () => {
+  const [f] = verifyEvidence(
+    normalizeFindings({ findings: [F({ severity: 'blocker', evidence: undefined })] }, 'blind').findings,
+    SOURCE,
+  );
+  assert.equal(f.verified, null, 'never checked is not the same as checked and absent');
+  assert.equal(f.unchecked, 'no evidence quoted');
+});
+
+test('a quote too short to check is not accused either', () => {
+  const [f] = verifyEvidence(
+    normalizeFindings({ findings: [F({ evidence: 'n > 0' })] }, 'blind').findings,
+    SOURCE,
+  );
+  assert.equal(f.verified, null);
+  assert.equal(f.unchecked, 'quote too short to check');
+});
+
+test('a quote that was looked for and not found still is', () => {
+  const [f] = verifyEvidence(
+    normalizeFindings({ findings: [F({ evidence: 'const somethingNobodyWrote = 42;' })] }, 'blind').findings,
+    SOURCE,
+  );
+  assert.equal(f.verified, false, 'the failure this check exists for still fails');
+  assert.equal(f.unchecked, undefined);
+});
+
+test('an unquoted blocker stays in the list a reader works through, marked as unverified', () => {
+  const checked = verifyEvidence(
+    normalizeFindings({ findings: [
+      { file: 'a.mjs', line: 1, severity: 'blocker', title: 'no evidence field at all', fix: 'fix it' },
+      { file: 'c.mjs', line: 3, severity: 'major', title: 'genuinely invented', fix: 'f', evidence: 'const somethingNobodyWrote = 42;' },
+    ] }, 'blind').findings,
+    SOURCE,
+  );
+  const out = renderReport({ lenses: [{ name: 'blind', findings: checked }] });
+
+  assert.match(out, /### Blockers \(1\)/, 'the unquoted blocker is visible, not collapsed');
+  assert.match(out, /\*Not verified:\* no evidence quoted/, 'and is not passed off as checked');
+  assert.match(out, /whose quoted code was not found in the diff/);
+  assert.doesNotMatch(
+    out.split('<details>')[0],
+    /genuinely invented/,
+    'while the one that really did invent a quote is still held back',
+  );
+});
+
+// --- severity and prose come from the same finding ---------------------------
+
+test('a merged entry is not a composite of two different findings', () => {
+  // The defect: severity was the worst across the group while every other field
+  // came from whichever item had the most fields. A blind blocker merged with a
+  // wordier nit rendered under "Blockers" titled "variable name is unclear" with
+  // "Fix: rename p to payloadPath", and the blocker's own fix left the report.
+  const merged = mergeFindings([
+    ...normalizeFindings({ findings: [{
+      file: 'a.mjs', line: 7, severity: 'blocker',
+      title: 'unsanitised path reaches rm -rf', fix: 'validate the path against worktreeDir',
+    }] }, 'blind').findings,
+    ...normalizeFindings({ findings: [{
+      file: 'a.mjs', line: 7, severity: 'nit',
+      title: 'variable name is unclear', problem: 'p is not descriptive',
+      consequence: 'a reader must look it up', fix: 'rename p to payloadPath',
+      trigger: 'reading it', behavior: 'n/a', test: 'n/a',
+    }] }, 'edge').findings,
+  ]);
+
+  assert.equal(merged.length, 1);
+  const [f] = merged;
+  assert.equal(f.severity, 'blocker', 'the worst severity still wins');
+  assert.match(f.title, /unsanitised path reaches rm -rf/, 'and the prose belongs to it');
+  assert.match(f.fix, /validate the path against worktreeDir/, 'as does the remediation');
+  assert.match(
+    f.alsoSaid.join(' '),
+    /rename p to payloadPath/,
+    'the nit is demoted, not deleted — its fix survives too',
+  );
 });
