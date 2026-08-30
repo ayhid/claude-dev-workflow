@@ -89,6 +89,22 @@ Each lens returns JSON — an object with a `findings` array, fields as its lens
 specifies. Do not paraphrase them into prose: the same shape is what the CI review posts, and an
 agent picking the work up reads the fields rather than the sentences.
 
+**Check every `evidence` quote against the payload before you report the finding.** The quote is
+verbatim code the lens claims to be accusing; if those characters are not in `change.diff` or
+`context.txt`, the lens is describing code it imagined rather than read. This is not a formality —
+the first live run of these lenses reported five boundary failures against one numeric guard, and
+that guard already handled four of them. Hold an unverified finding back under a separate heading,
+say why, and do not delete it: a reformatted quote lands there too.
+
+Two arrays are not findings and must never be counted as them:
+
+- `questions` — what a lens could not work out from the diff alone. The blind lens is *supposed*
+  to be unable to explain why something changed; that is its condition, not a discovery. Report
+  these separately, and never as defects.
+- `axesChecked` — inputs walked and found already handled. This is how a lens shows its coverage
+  was real without having to produce a finding to prove it. A long `axesChecked` beside an empty
+  `findings` is good work, not a lazy review.
+
 Render the three lenses into **one** report, worst severity first, each finding as a checkbox line
 an agent can address on its own:
 
