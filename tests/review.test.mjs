@@ -15,7 +15,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { makeVcs, DEFAULT_DIFF_EXCLUDES } from '../lib/vcs.mjs';
-import { normalizeFindings, mergeFindings, renderReport, anchorOf, verifyEvidence } from '../lib/review.mjs';
+import { normalizeFindings, mergeFindings, renderReport, anchorOf, sortFindings, verifyEvidence } from '../lib/review.mjs';
 import { buildContext } from '../scripts/cmd/review.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -440,4 +440,101 @@ test('merging an already-merged set changes nothing', () => {
   const twice = mergeFindings(once);
   assert.deepEqual(twice, once);
   assert.equal(twice[0].alsoSaid.length, 1);
+});
+
+// --- what the review of the review found (PR #62) ------------------------------
+
+test('two unattributed findings on the same line are not agreement', () => {
+  // The contract is "same file, same line". A finding with no file is anchored
+  // to `(unattributed)`, and two of those sharing a line number are not about
+  // the same code — merging them manufactures the one signal the report tells
+  // a reader to trust most.
+  const merged = mergeFindings([
+    ...normalizeFindings({ findings: [F({ file: '', line: 42, title: 'one thing' })] }, 'blind').findings,
+    ...normalizeFindings({ findings: [F({ file: '', line: 42, title: 'a different thing' })] }, 'edge').findings,
+  ]);
+
+  assert.equal(merged.length, 2, 'they stay separate');
+  assert.ok(merged.every((f) => !f.alsoRaisedBy?.length), 'and neither claims corroboration');
+});
+
+test('a finding two lenses reached sorts above one only a single lens raised', () => {
+  // skills/dev-review/SKILL.md: "A finding two lenses reach independently —
+  // same file, same line — is almost always real. Mark it and put it first."
+  // Severity still outranks it; within a severity, agreement leads.
+  const agreed = mergeFindings([
+    ...normalizeFindings({ findings: [F({ file: 'z.mjs', line: 9, title: 'both saw this' })] }, 'blind').findings,
+    ...normalizeFindings({ findings: [F({ file: 'z.mjs', line: 9, title: 'both saw this' })] }, 'edge').findings,
+  ]);
+  const alone = normalizeFindings({ findings: [F({ file: 'a.mjs', line: 1, title: 'only blind saw this' })] }, 'blind').findings;
+
+  const sorted = sortFindings([...alone, ...agreed]);
+  assert.equal(sorted[0].title, 'both saw this', 'agreement leads, even from a later file');
+
+  const worse = normalizeFindings({ findings: [F({ file: 'z.mjs', line: 99, severity: 'blocker', title: 'worse' })] }, 'blind').findings;
+  assert.equal(sortFindings([...agreed, ...worse])[0].title, 'worse', 'but severity still outranks it');
+});
+
+test('merging never lets an unverified finding ride in on a verified one', () => {
+  // The report holds unverified findings back precisely because a quote that is
+  // absent from the payload has not been shown to be about this diff. Two
+  // findings at one location with different verdicts are two different claims,
+  // and `...primary` was handing the whole merged entry whichever verdict the
+  // primary happened to carry.
+  const real = verifyEvidence(
+    normalizeFindings({ findings: [F({ file: 'x.mjs', line: 3, evidence: 'Number.isFinite(Number(lineRaw))' })] }, 'blind').findings,
+    SOURCE,
+  );
+  const invented = verifyEvidence(
+    normalizeFindings({ findings: [F({ file: 'x.mjs', line: 3, evidence: 'a quote that appears nowhere at all' })] }, 'edge').findings,
+    SOURCE,
+  );
+  assert.equal(real[0].verified, true);
+  assert.equal(invented[0].verified, false);
+
+  const merged = mergeFindings([...real, ...invented]);
+  assert.equal(merged.length, 2, 'a different verdict is a different claim');
+  assert.deepEqual(merged.map((f) => f.verified).sort(), [false, true]);
+  assert.ok(merged.every((f) => !f.alsoRaisedBy?.length), 'and neither corroborates the other');
+});
+
+test('a multi-line quote matches a unified diff it was copied out of', () => {
+  // squash() collapses whitespace, so a leading `+` survives *between* the
+  // joined lines. A model quoting two consecutive added lines verbatim then
+  // fails to match the diff it was reading, and a real finding is held back.
+  const diff = ['+const a = readConfig(path);', '+if (!a) return null;'].join('\n');
+  const [f] = verifyEvidence(
+    normalizeFindings({ findings: [F({ evidence: 'const a = readConfig(path);\nif (!a) return null;' })] }, 'edge').findings,
+    diff,
+  );
+  assert.equal(f.verified, true);
+});
+
+test('lenses that were skipped are not reported as having failed', () => {
+  const out = renderReport({ lenses: [{ name: 'audit', skipped: 'no intent' }], model: 'm' });
+  assert.match(out, /did not run/, 'it is still not a pass');
+  assert.doesNotMatch(out, /lens failed/, 'but nothing failed — it was skipped');
+});
+
+test('the JSON half keeps the alternate wordings the markdown half prints', () => {
+  // The whole point of the block: "a machine half and a human half that cannot
+  // disagree". alsoSaid was rendered in prose and dropped from the JSON.
+  const out = renderReport({
+    lenses: [
+      { name: 'blind', findings: normalizeFindings({ findings: [F({ file: 'z.mjs', line: 9, title: 'the primary wording' })] }, 'blind').findings },
+      { name: 'edge', findings: normalizeFindings({ findings: [F({ file: 'z.mjs', line: 9, title: 'the other wording' })] }, 'edge').findings },
+    ],
+    model: 'm',
+  });
+  const json = JSON.parse(out.split('```json')[1].split('```')[0]);
+  const f = json.findings.find((x) => x.alsoSaid?.length);
+  assert.ok(f, 'the JSON carries the alternate wording too');
+  assert.match(f.alsoSaid.join(' '), /the other wording|the primary wording/);
+});
+
+test('a change set filtered down to nothing reports its zero scope', () => {
+  // Zero is a measurement, not an absence. The report that omitted it read
+  // exactly like one that was never told the scope at all.
+  const out = renderReport({ lenses: [{ name: 'blind', error: 'boom' }], model: 'm', meta: { files: 0, lines: 0 } });
+  assert.match(out, /0 files, 0 changed lines/);
 });
