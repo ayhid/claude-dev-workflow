@@ -11,7 +11,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { countRecipe, detectLinters, LINTERS, renderRules, statedSources } from '../lib/rules.mjs';
+import {
+  countRecipe,
+  detectLinters,
+  languagesOf,
+  LINTERS,
+  renderRules,
+  STANDARD_LINTERS,
+  statedSources,
+} from '../lib/rules.mjs';
 
 /** A reader over an in-memory tree, in the shape the detector takes. */
 const reader = (tree) => (path) => (path in tree ? tree[path] : null);
@@ -133,4 +141,36 @@ test('only intent claims are offered, and the report is a pure function of its i
 
   // Contract rule 4: the same inputs print the same bytes.
   assert.equal(once, renderRules(input));
+});
+
+test('the languages present are read off the tree, so the standard linter can be named', () => {
+  // Only used for the report that has no linter to name, and only ever to name
+  // a tool — never to configure one.
+  assert.deepEqual(languagesOf(['src/a.py', 'src/b.py', 'README.md']), ['Python']);
+  assert.deepEqual(languagesOf(['a.ts', 'b.js', 'c.rs']), ['JavaScript', 'Rust', 'TypeScript']);
+  assert.deepEqual(languagesOf(['README.md', 'LICENSE']), [], 'prose is not a language to lint');
+
+  // Every language named must have a linter to name, or the report says
+  // nothing useful.
+  for (const lang of languagesOf(['a.py', 'a.js', 'a.ts', 'a.rs', 'a.rb', 'a.go', 'a.sh'])) {
+    assert.ok(STANDARD_LINTERS[lang], `${lang} must have a standard linter`);
+  }
+});
+
+test('a language with no linter is named even when some other linter is configured', () => {
+  // The gap a bare "already enforced" list leaves. This repo lints its commit
+  // messages and nothing else, and a report that lists commitlint and stops
+  // reads as though JavaScript were covered.
+  const out = renderRules({
+    linters: detectLinters({ files: ['commitlint.config.mjs'], read: reader({}) }),
+    checks: ['npm test'],
+    sources: [],
+    claims: [],
+    languages: ['JavaScript'],
+  });
+
+  assert.match(out, /commitlint/, 'what is enforced is still reported');
+  assert.match(out, /JavaScript/);
+  assert.match(out, /eslint/, 'and the standard linter for it is named');
+  assert.doesNotMatch(out, /--rule/, 'named, not configured — refusal 3');
 });
