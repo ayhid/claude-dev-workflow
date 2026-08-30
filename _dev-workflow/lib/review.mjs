@@ -29,6 +29,37 @@ const rank = (s) => SEVERITY_RANK[s] ?? SEVERITIES.length;
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
 
 /**
+ * Shorter than this, a quote matches something by accident and proves nothing.
+ * `}` appears in every file; `if (!ok) return null;` does not.
+ */
+const MIN_EVIDENCE = 12;
+
+/** Whitespace-insensitive, so a quote survives re-indentation and diff prefixes. */
+const squash = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
+
+/**
+ * Did the finding quote code that actually exists?
+ *
+ * This is the only check here that a model cannot talk its way past, and it
+ * exists because of a real run: a lens reported five boundary failures against
+ * one numeric guard, four of which that guard already handled. Describing code
+ * is easy to get wrong; reproducing it is not. A finding whose quote is absent
+ * from the payload has not been shown to be about this diff at all.
+ *
+ * Unverified is not the same as false, so nothing is deleted — it is segregated,
+ * and the reader is told which pile is which.
+ */
+export function verifyEvidence(findings, source) {
+  const hay = squash(source);
+  if (!hay) return findings.map((f) => ({ ...f, verified: null }));
+  return findings.map((f) => {
+    const quote = squash(f.evidence);
+    const verified = quote.length >= MIN_EVIDENCE && hay.includes(quote);
+    return { ...f, verified };
+  });
+}
+
+/**
  * A short, deterministic id for a finding.
  *
  * Deterministic so a re-run of an unchanged branch produces the same ids and a
@@ -82,6 +113,9 @@ export function normalizeFindings(raw, lens) {
       severity,
       bucket,
       title,
+      // The line(s) the finding accuses, copied from the payload. Checked against
+      // it by verifyEvidence rather than trusted.
+      evidence: str(item.evidence),
       problem: str(item.problem),
       consequence: str(item.consequence),
       fix: str(item.fix),
@@ -95,7 +129,17 @@ export function normalizeFindings(raw, lens) {
     findings.push(f);
   }
 
-  return { findings, dropped };
+  // A lens needs somewhere to put diligence and uncertainty that is not the
+  // findings array. Without these, the only way to show it did the work is to
+  // report something — which is how an enumeration prompt fills the array.
+  const strings = (v) => (Array.isArray(v) ? v.map(str).filter(Boolean) : []);
+
+  return {
+    findings,
+    dropped,
+    questions: strings(raw?.questions),
+    axesChecked: strings(raw?.axesChecked ?? raw?.axes_checked),
+  };
 }
 
 /** `path:line`, or just the path when the lens could not anchor it. */
@@ -182,7 +226,11 @@ function renderFinding(f) {
  */
 export function renderReport({ lenses = [], model = 'unknown', meta = {} } = {}) {
   const all = markAgreement(lenses.flatMap((l) => l.findings ?? []));
-  const sorted = sortFindings(all);
+  // Unverified findings are held back rather than deleted: the quote may have been
+  // reformatted rather than invented. But they do not get to sit in the list a
+  // reader works through, because the cost of the pile is that it stops being read.
+  const sorted = sortFindings(all.filter((f) => f.verified !== false));
+  const unverified = sortFindings(all.filter((f) => f.verified === false));
   const agreed = sorted.filter((f) => f.alsoRaisedBy?.length).length;
 
   const out = ['## Adversarial review', ''];
@@ -211,6 +259,14 @@ export function renderReport({ lenses = [], model = 'unknown', meta = {} } = {})
           }${scope ? ` over ${scope}` : ''}.`,
       '',
     );
+    if (unverified.length) {
+      out.push(
+        `${unverified.length} more quoted code that is not in this diff, and ${
+          unverified.length === 1 ? 'is' : 'are'
+        } held back below.`,
+        '',
+      );
+    }
   }
 
   if (agreed) {
@@ -234,6 +290,48 @@ export function renderReport({ lenses = [], model = 'unknown', meta = {} } = {})
     out.push('');
   }
 
+  if (unverified.length) {
+    out.push(
+      '<details>',
+      `<summary>${unverified.length} finding${unverified.length === 1 ? '' : 's'} whose quoted code was not found in the diff</summary>`,
+      '',
+      'Each of these quoted something that is not in the payload it was given. That is',
+      'usually a finding about code the lens imagined rather than read — the failure mode',
+      'this check exists for — but a reformatted quote lands here too, so they are held',
+      'back rather than deleted.',
+      '',
+    );
+    for (const f of unverified) out.push(renderFinding(f), '');
+    out.push('</details>', '');
+  }
+
+  const questions = lenses.flatMap((l) => (l.questions ?? []).map((q) => [l.name, q]));
+  if (questions.length) {
+    out.push(
+      '<details>',
+      `<summary>${questions.length} thing${questions.length === 1 ? '' : 's'} a lens could not explain from the diff alone</summary>`,
+      '',
+      'Not defects. Code that works and does not say so is a real cost, but it is a',
+      'different one, and filing it as a bug is what buries the bugs.',
+      '',
+    );
+    for (const [lens, q] of questions) out.push(`- <sub>${lens}</sub> ${q}`);
+    out.push('', '</details>', '');
+  }
+
+  const axes = lenses.flatMap((l) => (l.axesChecked ?? []).map((a) => [l.name, a]));
+  if (axes.length) {
+    out.push(
+      '<details>',
+      '<summary>What was checked and found handled</summary>',
+      '',
+      'Coverage a reader can judge, without a finding having to be produced to prove it.',
+      '',
+    );
+    for (const [lens, a] of axes) out.push(`- <sub>${lens}</sub> ${a}`);
+    out.push('', '</details>', '');
+  }
+
   // The machine half. Everything above is derived from this, so an agent that
   // reads only this block has the whole review and nothing is stated twice.
   out.push(
@@ -245,8 +343,10 @@ export function renderReport({ lenses = [], model = 'unknown', meta = {} } = {})
       {
         model,
         ...meta,
-        findings: sorted.map(({ lens, id, file, line, severity, bucket, title, problem, consequence, fix, trigger, behavior, test, alsoRaisedBy }) => ({
+        findings: [...sorted, ...unverified].map(({ lens, id, file, line, severity, bucket, title, problem, consequence, fix, trigger, behavior, test, alsoRaisedBy, evidence, verified }) => ({
           id, lens, file, line, severity, bucket, title,
+          ...(evidence ? { evidence } : {}),
+          ...(verified === false ? { verified: false } : {}),
           ...(problem ? { problem } : {}),
           ...(consequence ? { consequence } : {}),
           ...(fix ? { fix } : {}),
