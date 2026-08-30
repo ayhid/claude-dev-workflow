@@ -283,3 +283,19 @@ test('a trigger containing backticks does not close its own code span', () => {
   // that closes early renders the rest as prose and loses it.
   assert.match(out, /\*Trigger:\* `` ids = `\[\]` ``/);
 });
+
+test('every lens failing is reported as no review, never as a clean one', () => {
+  const out = renderReport({
+    lenses: [
+      { name: 'blind', error: 'HTTP 403 — tier_not_allowed' },
+      { name: 'edge', error: 'HTTP 403 — tier_not_allowed' },
+      { name: 'audit', error: 'HTTP 403 — tier_not_allowed' },
+    ],
+    meta: { files: 8, lines: 639 },
+  });
+  // The failure this guards against is a reader skimming the first line and
+  // taking a total outage for a pass.
+  assert.match(out, /\*\*This review did not run\.\*\*/);
+  assert.match(out, /Do not read this as a pass/);
+  assert.ok(!out.includes('No findings'), 'must not say "No findings" when nothing ran');
+});
