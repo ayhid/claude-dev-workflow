@@ -1,3 +1,16 @@
+# [1.16.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.15.1...v1.16.0) (2026-08-30)
+
+
+### Bug Fixes
+
+* **docs:** point a brownfield project at a command it can actually run ([#53](https://github.com/ayhid/claude-dev-workflow/issues/53)) ([4428212](https://github.com/ayhid/claude-dev-workflow/commit/4428212e64643495023ba151172e08142304aa23))
+
+
+### Features
+
+* **docs:** tell a document never scaffolded from one that drifted ([#53](https://github.com/ayhid/claude-dev-workflow/issues/53)) ([d2b463a](https://github.com/ayhid/claude-dev-workflow/commit/d2b463afca842b1161384b594c160f7ea2d79144))
+* **docs:** widen the catalogue with context, api and ux ([#53](https://github.com/ayhid/claude-dev-workflow/issues/53)) ([47b27b3](https://github.com/ayhid/claude-dev-workflow/commit/47b27b36975cf247afcb6b9be5df087633fbc1c7))
+
 ## [1.15.1](https://github.com/ayhid/claude-dev-workflow/compare/v1.15.0...v1.15.1) (2026-08-30)
 
 
