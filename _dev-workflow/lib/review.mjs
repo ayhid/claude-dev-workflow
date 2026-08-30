@@ -28,6 +28,9 @@ const rank = (s) => SEVERITY_RANK[s] ?? SEVERITIES.length;
 
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
 
+/** What a finding that named no file is anchored to. Not a path, and never a merge key. */
+export const UNATTRIBUTED = '(unattributed)';
+
 /**
  * Shorter than this, a quote matches something by accident and proves nothing.
  * `}` appears in every file; `if (!ok) return null;` does not.
@@ -36,6 +39,20 @@ const MIN_EVIDENCE = 12;
 
 /** Whitespace-insensitive, so a quote survives re-indentation and diff prefixes. */
 const squash = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
+
+/**
+ * The same text with unified-diff markers taken off the front of each line.
+ *
+ * A single-line quote already survived them: `squash` collapses the space after
+ * the `+` and the quote matches from the character after it. A **multi-line**
+ * one did not, because the marker sits *between* the joined lines — a model
+ * quoting two consecutive added lines verbatim produced `a; b;` against a
+ * haystack reading `+a; +b;`, and a real finding was held back as unverified.
+ *
+ * Only ever used to widen the haystack, never to narrow it, so a quote that
+ * matched before still matches.
+ */
+const unmarked = (v) => String(v ?? '').replace(/^[+-]/gm, '');
 
 /**
  * Did the finding quote code that actually exists?
@@ -51,10 +68,11 @@ const squash = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
  */
 export function verifyEvidence(findings, source) {
   const hay = squash(source);
+  const bare = squash(unmarked(source));
   if (!hay) return findings.map((f) => ({ ...f, verified: null }));
   return findings.map((f) => {
     const quote = squash(f.evidence);
-    const verified = quote.length >= MIN_EVIDENCE && hay.includes(quote);
+    const verified = quote.length >= MIN_EVIDENCE && (hay.includes(quote) || bare.includes(quote));
     return { ...f, verified };
   });
 }
@@ -111,7 +129,7 @@ export function normalizeFindings(raw, lens) {
 
     const f = {
       lens,
-      file: file || '(unattributed)',
+      file: file || UNATTRIBUTED,
       line,
       severity,
       bucket,
@@ -179,8 +197,18 @@ export function mergeFindings(findings) {
   const byLocation = new Map();
   for (const f of findings) {
     // An unanchored finding cannot be shown to be about the same code as another,
-    // so it always keeps its own entry.
-    const key = f.line ? anchorOf(f) : `#${f.id}`;
+    // so it always keeps its own entry. A missing *file* is just as unanchored
+    // as a missing line: the contract the report states to its reader is "same
+    // file, same line", and two `(unattributed)` findings that happen to share
+    // a line number are not about the same code. Merging them manufactures the
+    // one signal the report tells that reader to trust most.
+    //
+    // `verified` splits the entries too, because the two piles are two
+    // different claims — one quote was found in the payload and the other was
+    // not — and `...primary` below would otherwise hand the merged finding
+    // whichever verdict the primary happened to carry, in either direction.
+    const anchored = f.line && f.file && f.file !== UNATTRIBUTED;
+    const key = anchored ? `${anchorOf(f)}|${f.verified ?? 'unchecked'}` : `#${f.id}`;
     byLocation.set(key, [...(byLocation.get(key) ?? []), f]);
   }
 
@@ -215,6 +243,12 @@ export function sortFindings(findings) {
   return [...findings].sort(
     (a, b) =>
       rank(a.severity) - rank(b.severity) ||
+      // "A finding two lenses reach independently is almost always real. Mark
+      // it and put it first" — skills/dev-review/SKILL.md, which the reader is
+      // shown. Ordering by file first left an uncorroborated finding above a
+      // corroborated one, so the report contradicted the instructions printed
+      // underneath it.
+      (b.alsoRaisedBy?.length ?? 0) - (a.alsoRaisedBy?.length ?? 0) ||
       a.file.localeCompare(b.file) ||
       (a.line ?? 0) - (b.line ?? 0) ||
       a.title.localeCompare(b.title),
@@ -280,9 +314,12 @@ export function renderReport({ lenses = [], model = 'unknown', meta = {} } = {})
   const out = ['## Adversarial review', ''];
 
   const ran = lenses.filter((l) => !l.error && !l.skipped).map((l) => l.name);
+  // `!= null`, not truthiness: zero is a measurement, and it is the one worth
+  // printing. A change set filtered down to nothing reviewed nothing, and a
+  // report that silently omits the scope there reads like one that had none.
   const scope = [
-    meta.files ? `${meta.files} file${meta.files === 1 ? '' : 's'}` : '',
-    meta.lines ? `${meta.lines} changed line${meta.lines === 1 ? '' : 's'}` : '',
+    meta.files != null ? `${meta.files} file${meta.files === 1 ? '' : 's'}` : '',
+    meta.lines != null ? `${meta.lines} changed line${meta.lines === 1 ? '' : 's'}` : '',
   ].filter(Boolean).join(', ');
 
   // No lens reporting is not a clean review, it is no review, and the two must
@@ -290,7 +327,7 @@ export function renderReport({ lenses = [], model = 'unknown', meta = {} } = {})
   // a reader skims and takes for a pass.
   if (ran.length === 0) {
     out.push(
-      `**This review did not run.** All ${lenses.length} lens${lenses.length === 1 ? '' : 'es'} failed` +
+      `**This review did not run.** None of the ${lenses.length} lens${lenses.length === 1 ? '' : 'es'} reported` +
         `${scope ? `, so ${scope} went unreviewed` : ''} — see below. Do not read this as a pass.`,
       '',
     );
@@ -387,9 +424,13 @@ export function renderReport({ lenses = [], model = 'unknown', meta = {} } = {})
       {
         model,
         ...meta,
-        findings: [...sorted, ...unverified].map(({ lens, id, file, line, severity, bucket, title, problem, consequence, fix, trigger, behavior, test, alsoRaisedBy, evidence, verified, lenses }) => ({
+        findings: [...sorted, ...unverified].map(({ lens, id, file, line, severity, bucket, title, problem, consequence, fix, trigger, behavior, test, alsoRaisedBy, alsoSaid, evidence, verified, lenses }) => ({
           id, lens, file, line, severity, bucket, title,
           ...(lenses?.length > 1 ? { lenses } : {}),
+          // The prose half renders these; a machine half that drops them is the
+          // two halves disagreeing, which is the one thing this block promises
+          // cannot happen.
+          ...(alsoSaid?.length ? { alsoSaid } : {}),
           ...(evidence ? { evidence } : {}),
           ...(verified === false ? { verified: false } : {}),
           ...(problem ? { problem } : {}),

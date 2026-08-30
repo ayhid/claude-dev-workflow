@@ -76,6 +76,9 @@ const RATE_LIMIT_RETRIES = 3;
  * failure degrades to a reported lens rather than a failed run: a review that
  * loses one lens is worth more than one that posts nothing.
  */
+/** A count from the workflow, or undefined when it was not measured. Zero is a count. */
+const count = (v) => (v === undefined || v === "" || !Number.isFinite(Number(v)) ? undefined : Number(v));
+
 async function call(system, user, lens) {
   for (let attempt = 0; ; attempt++) {
     let res;
@@ -115,7 +118,18 @@ async function call(system, user, lens) {
       return { name: lens, error: `HTTP ${res.status} — ${body.slice(0, 200)}` };
     }
 
-    const content = (await res.json()).choices?.[0]?.message?.content ?? "";
+    // A 200 is not a promise of a JSON body. `res.json()` throwing here used to
+    // escape every handler and take the whole run down — all three lenses lost to
+    // one lens's malformed response, which is the opposite of why they are run
+    // independently.
+    let payload;
+    try {
+      payload = await res.json();
+    } catch (err) {
+      return { name: lens, error: `HTTP ${res.status} with a body that was not JSON: ${err.message}` };
+    }
+
+    const content = payload.choices?.[0]?.message?.content ?? "";
     const parsed = parseFindings(content);
     if (!parsed) return { name: lens, error: "returned something that was not JSON" };
 
@@ -197,8 +211,11 @@ const report = renderReport({
   lenses,
   model: MODEL,
   meta: {
-    files: Number(process.env.CHANGED_FILES) || undefined,
-    lines: Number(process.env.CHANGED_LINES) || undefined,
+    // `|| undefined` would erase a real zero, and zero is exactly the case
+    // worth printing: a filtered-empty change set reviewed nothing, and the
+    // report should say so rather than omit the scope.
+    files: count(process.env.CHANGED_FILES),
+    lines: count(process.env.CHANGED_LINES),
   },
 });
 
