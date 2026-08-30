@@ -41,19 +41,40 @@ export const LINE_CEILING = 800;
 /** Source is only worth attaching for files a reviewer would actually read. */
 const MAX_CONTEXT_BYTES = 200_000;
 
+const USAGE =
+  'usage: dev.mjs review [--base REF] [--out DIR] [--no-intent]\n' +
+  '                  dev.mjs review --render FINDINGS.json [--payloads DIR]';
+
+/**
+ * The value after a flag, or an error naming the flag that is missing one.
+ *
+ * `args[++i] ?? ''` is the trap this exists to close: an absent value became an
+ * empty string, and an empty string is indistinguishable from the flag never
+ * having been passed. `--render` with no path therefore ran the payload build
+ * against the whole branch, and `--payloads` with no directory rendered a report
+ * whose quotes had never been checked. Both reported success.
+ *
+ * A following `--flag` is rejected too, because that is the same mistake with the
+ * value eaten by the next option rather than by the end of the line.
+ */
+function value(args, i, flag) {
+  const v = args[i];
+  if (v === undefined || v.startsWith('--')) {
+    throw new UserError(`${flag} needs a value — ${USAGE}`);
+  }
+  return v;
+}
+
 function parseArgs(args) {
   const opts = { base: '', out: '', intent: true, render: '', payloads: '' };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if (a === '--base') opts.base = args[++i] ?? '';
-    else if (a === '--out') opts.out = args[++i] ?? '';
+    if (a === '--base') opts.base = value(args, ++i, a);
+    else if (a === '--out') opts.out = value(args, ++i, a);
     else if (a === '--no-intent') opts.intent = false;
-    else if (a === '--render') opts.render = args[++i] ?? '';
-    else if (a === '--payloads') opts.payloads = args[++i] ?? '';
-    else throw new UserError(
-      `unknown argument '${a}' — usage: dev.mjs review [--base REF] [--out DIR] [--no-intent]\n` +
-        '                  dev.mjs review --render FINDINGS.json [--payloads DIR]',
-    );
+    else if (a === '--render') opts.render = value(args, ++i, a);
+    else if (a === '--payloads') opts.payloads = value(args, ++i, a);
+    else throw new UserError(`unknown argument '${a}' — ${USAGE}`);
   }
   return opts;
 }
@@ -94,12 +115,17 @@ async function render(opts) {
     throw new UserError(`could not read findings from ${opts.render}: ${err.message}`);
   }
 
-  const raw = Array.isArray(input) ? input : (input.lenses ?? []);
+  // `input?.lenses` rather than `input.lenses`: a file containing `null` parses
+  // fine and then throws on the property read, which escaped the try/catch above
+  // and reported a TypeError instead of the path that could not be read.
+  const raw = Array.isArray(input) ? input : (input?.lenses ?? []);
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new UserError(
       `no lenses in ${opts.render} — expected {"lenses": [{"name": "blind", "findings": [...]}, ...]}`,
     );
   }
+
+  const dir = opts.payloads ? resolve(opts.payloads) : '';
 
   const lenses = raw.map((l) => {
     const name = String(l?.name ?? '').trim() || 'unnamed';
@@ -109,13 +135,26 @@ async function render(opts) {
     if (dropped) process.stderr.write(`${name}: dropped ${dropped} finding(s) with nothing to act on\n`);
 
     let checked = findings;
-    if (opts.payloads) {
-      const source = (LENS_PAYLOADS[name] ?? [])
-        .map((f) => {
-          const path = join(resolve(opts.payloads), f);
-          return existsSync(path) ? readFileSync(path, 'utf8') : '';
-        })
-        .join('\n');
+    if (dir) {
+      // Both of these used to verify against an empty string, which marks every
+      // finding unverified and holds back a whole real review as though the lens
+      // had invented it. Refusing is right: the reader asked for a check, and an
+      // unperformable check must say so rather than fail every finding.
+      const wanted = LENS_PAYLOADS[name];
+      if (!wanted) {
+        throw new UserError(
+          `cannot verify lens "${name}" — no payload is recorded for that name. ` +
+            `Expected one of: ${Object.keys(LENS_PAYLOADS).join(', ')}.`,
+        );
+      }
+      const found = wanted.filter((f) => existsSync(join(dir, f)));
+      if (found.length === 0) {
+        throw new UserError(
+          `no payload files for lens "${name}" in ${dir} — expected ${wanted.join(', ')}. ` +
+            'Pass the directory an earlier `dev.mjs review` printed, or drop --payloads.',
+        );
+      }
+      const source = found.map((f) => readFileSync(join(dir, f), 'utf8')).join('\n');
       checked = verifyEvidence(findings, source);
       const bad = checked.filter((f) => f.verified === false).length;
       if (bad) process.stderr.write(`${name}: ${bad} of ${checked.length} finding(s) quoted code not in its payload\n`);
@@ -124,7 +163,14 @@ async function render(opts) {
   });
 
   process.stdout.write(
-    renderReport({ lenses, model: String(input.model ?? 'unknown'), meta: input.meta ?? {} }),
+    renderReport({
+      lenses,
+      model: String(input?.model ?? 'unknown'),
+      meta: input?.meta ?? {},
+      // Whether the quotes were checked is part of the report, not an implementation
+      // detail: an unchecked report and a checked one used to render identically.
+      evidenceChecked: Boolean(dir),
+    }),
   );
   return 0;
 }

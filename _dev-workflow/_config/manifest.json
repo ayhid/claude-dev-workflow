@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.17.0",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-30T16:33:54.174Z"
+    "lastUpdated": "2026-08-30T18:28:00.705Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -76,7 +76,7 @@
     },
     {
       "path": "_dev-workflow/lib/review.mjs",
-      "sha256": "19f11065d8328e5fc6a9b4dd7f15f266f156f5cf92077928d45efe6e58747204"
+      "sha256": "58927e5e5e407547f035bf5f44f94f91be1ae3cb71aa36b7a6a2c92f5ab7f9c7"
     },
     {
       "path": "_dev-workflow/lib/sh.mjs",
@@ -164,7 +164,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/review.mjs",
-      "sha256": "0591885f8448aee3f43d16b586731563797826928660070efb5cec502a2475e3"
+      "sha256": "958641583da98520800a2925ab0dc992a237a564d7900b3c84495e6267f1a0a4"
     },
     {
       "path": "_dev-workflow/scripts/cmd/standup.mjs",
@@ -232,7 +232,7 @@
     },
     {
       "path": ".claude/skills/dev-review/SKILL.md",
-      "sha256": "2f02ac1082edca9dbb6b4223cdec273f819e53147cc4dcd0202d7126a0961a2a"
+      "sha256": "ebf8a23deed260f35e2ccb2c0bf2ec793e291c23c738a28af230803046be242d"
     },
     {
       "path": ".claude/skills/dev-standup/SKILL.md",
