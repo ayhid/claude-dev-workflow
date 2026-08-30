@@ -21,7 +21,7 @@ unrepresentable. But it leaves a hole, and this skill is the hole. Every project
 are restated in review, forever, and a session that never reads them violates them silently. The
 convention exists; the enforcer does not.
 
-`$ARGUMENTS` may name one surface to focus on. If empty, do all of them.
+`$ARGUMENTS` may name one surface to focus on — `naming`, `imports`, `commits`. If empty, do all of them.
 
 ## 1. Read what the project already enforces
 
@@ -59,6 +59,10 @@ CONTRIBUTING.md:17  exercise a write path for real; a dry run proves nothing
 Read the `intent` claims the same way. They are already one statement each with an attributed
 source, which is the shape a convention wants.
 
+**This is where `$ARGUMENTS` applies.** Given a surface, keep only the imperatives about it and say
+how many you set aside — a filtered pass that does not say what it skipped reads like a complete
+one. Given nothing, keep them all.
+
 Two things that are not conventions, and picking them up is the commonest way this goes wrong:
 
 - **A description of how the system works** is not a rule. "Sessions are in memory" states a fact
@@ -85,11 +89,22 @@ invocation for each configured linter with `<RULE>` to substitute; it is the too
 single-rule flag, so what it prints *is* the count:
 
 ```bash
-npx eslint . --no-config-lookup --rule '{"no-restricted-imports": "error"}'   # flat config
+npx --no-install eslint . --no-config-lookup --rule '{"no-restricted-imports": "error"}'   # flat config
 ruff check --select ANN --statistics .
 rubocop --only Style/GuardClause --format offenses
 golangci-lint run --disable-all -E errcheck ./...
 ```
+
+`--json` also reports each linter's `placeholder`, and it is not decoration. Almost everywhere
+`<RULE>` is a rule id and the severity is a flag; commitlint's rules are **tuples whose third
+element is the value**, so `placeholder: entry` means you substitute the whole entry —
+`"type-enum": [2, "always", ["feat", "fix"]]`, never the bare name. A `type-enum` with no enum
+behind it matches nothing and counts zero, which reads exactly like a rule nobody violates.
+
+The recipes pass `--no-install` for the same reason: `npx eslint` on a project whose own copy is not
+installed downloads whatever is latest, and a count from a different major version is a wrong count.
+Failing loudly is the honest outcome — the fix is to install the project's dependencies, not to
+count with a different tool.
 
 If the project's linter is not one the command knows, ask the user for the equivalent invocation
 rather than guessing at a flag. A count produced by a command that does not do what you think is

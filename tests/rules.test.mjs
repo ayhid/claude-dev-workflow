@@ -174,3 +174,52 @@ test('a language with no linter is named even when some other linter is configur
   assert.match(out, /eslint/, 'and the standard linter for it is named');
   assert.doesNotMatch(out, /--rule/, 'named, not configured — refusal 3');
 });
+
+test('a linter is detected under every config name it actually supports', () => {
+  // The gap this closes is not cosmetic: an undetected config reads as "not
+  // enforced", and the skill then proposes a rule the project already has —
+  // the one thing AC2 exists to prevent.
+  const detects = (file) => detectLinters({ files: [file], read: reader({}) })[0]?.name;
+
+  for (const file of [
+    '.commitlintrc.mjs', '.commitlintrc.cts', '.commitlintrc.mts',
+    'commitlint.config.cts', 'commitlint.config.mts',
+  ]) {
+    assert.equal(detects(file), 'commitlint', `${file} configures commitlint`);
+  }
+
+  for (const file of ['eslint.config.mts', 'eslint.config.cts', '.eslintrc.cjs']) {
+    assert.equal(detects(file), 'eslint', `${file} configures eslint`);
+  }
+});
+
+test('a recipe says whether <RULE> takes a rule id or a whole rule entry', () => {
+  // commitlint rules are tuples, and the value is the third element:
+  // `type-enum` without its enum counts nothing. Substituting a bare id there
+  // produces a number that looks like an answer, which is worse than no count
+  // — the skill says so itself.
+  for (const linter of LINTERS) {
+    assert.ok(['id', 'entry'].includes(linter.placeholder), `${linter.name} must say what <RULE> is`);
+  }
+
+  const commitlint = detectLinters({ files: ['commitlint.config.mjs'], read: reader({}) })[0];
+  assert.equal(commitlint.placeholder, 'entry');
+
+  const withValue = countRecipe(commitlint, '"type-enum": [2, "always", ["feat", "fix"]]');
+  assert.match(withValue, /\["feat", "fix"\]/, 'the value survives into the config');
+  assert.doesNotMatch(withValue, /<RULE>/);
+
+  // Everything else takes a plain id, and must not have grown a tuple.
+  const eslint = detectLinters({ files: ['eslint.config.js'], read: reader({}) })[0];
+  assert.equal(eslint.placeholder, 'id');
+});
+
+test('no recipe can silently install the tool it is counting with', () => {
+  // `npx eslint` downloads whatever is latest when the project's own copy is
+  // not installed, and a count from a different major version is a wrong
+  // count. Failing loudly is the only honest outcome.
+  for (const linter of LINTERS) {
+    if (!linter.count.includes('npx ')) continue;
+    assert.match(linter.count, /npx --no-install /, `${linter.name} must not fetch a linter`);
+  }
+});

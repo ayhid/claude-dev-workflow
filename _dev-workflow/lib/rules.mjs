@@ -33,30 +33,42 @@
  * @property {string[]} configs   config files that mean it is set up
  * @property {{file: string, marker: string}[]} embedded  configs living inside a shared file
  * @property {string}   count     runs `<RULE>` alone; what it prints is the count
+ * @property {'id'|'entry'} placeholder  what `<RULE>` takes — see below
  * @property {{config: string, count: string}[]} variants  a recipe the found config overrides
+
+ *
+ * `placeholder` is data rather than a convention because the two kinds cannot
+ * be told apart by looking. For almost every linter a rule is a name and its
+ * severity is a flag, so `<RULE>` is an id. commitlint's rules are tuples whose
+ * **third** element is the value — `type-enum` without its enum matches nothing
+ * — so substituting a bare id there produces a number that looks like an answer.
+ * A wrong count is worse than no count, and the skill says so in as many words.
  */
 export const LINTERS = [
   {
     name: 'eslint',
     language: 'JavaScript, TypeScript',
     configs: [
-      'eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs', 'eslint.config.ts',
+      'eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs',
+      'eslint.config.ts', 'eslint.config.mts', 'eslint.config.cts',
       '.eslintrc', '.eslintrc.js', '.eslintrc.cjs', '.eslintrc.json', '.eslintrc.yml', '.eslintrc.yaml',
     ],
     embedded: [{ file: 'package.json', marker: '"eslintConfig"' }],
     // Flat config, v9 and after.
-    count: `npx eslint . --no-config-lookup --rule '{"<RULE>": "error"}'`,
+    count: `npx --no-install eslint . --no-config-lookup --rule '{"<RULE>": "error"}'`,
     // `--no-eslintrc` was removed in v9 and is the only spelling before it, so
     // the config file that was found is what decides. Printing the other one is
     // a count the user cannot reproduce.
-    variants: [{ config: '.eslintrc', count: `npx eslint . --no-eslintrc --rule '{"<RULE>": "error"}'` }],
+    placeholder: 'id',
+    variants: [{ config: '.eslintrc', count: `npx --no-install eslint . --no-eslintrc --rule '{"<RULE>": "error"}'` }],
   },
   {
     name: 'biome',
     language: 'JavaScript, TypeScript',
     configs: ['biome.json', 'biome.jsonc'],
     embedded: [],
-    count: 'npx biome lint --only=<RULE> .',
+    count: 'npx --no-install biome lint --only=<RULE> .',
+    placeholder: 'id',
     variants: [],
   },
   {
@@ -70,7 +82,8 @@ export const LINTERS = [
     embedded: [{ file: 'package.json', marker: '"stylelint"' }],
     // `--config` takes a path, not an inline rule, so the one rule goes in a
     // scratch file rather than being approximated by a flag that does not exist.
-    count: `printf '{"rules":{"<RULE>": true}}' > /tmp/one-rule.json && npx stylelint "**/*.css" --config /tmp/one-rule.json`,
+    count: `printf '{"rules":{"<RULE>": true}}' > /tmp/one-rule.json && npx --no-install stylelint "**/*.css" --config /tmp/one-rule.json`,
+    placeholder: 'id',
     variants: [],
   },
   {
@@ -79,6 +92,7 @@ export const LINTERS = [
     configs: ['ruff.toml', '.ruff.toml'],
     embedded: [{ file: 'pyproject.toml', marker: '[tool.ruff' }],
     count: 'ruff check --select <RULE> --statistics .',
+    placeholder: 'id',
     variants: [],
   },
   {
@@ -90,6 +104,7 @@ export const LINTERS = [
       { file: 'tox.ini', marker: '[flake8]' },
     ],
     count: 'flake8 --select=<RULE> .',
+    placeholder: 'id',
     variants: [],
   },
   {
@@ -98,6 +113,7 @@ export const LINTERS = [
     configs: ['.pylintrc', 'pylintrc'],
     embedded: [{ file: 'pyproject.toml', marker: '[tool.pylint' }],
     count: 'pylint --disable=all --enable=<RULE> .',
+    placeholder: 'id',
     variants: [],
   },
   {
@@ -106,6 +122,7 @@ export const LINTERS = [
     configs: ['clippy.toml', '.clippy.toml'],
     embedded: [{ file: 'Cargo.toml', marker: '[lints.clippy' }],
     count: 'cargo clippy --all-targets -- -A clippy::all -W clippy::<RULE>',
+    placeholder: 'id',
     variants: [],
   },
   {
@@ -114,6 +131,7 @@ export const LINTERS = [
     configs: ['.rubocop.yml', '.rubocop.yaml'],
     embedded: [],
     count: 'rubocop --only <RULE> --format offenses',
+    placeholder: 'id',
     variants: [],
   },
   {
@@ -122,6 +140,7 @@ export const LINTERS = [
     configs: ['.golangci.yml', '.golangci.yaml', '.golangci.toml', '.golangci.json'],
     embedded: [],
     count: 'golangci-lint run --disable-all -E <RULE> ./...',
+    placeholder: 'id',
     variants: [],
   },
   {
@@ -130,19 +149,27 @@ export const LINTERS = [
     configs: ['.shellcheckrc'],
     embedded: [],
     count: `shellcheck --include=<RULE> $(git ls-files '*.sh' '*.bash')`,
+    placeholder: 'id',
     variants: [],
   },
   {
     name: 'commitlint',
     language: 'commit messages',
     configs: [
-      'commitlint.config.js', 'commitlint.config.mjs', 'commitlint.config.cjs', 'commitlint.config.ts',
-      '.commitlintrc', '.commitlintrc.json', '.commitlintrc.js', '.commitlintrc.yml', '.commitlintrc.yaml',
+      'commitlint.config.js', 'commitlint.config.mjs', 'commitlint.config.cjs',
+      'commitlint.config.ts', 'commitlint.config.mts', 'commitlint.config.cts',
+      '.commitlintrc', '.commitlintrc.json', '.commitlintrc.yml', '.commitlintrc.yaml',
+      '.commitlintrc.js', '.commitlintrc.cjs', '.commitlintrc.mjs',
+      '.commitlintrc.ts', '.commitlintrc.cts', '.commitlintrc.mts',
     ],
     embedded: [{ file: 'package.json', marker: '"commitlint"' }],
     // The violations are in the history, not the tree, so the count is over
     // commits. A range is what makes it a number rather than an opinion.
-    count: `printf 'export default { rules: { "<RULE>": [2, "always"] } }' > /tmp/one-rule.mjs && npx commitlint --from HEAD~50 --config /tmp/one-rule.mjs`,
+    //
+    // `<RULE>` is the whole entry here, tuple included: `type-enum` counts
+    // nothing without the enum in its third element.
+    count: `printf 'export default { rules: { <RULE> } }' > /tmp/one-rule.mjs && npx --no-install commitlint --from HEAD~50 --config /tmp/one-rule.mjs`,
+    placeholder: 'entry',
     variants: [],
   },
 ];
