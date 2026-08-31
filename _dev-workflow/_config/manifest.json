@@ -1,8 +1,8 @@
 {
   "installation": {
     "version": "1.18.2",
-    "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-31T12:26:57.889Z"
+    "installDate": "2026-08-31T20:48:47.144Z",
+    "lastUpdated": "2026-08-31T20:48:47.144Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -12,6 +12,7 @@
     "dev-done",
     "dev-ingest-docs",
     "dev-init",
+    "dev-lint-rules",
     "dev-review",
     "dev-standup",
     "dev-task",
@@ -76,7 +77,11 @@
     },
     {
       "path": "_dev-workflow/lib/review.mjs",
-      "sha256": "d5db0c1ea3687616b065405426e95a429f143b2d9f7cd21d7e40daebf8e78971"
+      "sha256": "27be551fc20d726e0de2c0ebc84af344465664328adb5946605c2ffaa9fffd84"
+    },
+    {
+      "path": "_dev-workflow/lib/rules.mjs",
+      "sha256": "85eff39c393a18a3b33dcb1adbd3991912b5589df616abcd26efcef6ac179272"
     },
     {
       "path": "_dev-workflow/lib/sh.mjs",
@@ -167,6 +172,10 @@
       "sha256": "958641583da98520800a2925ab0dc992a237a564d7900b3c84495e6267f1a0a4"
     },
     {
+      "path": "_dev-workflow/scripts/cmd/rules.mjs",
+      "sha256": "b8e2f8ccb86f836a85098c41701cb373495e5748b62e3e565f46ef0557dbbc51"
+    },
+    {
       "path": "_dev-workflow/scripts/cmd/standup.mjs",
       "sha256": "9ad4ba78d4d9126f478915ebc4b6b3717c4a7b023d1956e6cfc53b10a6bc5244"
     },
@@ -192,7 +201,7 @@
     },
     {
       "path": "_dev-workflow/scripts/dev.mjs",
-      "sha256": "1f158464c3101d6ebf0c4c732f996d403b51d41ef155ef4890de39493c22b2b4"
+      "sha256": "97c821b149bd70f1c344ff59d7a82493439a0ad4df600b4fd5e622faa663a6b0"
     },
     {
       "path": ".claude/skills/dev-adr/SKILL.md",
@@ -217,6 +226,10 @@
     {
       "path": ".claude/skills/dev-init/SKILL.md",
       "sha256": "3670cfbe0b486eee24e7e247c248d45b09dcf7aed2ff44ea803f36451fc2aef8"
+    },
+    {
+      "path": ".claude/skills/dev-lint-rules/SKILL.md",
+      "sha256": "fb1060e53431fc1e021fde8733e4cc8739cf3a79f26a8a2673fd6736bf8121c5"
     },
     {
       "path": ".claude/skills/dev-review/lenses/audit.md",
