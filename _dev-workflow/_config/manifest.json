@@ -1,8 +1,8 @@
 {
   "installation": {
-    "version": "1.18.0",
+    "version": "1.18.2",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-30T22:08:16.758Z"
+    "lastUpdated": "2026-08-31T12:26:57.889Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
