@@ -323,9 +323,10 @@ test('a direct landing records the close in the main checkout, not the worktree 
   assert.equal(existsSync(wt), false, 'direct delivery removes the worktree');
   assert.equal(existsSync(join(wt, LOG)), false, 'and nothing may have been written into it');
 
-  const close = JSON.parse(readFileSync(join(repo, LOG), 'utf8').trim().split('\n').at(-1));
-  assert.equal(close.event, 'done');
-  assert.equal(close.id, '#12');
+  const rows = readFileSync(join(repo, LOG), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+  const closes = rows.filter((row) => row.event === 'done' && row.id === '#12');
+  assert.equal(closes.length, 1, `expected exactly one close event, found ${closes.length}`);
+  const [close] = closes;
   assert.equal(close.starts, 1, 'the close must find its own start');
   assert.ok(close.elapsedMs >= 90_000, `elapsedMs was ${close.elapsedMs}`);
   assert.equal(close.criteria, 'first-pass');
