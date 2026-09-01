@@ -275,6 +275,18 @@ what it exists to prevent.
 user's own hooks survive, and our entry is matched by command string so a re-run does not
 duplicate it.
 
+**`_dev-workflow/` itself holds two different things, and the split is enforced, not incidental.**
+`{lib,scripts,hooks}` plus `_config/manifest.json` are the installer's own — `planFiles` copies
+them from the distribution on every install, they are hashed, and a version that stops shipping one
+gets it removed on update. `artifacts/` is per-project generated data — `/dev-ingest-docs`'s ledger
+and map today, a future `docs draft`'s proposed set tomorrow — and the installer must never plan,
+hash, touch or delete it. `isOwnedPath` cannot enforce that half on its own: it answers "is this
+ours to have created", which is `true` for both, since a project's own generated documentation is
+exactly the kind of content this tool is meant to produce. `isGeneratedPath` is the second
+predicate the delete pass checks before removing anything, unconditionally — independent of
+`planned`, independent of what a manifest happens to say. Never rely on `planFiles` simply not
+mentioning `artifacts/` to keep it safe; that omission is not the guarantee.
+
 Depend on nothing from any other tool, and assume nothing about its layout. Interoperation here
 means staying out of the way, not integrating.
 
