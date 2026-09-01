@@ -18,9 +18,11 @@ contradictions and the questions still unsettled sitting right beside them. It n
 project's own documentation, not one line: reorganising it is a proposal you get at the end, in
 chat, not something this skill does for you (§5).
 
-It **runs in steps and across sessions.** Every step persists to a ledger. Stop after ten minutes
-and pick it up next week; nothing is lost and nothing is re-derived differently — `dev.mjs ingest`
-with no arguments always says exactly where it stands.
+It **runs in steps and across sessions.** Every step persists to a ledger *once it is recorded* —
+stop after ten minutes and pick it up next week, and nothing recorded is lost or re-derived
+differently. `dev.mjs ingest` with no arguments always says exactly where it stands. A subagent's
+result that has not yet been recorded (§2) lives only in this session; stopping before it is
+recorded means that one document gets read again, not lost.
 
 Reading the documents is the slow part, so it now happens **in parallel** — one subagent per
 document, dispatched a few at a time — rather than one document at a time in this session (§2).
@@ -70,9 +72,10 @@ Lists every tracked document, hashes it, and creates the ledger. Safe to re-run 
 document whose hash is unchanged keeps its read state, and one that changed comes back as pending
 with its old claims marked stale rather than deleted.
 
-Relay its scope to the user in one line before moving on — the numbers are already in the output
-above, so this costs nothing extra: `Found N documents, all pending` on a first scan, or `Found N
-documents; M already read, K pending` on a rescan.
+Relay its scope to the user in one line before moving on — `scan`'s own output has the document
+count, and a bare `dev.mjs ingest` right after it has the read/pending split (`sources: N (M read,
+K pending)`), so this costs nothing extra: `Found N documents, all pending` on a first scan, or
+`Found N documents; M already read, K pending` on a rescan.
 
 ## 2. Read the documents — in parallel
 
@@ -114,17 +117,34 @@ If no subagent tool is available, fall back to reading the documents one at a ti
 session — `ingest next`, without `--all`, still gives you the single next document exactly as
 before.
 
+**A question can only cite a claim that is already in the ledger.** Claim ids are assigned by
+`ingest record` itself, in order, at the moment it runs — a subagent cannot know in advance what id
+its own claim will get, so it can never correctly cite one of its own claims in the same JSON it
+returns. If a document's own claims conflict with each other, have the subagent say so in plain
+text alongside its claims rather than construct a `because` it cannot get right; write the question
+yourself once that claim's real id comes back from recording it (below).
+
 **b. Collect — one result at a time, never batched.** For each subagent's result, **in order, one
 Bash call at a time — do not issue these as parallel tool calls**:
+
+1. Write the subagent's returned JSON to `<scratch>/claims-<doc>.json` — its final message is the
+   content of that file, not a command to run.
+2. Record the claims first, alone if the subagent flagged no question, so their ids come back in
+   the command's own output before anything else depends on them:
 
 ```bash
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest record @<scratch>/claims-<doc>.json
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest read <path>
 ```
 
-Same two commands as before, just looped over a batch's results instead of run once. Recording
-stays serial even though the reading happened in parallel: that is the whole reason the unlocked
-ledger stays safe to leave unlocked.
+If the subagent also flagged a question about its own document, record its claims alone first,
+read the ids back from `record`'s output, then record the question in a second `record` call citing
+those real ids — never guessed ones. A question about an *earlier* document's claim already has a
+real id sitting in the ledger and can go in the same batch as its own claims.
+
+Same commands as before either way, just looped over a batch's results instead of run once.
+Recording stays serial even though the reading happened in parallel: that is the whole reason the
+unlocked ledger stays safe to leave unlocked.
 
 **c. Record contradictions as questions, sparingly.** When the code contradicts a document, that is
 not a question — the code wins, so record the true claim and note the stale document. Raise a
@@ -141,9 +161,12 @@ survey that invents questions is an interview. That still holds with several sub
 same ledger — a question is checked against whatever is already recorded, regardless of which
 subagent's batch it came from.
 
-**d. Repeat.** When a batch is fully recorded, take the next three paths from the list `next --all`
-already gave you and dispatch again. When nothing is left pending, `ingest next` moves on to
-arbitration by itself.
+**d. Repeat, but check the phase, not just the pending list.** When a batch is fully recorded, take
+the next three paths from the list `next --all` already gave you and dispatch again. When that list
+is empty, run bare `ingest next` — reading is not necessarily done: a document that changed since it
+was last read leaves its old claims `stale`, and `nextUnit` surfaces those as more extraction work
+*before* it ever moves to arbitration. Reading is only actually finished once `next` itself reports
+the arbitrate phase.
 
 ## 3. Arbitration
 
