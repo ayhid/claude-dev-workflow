@@ -125,26 +125,36 @@ If no subagent tool is available, fall back to reading the documents one at a ti
 session — `ingest next`, without `--all`, still gives you the single next document exactly as
 before.
 
-**A question can only cite a claim that is already in the ledger.** That is why `conflicts` names
-positions, not ids — a question about an *earlier* document's claim already has a real id and needs
-no such indirection; it can go straight in the same batch as its own claims.
+**A question can only cite a claim that is already in the ledger, and a subagent cannot see the
+ledger.** Its isolated context is one document, nothing else — it has no way to know another
+document's claim ids, or even that another document said something conflicting. That is what
+`conflicts` is *for*: a subagent flags only what it can actually see, a contradiction inside its
+own document, by position. Spotting a contradiction *between* documents is the coordinator's job,
+not a subagent's — by the time you have recorded two documents' claims you have both their real
+ids, which is exactly what a subagent dispatched to either one alone never has.
 
 **b. Collect — one result at a time, never batched.** For each subagent's result, **in order, one
-Bash call at a time — do not issue these as parallel tool calls**:
+Bash call at a time — do not issue these as parallel tool calls**, and mark it read only once every
+`record` call below has succeeded — a failed `record` must never be followed by `read`, or the
+document reads as done with something not recorded for it:
 
 1. Write the subagent's returned JSON to `<scratch>/claims-<doc>.json` — its final message is the
    content of that file, not a command to run.
-2. Record its claims, and mark it read only once that succeeds — a failed `record` must never be
-   followed by `read`, or the document reads as done with nothing recorded for it:
+2. Record its claims:
 
 ```bash
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest record @<scratch>/claims-<doc>.json
-node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest read <path>
 ```
 
 3. If the subagent's JSON named any `conflicts`, `record`'s own output just told you the real id
    each of that batch's claims got, in the order you submitted them — map each `conflicts[].about`
-   position to its real id, and record a question citing them in a second `record` call.
+   position to its real id, and record the question citing them in a second `record` call, before
+   moving on.
+4. Only now, with every claim and question for this document recorded:
+
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest read <path>
+```
 
 Same commands as before either way, just looped over a batch's results instead of run once.
 Recording stays serial even though the reading happened in parallel: that is the whole reason the
@@ -152,7 +162,8 @@ unlocked ledger stays safe to leave unlocked.
 
 **c. Record contradictions as questions, sparingly.** When the code contradicts a document, that is
 not a question — the code wins, so record the true claim and note the stale document. Raise a
-question only when evidence genuinely cannot settle it:
+question only when evidence genuinely cannot settle it — the first of these is yours to notice as
+you collect, not a subagent's:
 
 - two documents state different intents, and only a person knows which holds;
 - a document states an intent the code appears to contradict, and you cannot tell whether the code
