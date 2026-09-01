@@ -379,6 +379,12 @@ export function answerQuestion(ledger, id, answer, { now = new Date() } = {}) {
  * hands back twelve steps is a plan that gets half-done and then re-derived
  * differently by the next session.
  *
+ * `detail.pending`, for the extract phase, is the one exception — not a second
+ * unit of work, but the same `unread` list this function already computes to
+ * pick `unread[0]`, exposed so a caller that wants to hand several documents to
+ * parallel readers at once can, without re-deriving the pending set by hand or
+ * racing repeated calls to this function against each other.
+ *
  * @returns {{phase: string, what: string, detail?: object}}
  */
 export function nextUnit(ledger) {
@@ -392,7 +398,7 @@ export function nextUnit(ledger) {
     return {
       phase: 'extract',
       what: `read ${unread[0].path} and record what it claims`,
-      detail: { path: unread[0].path, remaining: unread.length },
+      detail: { path: unread[0].path, remaining: unread.length, pending: unread.map((s) => s.path) },
     };
   }
 
