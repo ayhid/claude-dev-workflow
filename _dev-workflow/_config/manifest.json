@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.18.2",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-31T12:26:57.889Z"
+    "lastUpdated": "2026-09-01T14:36:11.660Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -60,7 +60,7 @@
     },
     {
       "path": "_dev-workflow/lib/manifest.mjs",
-      "sha256": "b277ea7f5f65b4f84ee8fd00baf923db249f4901520ebe3b7be08df14d0f5e65"
+      "sha256": "1a2af3e263d7e487540bb3f27d7c88277fa6b8ec5668af97f851451e32b180c1"
     },
     {
       "path": "_dev-workflow/lib/metrics.mjs",

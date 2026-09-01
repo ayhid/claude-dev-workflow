@@ -276,9 +276,11 @@ user's own hooks survive, and our entry is matched by command string so a re-run
 duplicate it.
 
 **`_dev-workflow/` itself holds two different things, and the split is enforced, not incidental.**
-`{lib,scripts,hooks}` plus `_config/manifest.json` are the installer's own — `planFiles` copies
-them from the distribution on every install, they are hashed, and a version that stops shipping one
-gets it removed on update. `artifacts/` is per-project generated data — `/dev-ingest-docs`'s ledger
+`{lib,scripts,hooks}` plus `_config/manifest.json` are the installer's own. `planFiles` copies
+`{lib,scripts,hooks}` from the distribution on every install and hashes them, so a version that
+stops shipping one gets it removed on update; `_config/manifest.json` is not among them — it is
+installer-managed metadata `installPayload` writes itself, recording the hashes of everything else.
+`artifacts/` is per-project generated data — `/dev-ingest-docs`'s ledger
 and map today, a future `docs draft`'s proposed set tomorrow — and the installer must never plan,
 hash, touch or delete it. `isOwnedPath` cannot enforce that half on its own: it answers "is this
 ours to have created", which is `true` for both, since a project's own generated documentation is

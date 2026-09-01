@@ -455,6 +455,32 @@ test('a generated artifact under _dev-workflow/artifacts/ survives even if the m
   assert.equal(readFileSync(join(dir, artifact), 'utf8'), '# generated map\n');
 });
 
+test('isGeneratedPath still matches an artifacts path carrying a literal "." segment', () => {
+  // isOwnedPath rejects '..' and empty segments but not a bare '.' one, so a
+  // hand-edited manifest entry like this passes it through to isGeneratedPath —
+  // which must not then miss the artifacts/ prefix because of the stray '.'.
+  assert.ok(isGeneratedPath(join(PAYLOAD_DIR, '.', 'artifacts', 'documentation', 'map.md')));
+  assert.ok(isGeneratedPath(`${PAYLOAD_DIR}/./artifacts/documentation/map.md`));
+});
+
+test('detectDrift never reports a generated artifact as installer drift', () => {
+  // Same failure mode as the survival test above, from the read side: a
+  // manifest entry under artifacts/ must not show up as modified, missing or
+  // clean installer drift, whether or not its hash still matches the file on
+  // disk — it is not installer content in the first place.
+  const dir = scratch();
+  install(dir);
+
+  const artifact = join(PAYLOAD_DIR, 'artifacts', 'documentation', 'map.md');
+  const manifest = readManifest(dir);
+  manifest.files.push({ path: artifact, sha256: 'x'.repeat(64) });
+
+  const drift = detectDrift(dir, manifest);
+  assert.ok(!drift.modified.includes(artifact));
+  assert.ok(!drift.missing.includes(artifact));
+  assert.ok(!drift.clean.includes(artifact));
+});
+
 test('the installer refuses to plan a write outside its roots', () => {
   // A misnamed skill directory in the distribution would otherwise install into
   // someone else's namespace.
