@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.18.2",
     "installDate": "2026-08-15T15:40:34.287Z",
-    "lastUpdated": "2026-08-31T12:26:57.889Z"
+    "lastUpdated": "2026-09-01T10:38:58.079Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -216,7 +216,7 @@
     },
     {
       "path": ".claude/skills/dev-init/SKILL.md",
-      "sha256": "3670cfbe0b486eee24e7e247c248d45b09dcf7aed2ff44ea803f36451fc2aef8"
+      "sha256": "5cd4f0a7f2fb8ad73a8a919b879fc9250fa8ea38ca69cb7819f8dde24bde9abb"
     },
     {
       "path": ".claude/skills/dev-review/lenses/audit.md",

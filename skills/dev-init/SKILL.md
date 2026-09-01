@@ -52,6 +52,25 @@ The two need different first moves:
   it runs over multiple sessions, and re-running `/dev-init` later to change one config value must
   not drag anybody back into a survey.
 
+Once `stage` is settled, check what the documentation skeleton itself actually looks like —
+`stage` says what kind of project this is, not whether anyone has run the command that acts on it:
+
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" docs
+```
+
+Show the result, then name the one next command rather than running it:
+
+- **Brownfield** → point at `/dev-ingest-docs`, regardless of what the skeleton shows: ingest is
+  what fills it in for an existing project, not `docs init`.
+- **Greenfield**, with any document `missing` or `stub` → point at `/dev-docs-init`. A stub means
+  `docs init` scaffolded the file but nothing has been recorded against it yet, which is the same
+  "not started" state as missing, from here.
+- **Greenfield**, every document `current` → say so, and suggest nothing. A populated skeleton is
+  not a problem `/dev-init` needs to solve.
+- A `drifted` document is a separate, ongoing concern (`dev.mjs docs check` is what watches for
+  it) — do not fold it into this one-time "have you started" check.
+
 ## 3. Probe the repo before asking anything
 
 Answer as much as you can from the project itself, and only ask about the rest:
