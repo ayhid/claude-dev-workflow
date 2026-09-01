@@ -45,9 +45,17 @@ import { dirname, join, relative, sep } from 'node:path';
 // installed payload reads the same file back to report its own version and
 // drift. See lib/manifest.mjs for why the ownership boundary does *not* move
 // with it.
-import { MANIFEST_PATH, PAYLOAD_DIR, detectDrift, readJson, readManifest, sha256 } from '../../lib/manifest.mjs';
+import {
+  MANIFEST_PATH,
+  PAYLOAD_DIR,
+  detectDrift,
+  isGeneratedPath,
+  readJson,
+  readManifest,
+  sha256,
+} from '../../lib/manifest.mjs';
 
-export { MANIFEST_PATH, PAYLOAD_DIR, detectDrift, readManifest };
+export { MANIFEST_PATH, PAYLOAD_DIR, detectDrift, isGeneratedPath, readManifest };
 
 /**
  * Where a project's skills live. Exported because `tools/check-payload.mjs`
@@ -58,7 +66,7 @@ export const SKILLS_DIR = join('.claude', 'skills');
 const SETTINGS_PATH = join('.claude', 'settings.json');
 
 /** Directories copied verbatim from the distribution into `_dev-workflow/`. */
-const PAYLOAD_SOURCES = ['lib', 'scripts', 'hooks'];
+export const PAYLOAD_SOURCES = ['lib', 'scripts', 'hooks'];
 
 export const HOOK_COMMAND = `bash "$CLAUDE_PROJECT_DIR/${PAYLOAD_DIR}/hooks/check-commit-ticket.sh"`;
 
@@ -289,6 +297,7 @@ export function installPayload({ sourceRoot, projectDir, version, force = false,
     if (planned.has(entry.path)) continue;
     if (protectedPaths.has(entry.path)) continue;
     if (!isOwnedPath(entry.path)) continue;
+    if (isGeneratedPath(entry.path)) continue;
     const abs = join(projectDir, entry.path);
     if (!existsSync(abs)) continue;
     if (!dryRun) rmSync(abs, { force: true });

@@ -10,8 +10,10 @@ import { test } from 'node:test';
 import {
   MANIFEST_PATH,
   PAYLOAD_DIR,
+  PAYLOAD_SOURCES,
   detectDrift,
   installPayload,
+  isGeneratedPath,
   isOwnedPath,
   ADR_HOOK_COMMAND,
   HOOK_COMMAND,
@@ -54,6 +56,17 @@ test('planFiles covers the payload and the skills, and nothing else', () => {
   assert.ok(!files.some((f) => f.includes('tests')), 'tests must not be installed');
   assert.ok(!files.some((f) => f.includes('node_modules')));
   assert.ok(!files.some((f) => f.includes('README')));
+});
+
+test('planFiles never plans a path under artifacts/ — that is per-project generated data', () => {
+  // A regression pin, not a red/green pair: PAYLOAD_SOURCES is a hardcoded
+  // literal that cannot produce 'artifacts' as its second path segment, so
+  // this already holds. It is worth a test anyway, because isGeneratedPath
+  // (the guard the delete pass relies on) is defined against the same
+  // literal string — if the two ever drift, this is what would catch it.
+  const files = [...planFiles(SOURCE_ROOT).keys()];
+  assert.ok(!files.some((f) => isGeneratedPath(f)), 'no planned path is generated data');
+  assert.ok(!PAYLOAD_SOURCES.includes('artifacts'), "'artifacts' must never become a shipped source");
 });
 
 test('every skill is installed under its dev- name', () => {
@@ -416,6 +429,66 @@ test('a manifest naming a foreign path cannot delete it', () => {
   const result = install(dir);
   assert.ok(!result.removed.includes(foreign));
   assert.equal(readFileSync(join(dir, foreign), 'utf8'), 'keep me');
+});
+
+test('a generated artifact under _dev-workflow/artifacts/ survives even if the manifest names it', () => {
+  // Unlike a foreign path, this one *is* under our owned root, so isOwnedPath
+  // offers no protection — the only thing to rely on is an explicit exclusion
+  // for artifacts/. Simulates the failure mode a stray merge of ingest's own
+  // bookkeeping into the manifest would produce: a hash-matching entry for
+  // generated content that planFiles never itself emits.
+  const dir = scratch();
+  install(dir);
+
+  const artifact = join(PAYLOAD_DIR, 'artifacts', 'documentation', 'map.md');
+  mkdirSync(dirname(join(dir, artifact)), { recursive: true });
+  writeFileSync(join(dir, artifact), '# generated map\n');
+
+  const manifest = readManifest(dir);
+  manifest.files.push({
+    path: artifact,
+    sha256: createHash('sha256').update('# generated map\n').digest('hex'),
+  });
+  writeFileSync(join(dir, MANIFEST_PATH), JSON.stringify(manifest, null, 2));
+
+  const result = install(dir);
+  assert.ok(!result.removed.includes(artifact));
+  assert.equal(readFileSync(join(dir, artifact), 'utf8'), '# generated map\n');
+});
+
+test('isGeneratedPath still matches an artifacts path carrying a literal "." segment', () => {
+  // isOwnedPath rejects '..' and empty segments but not a bare '.' one, so a
+  // hand-edited manifest entry like this passes it through to isGeneratedPath —
+  // which must not then miss the artifacts/ prefix because of the stray '.'.
+  assert.ok(isGeneratedPath(join(PAYLOAD_DIR, '.', 'artifacts', 'documentation', 'map.md')));
+  assert.ok(isGeneratedPath(`${PAYLOAD_DIR}/./artifacts/documentation/map.md`));
+});
+
+test('isGeneratedPath rejects a malformed path rather than misclassifying it', () => {
+  // Unlike the delete pass, detectDrift calls isGeneratedPath with no
+  // isOwnedPath gate ahead of it, so a traversal or double-separator segment
+  // must not slip past the artifacts/ prefix check on its own.
+  assert.ok(!isGeneratedPath(`${PAYLOAD_DIR}/artifacts/../../etc/passwd`));
+  assert.ok(!isGeneratedPath(`${PAYLOAD_DIR}//artifacts/x`));
+  assert.ok(!isGeneratedPath(`/${PAYLOAD_DIR}/artifacts/x`));
+});
+
+test('detectDrift never reports a generated artifact as installer drift', () => {
+  // Same failure mode as the survival test above, from the read side: a
+  // manifest entry under artifacts/ must not show up as modified, missing or
+  // clean installer drift, whether or not its hash still matches the file on
+  // disk — it is not installer content in the first place.
+  const dir = scratch();
+  install(dir);
+
+  const artifact = join(PAYLOAD_DIR, 'artifacts', 'documentation', 'map.md');
+  const manifest = readManifest(dir);
+  manifest.files.push({ path: artifact, sha256: 'x'.repeat(64) });
+
+  const drift = detectDrift(dir, manifest);
+  assert.ok(!drift.modified.includes(artifact));
+  assert.ok(!drift.missing.includes(artifact));
+  assert.ok(!drift.clean.includes(artifact));
 });
 
 test('the installer refuses to plan a write outside its roots', () => {
