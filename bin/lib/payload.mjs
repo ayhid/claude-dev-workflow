@@ -58,7 +58,7 @@ export const SKILLS_DIR = join('.claude', 'skills');
 const SETTINGS_PATH = join('.claude', 'settings.json');
 
 /** Directories copied verbatim from the distribution into `_dev-workflow/`. */
-const PAYLOAD_SOURCES = ['lib', 'scripts', 'hooks'];
+export const PAYLOAD_SOURCES = ['lib', 'scripts', 'hooks'];
 
 export const HOOK_COMMAND = `bash "$CLAUDE_PROJECT_DIR/${PAYLOAD_DIR}/hooks/check-commit-ticket.sh"`;
 

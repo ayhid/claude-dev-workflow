@@ -10,8 +10,10 @@ import { test } from 'node:test';
 import {
   MANIFEST_PATH,
   PAYLOAD_DIR,
+  PAYLOAD_SOURCES,
   detectDrift,
   installPayload,
+  isGeneratedPath,
   isOwnedPath,
   ADR_HOOK_COMMAND,
   HOOK_COMMAND,
@@ -54,6 +56,17 @@ test('planFiles covers the payload and the skills, and nothing else', () => {
   assert.ok(!files.some((f) => f.includes('tests')), 'tests must not be installed');
   assert.ok(!files.some((f) => f.includes('node_modules')));
   assert.ok(!files.some((f) => f.includes('README')));
+});
+
+test('planFiles never plans a path under artifacts/ — that is per-project generated data', () => {
+  // A regression pin, not a red/green pair: PAYLOAD_SOURCES is a hardcoded
+  // literal that cannot produce 'artifacts' as its second path segment, so
+  // this already holds. It is worth a test anyway, because isGeneratedPath
+  // (the guard the delete pass relies on) is defined against the same
+  // literal string — if the two ever drift, this is what would catch it.
+  const files = [...planFiles(SOURCE_ROOT).keys()];
+  assert.ok(!files.some((f) => isGeneratedPath(f)), 'no planned path is generated data');
+  assert.ok(!PAYLOAD_SOURCES.includes('artifacts'), "'artifacts' must never become a shipped source");
 });
 
 test('every skill is installed under its dev- name', () => {
