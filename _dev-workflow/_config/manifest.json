@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.18.2",
     "installDate": "2026-08-31T20:48:47.144Z",
-    "lastUpdated": "2026-09-01T18:34:31.465Z"
+    "lastUpdated": "2026-09-01T19:44:57.326Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -221,7 +221,7 @@
     },
     {
       "path": ".claude/skills/dev-ingest-docs/SKILL.md",
-      "sha256": "55edc528d331e793bafd04dbb46815239fb175b4db46a11b56c1a4049a250242"
+      "sha256": "2cfc747b70f15a04f3b43235a830a8c67cb7d213cf34647886758ac7c0bcf46b"
     },
     {
       "path": ".claude/skills/dev-init/SKILL.md",

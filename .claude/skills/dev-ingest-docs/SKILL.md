@@ -103,10 +103,18 @@ that makes it worth doing"). Its job, in its own isolated context:
 3. **Verify before it returns.** For every `observable` claim, open the anchor itself and confirm
    it says what the document says. This does not move to the coordinating session — a subagent that
    reports an anchor unchecked has skipped the one thing that makes a claim worth recording.
-4. Return **only** a JSON object in its final message, nothing else around it:
+4. Return **only** a JSON object in its final message, nothing else around it. Claim ids are
+   assigned by `ingest record` itself, in order, at the moment it runs — a subagent cannot know its
+   own claim's id in advance, so it cannot write a `because` for one of its own claims. If two of a
+   document's own claims conflict, name that in `conflicts` by **position** in this same `claims`
+   array instead:
 
 ```json
-{ "claims": [ ... ], "questions": [ ... ] }
+{
+  "claims": [ ... ],
+  "questions": [ ... ],
+  "conflicts": [ { "about": [0, 2], "text": "claim 0 and claim 2 disagree about X" } ]
+}
 ```
 
 A subagent never runs `dev.mjs` itself, and never writes a file. That is what keeps the ledger
@@ -117,30 +125,26 @@ If no subagent tool is available, fall back to reading the documents one at a ti
 session — `ingest next`, without `--all`, still gives you the single next document exactly as
 before.
 
-**A question can only cite a claim that is already in the ledger.** Claim ids are assigned by
-`ingest record` itself, in order, at the moment it runs — a subagent cannot know in advance what id
-its own claim will get, so it can never correctly cite one of its own claims in the same JSON it
-returns. If a document's own claims conflict with each other, have the subagent say so in plain
-text alongside its claims rather than construct a `because` it cannot get right; write the question
-yourself once that claim's real id comes back from recording it (below).
+**A question can only cite a claim that is already in the ledger.** That is why `conflicts` names
+positions, not ids — a question about an *earlier* document's claim already has a real id and needs
+no such indirection; it can go straight in the same batch as its own claims.
 
 **b. Collect — one result at a time, never batched.** For each subagent's result, **in order, one
 Bash call at a time — do not issue these as parallel tool calls**:
 
 1. Write the subagent's returned JSON to `<scratch>/claims-<doc>.json` — its final message is the
    content of that file, not a command to run.
-2. Record the claims first, alone if the subagent flagged no question, so their ids come back in
-   the command's own output before anything else depends on them:
+2. Record its claims, and mark it read only once that succeeds — a failed `record` must never be
+   followed by `read`, or the document reads as done with nothing recorded for it:
 
 ```bash
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest record @<scratch>/claims-<doc>.json
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest read <path>
 ```
 
-If the subagent also flagged a question about its own document, record its claims alone first,
-read the ids back from `record`'s output, then record the question in a second `record` call citing
-those real ids — never guessed ones. A question about an *earlier* document's claim already has a
-real id sitting in the ledger and can go in the same batch as its own claims.
+3. If the subagent's JSON named any `conflicts`, `record`'s own output just told you the real id
+   each of that batch's claims got, in the order you submitted them — map each `conflicts[].about`
+   position to its real id, and record a question citing them in a second `record` call.
 
 Same commands as before either way, just looped over a batch's results instead of run once.
 Recording stays serial even though the reading happened in parallel: that is the whole reason the
@@ -165,8 +169,9 @@ subagent's batch it came from.
 the next three paths from the list `next --all` already gave you and dispatch again. When that list
 is empty, run bare `ingest next` — reading is not necessarily done: a document that changed since it
 was last read leaves its old claims `stale`, and `nextUnit` surfaces those as more extraction work
-*before* it ever moves to arbitration. Reading is only actually finished once `next` itself reports
-the arbitrate phase.
+*before* it ever moves to arbitration — and if there is nothing to arbitrate either, `next` skips
+straight to emit. Reading is only actually finished once `next` itself reports the arbitrate or
+emit phase, not just because the pending list emptied.
 
 ## 3. Arbitration
 
