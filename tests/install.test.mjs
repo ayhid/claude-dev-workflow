@@ -464,6 +464,15 @@ test('isGeneratedPath still matches an artifacts path carrying a literal "." seg
   assert.ok(isGeneratedPath(`${PAYLOAD_DIR}/./artifacts/documentation/map.md`));
 });
 
+test('isGeneratedPath rejects a malformed path rather than misclassifying it', () => {
+  // Unlike the delete pass, detectDrift calls isGeneratedPath with no
+  // isOwnedPath gate ahead of it, so a traversal or double-separator segment
+  // must not slip past the artifacts/ prefix check on its own.
+  assert.ok(!isGeneratedPath(`${PAYLOAD_DIR}/artifacts/../../etc/passwd`));
+  assert.ok(!isGeneratedPath(`${PAYLOAD_DIR}//artifacts/x`));
+  assert.ok(!isGeneratedPath(`/${PAYLOAD_DIR}/artifacts/x`));
+});
+
 test('detectDrift never reports a generated artifact as installer drift', () => {
   // Same failure mode as the survival test above, from the read side: a
   // manifest entry under artifacts/ must not show up as modified, missing or
