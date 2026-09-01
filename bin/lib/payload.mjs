@@ -125,6 +125,25 @@ export function isOwnedPath(rel) {
 }
 
 /**
+ * Is this path per-project generated data — a document ingest or a docs draft
+ * wrote it — rather than something the installer shipped?
+ *
+ * `_dev-workflow/` holds both: the payload `planFiles` copies in, and content
+ * generated at runtime under `_dev-workflow/artifacts/`. `isOwnedPath` alone
+ * cannot tell the two apart — it returns `true` for both, because both are
+ * legitimately ours to have created. This is the second predicate the delete
+ * pass needs: `planFiles` happens never to emit an artifacts path today, so
+ * the manifest never carries one, but that is an absence to rely on, not a
+ * guarantee. This makes it one: a hash-matching manifest entry for a
+ * generated path must still never be deleted.
+ */
+export function isGeneratedPath(rel) {
+  if (typeof rel !== 'string') return false;
+  const parts = rel.split(/[/\\]/);
+  return parts[0] === PAYLOAD_DIR && parts[1] === 'artifacts';
+}
+
+/**
  * Replace a file atomically: write a sibling temporary, then rename over it.
  *
  * Used for `.claude/settings.json`, the one file we share with the user's own
@@ -289,6 +308,7 @@ export function installPayload({ sourceRoot, projectDir, version, force = false,
     if (planned.has(entry.path)) continue;
     if (protectedPaths.has(entry.path)) continue;
     if (!isOwnedPath(entry.path)) continue;
+    if (isGeneratedPath(entry.path)) continue;
     const abs = join(projectDir, entry.path);
     if (!existsSync(abs)) continue;
     if (!dryRun) rmSync(abs, { force: true });

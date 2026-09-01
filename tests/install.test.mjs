@@ -417,6 +417,31 @@ test('a manifest naming a foreign path cannot delete it', () => {
   assert.equal(readFileSync(join(dir, foreign), 'utf8'), 'keep me');
 });
 
+test('a generated artifact under _dev-workflow/artifacts/ survives even if the manifest names it', () => {
+  // Unlike a foreign path, this one *is* under our owned root, so isOwnedPath
+  // offers no protection — the only thing to rely on is an explicit exclusion
+  // for artifacts/. Simulates the failure mode a stray merge of ingest's own
+  // bookkeeping into the manifest would produce: a hash-matching entry for
+  // generated content that planFiles never itself emits.
+  const dir = scratch();
+  install(dir);
+
+  const artifact = join(PAYLOAD_DIR, 'artifacts', 'documentation', 'map.md');
+  mkdirSync(dirname(join(dir, artifact)), { recursive: true });
+  writeFileSync(join(dir, artifact), '# generated map\n');
+
+  const manifest = readManifest(dir);
+  manifest.files.push({
+    path: artifact,
+    sha256: createHash('sha256').update('# generated map\n').digest('hex'),
+  });
+  writeFileSync(join(dir, MANIFEST_PATH), JSON.stringify(manifest, null, 2));
+
+  const result = install(dir);
+  assert.ok(!result.removed.includes(artifact));
+  assert.equal(readFileSync(join(dir, artifact), 'utf8'), '# generated map\n');
+});
+
 test('the installer refuses to plan a write outside its roots', () => {
   // A misnamed skill directory in the distribution would otherwise install into
   // someone else's namespace.
