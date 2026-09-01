@@ -71,7 +71,7 @@ test('planFiles never plans a path under artifacts/ — that is per-project gene
 
 test('every skill is installed under its dev- name', () => {
   const files = [...planFiles(SOURCE_ROOT).keys()];
-  for (const skill of ['dev-task', 'dev-bug', 'dev-done', 'dev-init', 'dev-standup', 'dev-ingest-docs', 'dev-docs-init', 'dev-adr', 'dev-tdd', 'dev-review']) {
+  for (const skill of ['dev-task', 'dev-bug', 'dev-done', 'dev-init', 'dev-standup', 'dev-ingest-docs', 'dev-docs-init', 'dev-adr', 'dev-tdd', 'dev-review', 'dev-lint-rules']) {
     assert.ok(
       files.includes(join('.claude', 'skills', skill, 'SKILL.md')),
       `${skill} should be installed`,
@@ -93,7 +93,7 @@ test('a fresh install writes the payload, the skills and the manifest', () => {
   const manifest = readManifest(dir);
   assert.equal(manifest.installation.version, '9.9.9');
   assert.deepEqual(manifest.skills.sort(), [
-    'dev-adr', 'dev-bug', 'dev-docs-init', 'dev-done', 'dev-ingest-docs', 'dev-init', 'dev-review', 'dev-standup', 'dev-task', 'dev-tdd',
+    'dev-adr', 'dev-bug', 'dev-docs-init', 'dev-done', 'dev-ingest-docs', 'dev-init', 'dev-lint-rules', 'dev-review', 'dev-standup', 'dev-task', 'dev-tdd',
   ]);
   assert.ok(manifest.files.length > 10);
   assert.ok(manifest.files.every((f) => /^[0-9a-f]{64}$/.test(f.sha256)));
@@ -398,6 +398,7 @@ test('a co-installed tool in the same project is left completely untouched', () 
     'dev-done',
     'dev-ingest-docs',
     'dev-init',
+    'dev-lint-rules',
     'dev-review',
     'dev-standup',
     'dev-task',

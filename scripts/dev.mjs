@@ -18,6 +18,7 @@
  *   dev.mjs adr new|accept|reject|supersede|list|index   decision records
  *   dev.mjs standup [--since 1d]                  what merged, what is in flight, what is stale
  *   dev.mjs sync [--apply] [--since 14d] [--deep] reconcile states against GitHub
+ *   dev.mjs rules                                 linters configured, conventions merely stated
  *   dev.mjs version [--upgrade]                   installed vs latest workflow version
  *
  * Nothing here depends on anything outside node: builtins. The installed copy
@@ -46,6 +47,7 @@ const USAGE = `usage: dev.mjs <command> [args]
   sync   [--apply] [--since 30d] [--repo PATH] [--deep] [--limit N]
   review [--base REF] [--out DIR] [--no-intent]   build the adversarial review payloads
   review --render FINDINGS.json [--payloads DIR]  render lens output into the report
+  rules  [--repo PATH] [--json]         what is enforced, and what is only written down
   version [--json] [--offline] [--upgrade]
 
 Config comes from .dev-workflow.json (or .claude/dev-workflow.json), then the
@@ -69,6 +71,7 @@ const COMMANDS = {
   note: () => import('./cmd/note.mjs'),
   status: () => import('./cmd/status.mjs'),
   review: () => import('./cmd/review.mjs'),
+  rules: () => import('./cmd/rules.mjs'),
   // `version` reports and, with --upgrade, rewrites the workflow's own files.
   // Not `upgrade`: one letter from `update` above, which writes to the tracker.
   version: () => import('./cmd/version.mjs'),

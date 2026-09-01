@@ -17,7 +17,9 @@ import {
   roleOf,
 } from '../../lib/metrics.mjs';
 import { makeProvider } from '../../lib/provider.mjs';
+import { sh } from '../../lib/sh.mjs';
 import { checkForUpdate, findInstallRoot } from '../../lib/updatecheck.mjs';
+import { makeVcs } from '../../lib/vcs.mjs';
 
 /** Thrown for expected, user-facing failures — dev.mjs prints `.message` alone. */
 export class UserError extends Error {}
@@ -48,6 +50,15 @@ export async function context() {
 }
 
 /**
+ * The main checkout of the repository `dir` belongs to, or `dir` itself.
+ *
+ * Injected so the tests need no repository, per the provider contract's rule 1.
+ * A directory that is not a git checkout at all resolves to itself, which is the
+ * right answer rather than a fallback: a project with no repo has one log.
+ */
+const defaultMainCheckout = (dir) => makeVcs({ run: sh }).mainCheckout(dir);
+
+/**
  * The provider, with every state change it reports appended to the local log.
  *
  * This is a choke point, chosen for the reason `lib/vcs.mjs` puts its refusals
@@ -66,11 +77,36 @@ export async function context() {
  * because failing a close because a log file was read-only would be an
  * instrument that broke the thing it was measuring.
  */
-export function withMetrics(provider, { config, root, now = () => new Date() }) {
+export function withMetrics(
+  provider,
+  { config, root, now = () => new Date(), mainCheckout = defaultMainCheckout },
+) {
   if (!metricsEnabled(config)) return provider;
 
-  const path = resolve(root, metricsFileOf(config));
   let annotation = {};
+  let pending = null;
+
+  /**
+   * The log lives in the repository's **main** checkout, not in `root` (#42).
+   *
+   * `.dev-workflow.json` is tracked, so every worktree carries a copy and
+   * `loadConfig`'s upward walk resolves the project root to the *worktree* when
+   * a command runs from inside one. The log followed it there, which split one
+   * project's history across a directory per ticket — and then `land` removed
+   * the worktree, taking the close it had just written with it. The file is
+   * gitignored, so nothing was tracking the half being deleted.
+   *
+   * Resolved lazily and once. Lazily, because `config`, `fetch` and `status`
+   * move no ticket and must not pay for a `git worktree list` they will never
+   * use; once, because `sync` reconciles a whole board through this wrapper and
+   * a lookup per transition would be a subprocess per ticket.
+   */
+  function logPath() {
+    pending ??= mainCheckout(root)
+      .catch(() => root)
+      .then((dir) => resolve(dir || root, metricsFileOf(config)));
+    return pending;
+  }
 
   return {
     ...provider,
@@ -93,7 +129,15 @@ export function withMetrics(provider, { config, root, now = () => new Date() }) 
       if (result.ok) {
         const { criteria = null } = annotation;
         annotation = {};
-        record({ path, config, provider, id, state: result.state, criteria, at: now() });
+        record({
+          path: await logPath(),
+          config,
+          provider,
+          id,
+          state: result.state,
+          criteria,
+          at: now(),
+        });
       }
       return result;
     },

@@ -209,6 +209,12 @@ places for the seventh to be forgotten.
 3. **`starts`, not `retries`.** The field is named after what the log can observe. Renaming it to
    something it cannot measure is how a number stops meaning anything.
 4. **Local, always.** No network, ever. The file holds no secret and is not meant to be committed.
+5. **One log per project, in the main checkout.** `.dev-workflow.json` is tracked, so a worktree
+   carries a copy and `loadConfig` resolves the root to the *worktree* — the path is resolved
+   against `vcs.mainCheckout` at the wrapper instead, lazily so commands that move no ticket spawn
+   no git. The corollary binds `land`: it writes the tracker *before* it removes the worktree,
+   because a working directory that has just been deleted belongs to no repository and resolves
+   back to itself.
 
 ## Security properties to preserve
 

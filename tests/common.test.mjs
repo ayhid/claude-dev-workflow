@@ -6,9 +6,12 @@
  * the right one.
  */
 import assert from 'node:assert/strict';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { preview, resolveRepo, UserError } from '../scripts/cmd/common.mjs';
+import { preview, resolveRepo, UserError, withMetrics } from '../scripts/cmd/common.mjs';
 
 const single = { repos: [{ path: '.' }] };
 const many = { repos: [{ path: 'api' }, { path: 'web' }] };
@@ -97,4 +100,119 @@ test('preview caps a list and says how much it left out', () => {
   assert.deepEqual(preview(['a', 'b'], 5), ['a', 'b']);
   assert.deepEqual(preview(['a', 'b', 'c'], 2), ['a', 'b', '  … and 1 more']);
   assert.deepEqual(preview([], 2), []);
+});
+
+/**
+ * Where `withMetrics` puts the log (#42).
+ *
+ * `.dev-workflow.json` is tracked, so a worktree carries its own copy and
+ * `loadConfig`'s upward walk resolves the project root to the *worktree* when a
+ * command runs from inside one. The log then follows it, and `land` deletes the
+ * directory it just wrote the close into.
+ */
+function metricsFixture() {
+  const tmp = mkdtempSync(join(tmpdir(), 'metrics-path-'));
+  const main = join(tmp, 'repo');
+  const wt = join(main, '.worktrees', 'fix-1-thing');
+  mkdirSync(wt, { recursive: true });
+  // Pre-created so `record` stays silent: the "created …" notice on stderr is
+  // existing behaviour, not what these tests are about.
+  writeFileSync(join(main, LOG), '');
+  return { main, wt };
+}
+
+const LOG = '.dev-workflow.metrics.jsonl';
+const CONFIG = { states: { start: 'In Progress', done: 'Done', abandon: 'Backlog' } };
+const okProvider = (state) => ({ name: 'github', setState: async () => ({ ok: true, state }) });
+
+test('a transition made inside a worktree is logged in the main checkout', async () => {
+  const { main, wt } = metricsFixture();
+
+  const provider = withMetrics(okProvider('Done'), {
+    config: CONFIG,
+    root: wt,
+    mainCheckout: async () => main,
+  });
+  const moved = await provider.setState('#1', 'done');
+
+  assert.equal(moved.ok, true);
+  assert.match(readFileSync(join(main, LOG), 'utf8'), /"event":"done","id":"#1"/);
+  assert.equal(existsSync(join(wt, LOG)), false, 'nothing may be written into the worktree');
+});
+
+test('the close finds the start that was recorded from the root', async () => {
+  // The whole point of moving the path: `starts` and `elapsedMs` are computed
+  // against the log the close is appended to, so a split log silently produces
+  // `elapsedMs: null` rather than a wrong number anyone would notice.
+  const { main, wt } = metricsFixture();
+  const at = new Date('2026-08-30T10:00:00.000Z');
+  writeFileSync(
+    join(main, LOG),
+    `${JSON.stringify({ at: at.toISOString(), event: 'start', id: '#1', state: 'In Progress', provider: 'github' })}\n`,
+  );
+
+  const provider = withMetrics(okProvider('Done'), {
+    config: CONFIG,
+    root: wt,
+    mainCheckout: async () => main,
+    now: () => new Date(at.getTime() + 60_000),
+  });
+  await provider.setState('#1', 'done');
+
+  const close = JSON.parse(readFileSync(join(main, LOG), 'utf8').trim().split('\n').at(-1));
+  assert.equal(close.elapsedMs, 60_000);
+  assert.equal(close.starts, 1);
+});
+
+test('with no worktree in play the path is the one it has always been', async () => {
+  const { main } = metricsFixture();
+
+  const provider = withMetrics(okProvider('Done'), {
+    config: CONFIG,
+    root: main,
+    mainCheckout: async (dir) => dir,
+  });
+  await provider.setState('#1', 'done');
+
+  assert.match(readFileSync(join(main, LOG), 'utf8'), /"event":"done"/);
+});
+
+test('an unresolvable checkout falls back to the root and never fails the command', async () => {
+  // Metrics rule 2: an instrument that breaks what it measures is worse than
+  // none. Not a git repository, git missing, `worktree list` refusing — the
+  // ticket still moves.
+  const { main } = metricsFixture();
+
+  const provider = withMetrics(okProvider('Done'), {
+    config: CONFIG,
+    root: main,
+    mainCheckout: async () => {
+      throw new Error('not a git repository');
+    },
+  });
+  const moved = await provider.setState('#1', 'done');
+
+  assert.equal(moved.ok, true);
+  assert.match(readFileSync(join(main, LOG), 'utf8'), /"event":"done"/);
+});
+
+test('the checkout is resolved once, however many transitions there are', async () => {
+  // One `git worktree list` per command at most. Every command takes its
+  // provider from `context()`, so an unmemoised lookup would be a subprocess
+  // per ticket `sync` reconciles.
+  const { main, wt } = metricsFixture();
+  let calls = 0;
+
+  const provider = withMetrics(okProvider('Done'), {
+    config: CONFIG,
+    root: wt,
+    mainCheckout: async () => {
+      calls += 1;
+      return main;
+    },
+  });
+  await provider.setState('#1', 'done');
+  await provider.setState('#2', 'done');
+
+  assert.equal(calls, 1);
 });

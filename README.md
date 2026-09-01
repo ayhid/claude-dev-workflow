@@ -24,6 +24,7 @@ project**: nothing is registered globally, so the skills exist only in repos tha
 | `/dev-bug`     | Investigates the likely code path, checks for duplicates, drafts the issue in the project's language, files it on approval. **Never fixes.** |
 | `/dev-done`    | Re-reads the ticket, verifies each criterion with evidence, runs the checks, then lands the work the way the project delivers: pull request, or straight onto the base branch. |
 | `/dev-review` | Three adversarial passes over the branch diff, each with a **different payload**: one blind pass that never sees the ticket, one hunting the input that breaks it, one auditing code against intent *and intent against itself*. Findings sorted into fix-the-code, fix-the-spec, out-of-scope. **Never edits, never lands.** |
+| `/dev-lint-rules` | Turns the conventions a project only *states* — in `CLAUDE.md`, `CONTRIBUTING.md`, the docs ledger — into rules its own linter can decide, each presented with the count of existing violations it would flag. What no rule can decide it reports separately, as a hook, a claim, or noise. **Writes nothing without approval of the batch.** [Why not a document →](docs/documentation.md#why-there-is-no-conventionsmd) |
 | `/dev-standup` | Everything in flight across every configured repo: what merged, what is checked out, what has stopped moving, what is still open on the tracker, and the one thing waiting on you. **Never writes.** |
 | `/dev-ingest-docs` | Reads a brownfield project's existing documentation into a verified map: every claim anchored to the code that proves it, contradictions found, and the questions only a person can settle put to you. Runs in steps across sessions. **Never rewrites your docs.** |
 | `/dev-docs-init` | Gives a greenfield project the documents it does not have yet — context, architecture, domain, api, ux, operations, testing, security — filled a claim at a time, every line carrying the anchor or the attribution that would show it false. **Writes no prose of its own.** [Reference →](docs/documentation.md) |
@@ -134,6 +135,7 @@ These are deliberate, and worth preserving in any fork.
 | `/dev-done` refuses to close a ticket whose acceptance criteria are unmet or whose suite fails, and reports the gap instead. | The `/dev-done` skill contract |
 | The transition log never leaves your machine, and never fails a ticket transition. | `dev.mjs` appends one JSON line locally; a log it cannot write produces a line on stderr and the ticket still moves. |
 | `/dev-standup` reports and never writes — not even the `sync --apply` it suggests. A command run first thing in the morning must be safe to run without thinking. | `dev.mjs standup` has no write path at all; every fix it names is a command for you to approve. |
+| `/dev-lint-rules` never edits a linter config or a `CLAUDE.md` without approval of the whole batch, and never invents a linter: a project with no lint setup is told so and told what the standard tool for its language is. | The skill contract, and `dev.mjs rules` reports what is configured rather than proposing one — a rule that will never run is worse than an absent one, because it looks like coverage. |
 | `/dev-ingest-docs` never rewrites your documentation. It writes only under `_dev-workflow/artifacts/documentation/`; reorganising your docs is a proposal you approve as ordinary work. | The survey has no write path outside the payload root, and the map says it is generated. |
 | `/dev-docs-init` writes no prose of its own, and never overwrites a document you already have. A generated document it cannot recognise as its own is left alone rather than re-rendered. | `renderDocument` takes claims and has no parameter a paragraph could be passed through; `docs render` compares the file against the hash it wrote. |
 | An `observable` claim with no evidence anchor is refused, not stored. An anchor naming a file that is not in the repo is refused too. | `lib/ingest.mjs` — an unanchored claim is a guess in the voice of a fact, and a map of those reads exactly like one that was checked. |
@@ -203,7 +205,7 @@ your-project/
     _config/manifest.json         # version + a sha256 per installed file
   .claude/
     skills/dev-task, dev-tdd, dev-bug, dev-done, dev-init, dev-standup,
-           dev-ingest-docs, dev-docs-init, dev-adr, dev-review
+           dev-ingest-docs, dev-docs-init, dev-adr, dev-review, dev-lint-rules
     settings.json                 # the commit hook, merged in alongside your own
 ```
 
@@ -327,6 +329,7 @@ Each command below is prefixed with `node _dev-workflow/scripts/dev.mjs`.
 | Command | What it does | Needs |
 | --- | --- | --- |
 | `config [--json]` | prints the effective config | HTTP only |
+| `rules [--json]` | linters configured, languages nothing lints, conventions only written down | nothing |
 | `fetch ABC-22` | the issue as markdown, comments included | HTTP only |
 | `update ABC-22 state start` | moves it along the ladder | HTTP only |
 | `update ABC-22 state done @/tmp/c.md` | moves it, with a comment (literal or `@file`) | HTTP only |

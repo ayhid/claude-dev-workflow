@@ -17,7 +17,7 @@
  * about the whole command rather than the git layer, so it drives the real CLI
  * against the shared `gh` stub.
  */
-import { mkdtempSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
@@ -289,4 +289,45 @@ test('standing on the base branch says where the work actually is', async () => 
   assert.match(r.stderr, /already on main/);
   assert.match(r.stderr, /#12 is checked out in \S+\/web\/\.worktrees\/feat-12-thing/);
   assert.match(r.stderr, /cd \S+\/web\/\.worktrees\/feat-12-thing/);
+});
+
+/**
+ * #42: where the close event ends up when the worktree it was made from is
+ * gone by the time it is written.
+ *
+ * The bug needs the config to resolve to the *worktree*, which is what happens
+ * in a real project: `.dev-workflow.json` is tracked, so every worktree carries
+ * a copy and `loadConfig`'s upward walk stops there. The scaffold writes the
+ * config after cutting the worktree, so the copy and the pinned project dir are
+ * both spelled out here rather than inherited.
+ */
+const DIRECT_MODE = { ...CONFIG, delivery: { mode: 'direct' } };
+const LOG = '.dev-workflow.metrics.jsonl';
+
+test('a direct landing records the close in the main checkout, not the worktree it removed', async () => {
+  const { repo, wt, dev } = await withStubGh({ remote: true, config: DIRECT_MODE });
+  copyFileSync(join(repo, '.dev-workflow.json'), join(wt, '.dev-workflow.json'));
+
+  // The start this cycle is measured from. Without it the close would report
+  // `elapsedMs: null` and pass a test that only asked for a row.
+  const started = new Date(Date.now() - 90_000).toISOString();
+  writeFileSync(
+    join(repo, LOG),
+    `${JSON.stringify({ at: started, event: 'start', id: '#12', state: 'In Progress', provider: 'github' })}\n`,
+  );
+
+  const r = await dev(['land', '--apply', '--criteria', 'first-pass'], { CLAUDE_PROJECT_DIR: wt }, { cwd: wt });
+
+  assert.equal(r.code, 0, r.stderr);
+  assert.doesNotMatch(r.stderr, /could not record the transition/);
+  assert.equal(existsSync(wt), false, 'direct delivery removes the worktree');
+  assert.equal(existsSync(join(wt, LOG)), false, 'and nothing may have been written into it');
+
+  const rows = readFileSync(join(repo, LOG), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+  const closes = rows.filter((row) => row.event === 'done' && row.id === '#12');
+  assert.equal(closes.length, 1, `expected exactly one close event, found ${closes.length}`);
+  const [close] = closes;
+  assert.equal(close.starts, 1, 'the close must find its own start');
+  assert.ok(close.elapsedMs >= 90_000, `elapsedMs was ${close.elapsedMs}`);
+  assert.equal(close.criteria, 'first-pass');
 });

@@ -10,6 +10,7 @@ turns documents into claims; `docs` turns claims into documents.**
 
 - [Why a claim and not a document](#why-a-claim-and-not-a-document)
 - [The set](#the-set)
+- [Why there is no `conventions.md`](#why-there-is-no-conventionsmd)
 - [The commands](#the-commands)
 - [What it refuses](#what-it-refuses)
 - [Two documents that already exist](#two-documents-that-already-exist)
@@ -86,6 +87,32 @@ self-hosting teams" false — so claims there carry an attributed source rather 
 [correct rather than degraded](#on-a-young-project-most-claims-are-intent).
 `api` is the opposite: a contract is anchorable to the file that declares it, so an `observable`
 claim there with no anchor is a real error.
+
+## Why there is no `conventions.md`
+
+The set has no document for coding guidelines, and the omission is the same argument as
+[why a claim and not a document](#why-a-claim-and-not-a-document), one layer down.
+
+A guideline is one of two things. It is **deterministic** — "no `console.log` in `src/`", "every
+exported function has a doc comment" — in which case a linter can decide it, and a document
+restating it is a second, weaker copy of a rule that already has an enforcer. The copy goes stale the
+first time the rule changes, and the linter is the one that is right. Or it is **not** deterministic
+— "keep functions small", "prefer clarity" — in which case it is unfalsifiable prose. Nobody can be
+shown to have violated it, and `renderDocument` has no parameter a paragraph could be passed
+through, so it is not discouraged here: it is unrepresentable.
+
+Both halves point away from a document. The first belongs in the linter, the second belongs nowhere.
+
+That leaves a real hole, and it is filled by a skill rather than a document. **`/dev-lint-rules`** ([in the skills table](../README.md))
+reads the conventions a project already states — in `CLAUDE.md`, `CONTRIBUTING.md`, and the `intent`
+claims in this ledger — and turns each one into a rule its own linter can decide, presented with the
+count of existing violations it would flag today. What no rule can decide it reports separately, as
+one of three things: a **hook**, an **`intent` claim** for this set, or **noise** to delete. A
+convention that is none of the three has been restated in review for years and will be restated
+tomorrow.
+
+`dev.mjs rules` is the inventory it starts from — which linters are configured, which languages
+nothing lints, and what the project states in writing.
 
 ## The commands
 
