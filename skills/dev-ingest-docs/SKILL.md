@@ -10,8 +10,21 @@ For a **brownfield** project: years of decisions, some written down, some writte
 longer true. The job is to end up with something a later session can trust, which is not the same
 as a summary.
 
-This runs in **steps and across sessions**. Every step persists. Stop after ten minutes and pick it
-up next week; nothing is lost and nothing is re-derived differently.
+## What this produces, and how it runs
+
+What comes out is `_dev-workflow/artifacts/documentation/map.md` — every claim the project's docs
+make, checked against the code that would prove or disprove it, grouped by topic, with the
+contradictions and the questions still unsettled sitting right beside them. It never touches the
+project's own documentation, not one line: reorganising it is a proposal you get at the end, in
+chat, not something this skill does for you (§5).
+
+It **runs in steps and across sessions.** Every step persists to a ledger. Stop after ten minutes
+and pick it up next week; nothing is lost and nothing is re-derived differently — `dev.mjs ingest`
+with no arguments always says exactly where it stands.
+
+Reading the documents is the slow part, so it now happens **in parallel** — one subagent per
+document, dispatched a few at a time — rather than one document at a time in this session (§2).
+Arbitration, emitting the map and proposing the reorg still happen here, with you.
 
 ## The rule that makes it worth doing
 
@@ -57,38 +70,63 @@ Lists every tracked document, hashes it, and creates the ledger. Safe to re-run 
 document whose hash is unchanged keeps its read state, and one that changed comes back as pending
 with its old claims marked stale rather than deleted.
 
-## 2. The loop
+Relay its scope to the user in one line before moving on — the numbers are already in the output
+above, so this costs nothing extra: `Found N documents, all pending` on a first scan, or `Found N
+documents; M already read, K pending` on a rescan.
+
+## 2. Read the documents — in parallel
 
 ```bash
-node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest next
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest next --all
 ```
 
-It gives you **one** document. Read that document — the whole thing — then:
+`--all` returns every pending document in one call, not just the next one — the whole batch, ready
+to hand to several readers at once instead of reading them here one at a time.
 
-**a. Extract its claims.** Write them to a scratch JSON file and record them:
+**a. Dispatch — one subagent per document, three at a time.** Work through the pending list in
+batches of **at most three**. Three is deliberately conservative: enough that the fan-out is worth
+doing, small enough that a sixty-document corpus does not open sixty subagents on the first breath.
+Within a batch, dispatch one **fresh subagent per document** — never more than one document to a
+subagent. That is not caution for its own sake: an unattended pass confabulates in proportion to how
+much context it is reasoning over, not in proportion to how much work it is asked to do
+(`docs/decisions/0002-retire-the-ci-posted-adversarial-reviewer.md`), and one document is the
+smallest unit this job has.
+
+Each subagent gets nothing but the document assigned to it and the claim rules above ("The rule
+that makes it worth doing"). Its job, in its own isolated context:
+
+1. Read the whole document.
+2. Extract its claims — `text`, `kind`, `anchor`, `source`, `topic` — exactly as those rules say.
+3. **Verify before it returns.** For every `observable` claim, open the anchor itself and confirm
+   it says what the document says. This does not move to the coordinating session — a subagent that
+   reports an anchor unchecked has skipped the one thing that makes a claim worth recording.
+4. Return **only** a JSON object in its final message, nothing else around it:
 
 ```json
-{
-  "claims": [
-    { "text": "Sessions are stored in Redis", "kind": "observable",
-      "anchor": "src/session.ts:34", "source": "docs/architecture.md", "topic": "storage" },
-    { "text": "Redis was chosen over Postgres for the TTL semantics", "kind": "intent",
-      "source": "docs/architecture.md", "topic": "storage" }
-  ],
-  "questions": []
-}
+{ "claims": [ ... ], "questions": [ ... ] }
 ```
+
+A subagent never runs `dev.mjs` itself, and never writes a file. That is what keeps the ledger
+safe: `ingest record` writes the whole ledger back to disk unlocked, so two writers landing at once
+could silently overwrite each other. One writer avoids the race outright — and that writer is you.
+
+If no subagent tool is available, fall back to reading the documents one at a time in this
+session — `ingest next`, without `--all`, still gives you the single next document exactly as
+before.
+
+**b. Collect — one result at a time, never batched.** For each subagent's result, **in order, one
+Bash call at a time — do not issue these as parallel tool calls**:
 
 ```bash
-node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest record @<scratch>/claims.json
-node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest read docs/architecture.md
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest record @<scratch>/claims-<doc>.json
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest read <path>
 ```
 
-**Verify before you record.** For every `observable` claim, open the anchor and confirm it says what
-the document says. This is where the value is: the document is a hypothesis, the code is the
-evidence, and a doc that has quietly become false is exactly what you are here to find.
+Same two commands as before, just looped over a batch's results instead of run once. Recording
+stays serial even though the reading happened in parallel: that is the whole reason the unlocked
+ledger stays safe to leave unlocked.
 
-**b. Record contradictions as questions, sparingly.** When the code contradicts a document, that is
+**c. Record contradictions as questions, sparingly.** When the code contradicts a document, that is
 not a question — the code wins, so record the true claim and note the stale document. Raise a
 question only when evidence genuinely cannot settle it:
 
@@ -99,9 +137,13 @@ question only when evidence genuinely cannot settle it:
 
 Every question must cite the claims behind it (`because`), and the tool refuses one that does not.
 That is deliberate: a question with no claims behind it is a question the process invented, and a
-survey that invents questions is an interview.
+survey that invents questions is an interview. That still holds with several subagents feeding the
+same ledger — a question is checked against whatever is already recorded, regardless of which
+subagent's batch it came from.
 
-**c. Repeat.** `ingest next` moves to the following document. Batch nothing else in between.
+**d. Repeat.** When a batch is fully recorded, take the next three paths from the list `next --all`
+already gave you and dispatch again. When nothing is left pending, `ingest next` moves on to
+arbitration by itself.
 
 ## 3. Arbitration
 
