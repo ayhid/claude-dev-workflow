@@ -103,16 +103,15 @@ that makes it worth doing"). Its job, in its own isolated context:
 3. **Verify before it returns.** For every `observable` claim, open the anchor itself and confirm
    it says what the document says. This does not move to the coordinating session — a subagent that
    reports an anchor unchecked has skipped the one thing that makes a claim worth recording.
-4. Return **only** a JSON object in its final message, nothing else around it. Claim ids are
-   assigned by `ingest record` itself, in order, at the moment it runs — a subagent cannot know its
-   own claim's id in advance, so it cannot write a `because` for one of its own claims. If two of a
-   document's own claims conflict, name that in `conflicts` by **position** in this same `claims`
-   array instead:
+4. Return **only** a JSON object in its final message, nothing else around it — **no `questions`
+   field**: a question needs a claim id, ids are assigned by `ingest record` at the moment it runs,
+   and a subagent never sees the ledger to learn one, so it can never write a valid `because`. If
+   two of a document's own claims conflict, name that in `conflicts` by **position** in this same
+   `claims` array instead:
 
 ```json
 {
   "claims": [ ... ],
-  "questions": [ ... ],
   "conflicts": [ { "about": [0, 2], "text": "claim 0 and claim 2 disagree about X" } ]
 }
 ```
