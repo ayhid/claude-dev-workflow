@@ -22,6 +22,7 @@ import {
   mergeHookIntoSettings,
   planFiles,
   readManifest,
+  UPDATE_HOOK_COMMAND,
 } from '../bin/lib/payload.mjs';
 
 const SOURCE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -191,7 +192,7 @@ test('an existing user hook survives the install', () => {
 
 test('a project installed before a hook existed gains only the missing ones', () => {
   // The upgrade path for every project already running an older version: the
-  // commit hook is registered, the other two are not, and a re-run must add
+  // commit hook is registered, the other three are not, and a re-run must add
   // them rather than duplicating the first or rewriting the user's matcher.
   const existing = {
     hooks: {
@@ -203,7 +204,7 @@ test('a project installed before a hook existed gains only the missing ones', ()
   };
   const { settings, added, addedCommands } = mergeHookIntoSettings(existing);
   assert.equal(added, true);
-  assert.deepEqual(addedCommands, [ADR_HOOK_COMMAND, SESSION_HOOK_COMMAND]);
+  assert.deepEqual(addedCommands, [ADR_HOOK_COMMAND, SESSION_HOOK_COMMAND, UPDATE_HOOK_COMMAND]);
 
   const commands = allCommands(settings);
   assert.equal(commands.filter((c) => c === HOOK_COMMAND).length, 1, 'no duplicate commit hook');

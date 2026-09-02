@@ -78,6 +78,8 @@ export const ADR_HOOK_COMMAND = `bash "$CLAUDE_PROJECT_DIR/${PAYLOAD_DIR}/hooks/
  * macOS. The hook's own header carries the full reasoning.
  */
 export const SESSION_HOOK_COMMAND = `node "$CLAUDE_PROJECT_DIR/${PAYLOAD_DIR}/hooks/session-standup.mjs"`;
+/** The version notice, on the same event: its own entry so its own switch (hooks.updateCheck) can turn it off alone. */
+export const UPDATE_HOOK_COMMAND = SESSION_HOOK_COMMAND.replace('session-standup.mjs', 'session-updatecheck.mjs');
 
 /**
  * Every hook we register: the event it fires on, the tool it matches, and the
@@ -98,6 +100,7 @@ export const SHIPPED_HOOKS = [
   { event: 'PreToolUse', matcher: 'Bash', command: HOOK_COMMAND },
   { event: 'PreToolUse', matcher: 'Edit|Write', command: ADR_HOOK_COMMAND },
   { event: 'SessionStart', matcher: '', command: SESSION_HOOK_COMMAND },
+  { event: 'SessionStart', matcher: '', command: UPDATE_HOOK_COMMAND },
 ];
 
 /** The skill-name prefix we claim. Anything else in .claude/skills/ is someone else's. */
