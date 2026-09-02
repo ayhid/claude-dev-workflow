@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { emptyLedger, mergeSources, setEnrichment } from '../lib/ingest.mjs';
-import { addVerdicts, describeVerdicts, shortlistPairs, validateVerdict } from '../lib/reorg.mjs';
+import { addPairs, addVerdicts, describeVerdicts, shortlistPairs, validatePair, validateVerdict } from '../lib/reorg.mjs';
 
 const NOW = new Date('2026-08-28T09:00:00.000Z');
 const base = () => emptyLedger({ now: NOW });
@@ -194,6 +194,71 @@ test('shortlistPairs skips a document with no verdict, since classification come
   assert.equal(skipped.noVerdict, 1);
 });
 
+// --- pairs: a judgement about two documents ------------------------------------
+
+const KNOWN = ['a.md', 'b.md', 'c.md'];
+const goodPair = (over = {}) => ({
+  docA: 'a.md',
+  docB: 'b.md',
+  relation: 'duplicate',
+  justification: 'same install steps, word for word',
+  evidenceA: 'a.md:12',
+  evidenceB: 'b.md:40',
+  ...over,
+});
+
+test('a pair needs a relation from the closed list', () => {
+  const missing = validatePair(goodPair({ relation: undefined }), { knownPaths: KNOWN });
+  assert.equal(missing.ok, false);
+  assert.match(missing.error, /relation/);
+
+  const unknown = validatePair(goodPair({ relation: 'similar' }), { knownPaths: KNOWN });
+  assert.equal(unknown.ok, false);
+  assert.match(unknown.error, /duplicate, overlaps, contradicts/);
+});
+
+test('both documents of a pair must be in the inventory, and be two different documents', () => {
+  const ghost = validatePair(goodPair({ docB: 'ghost.md' }), { knownPaths: KNOWN });
+  assert.equal(ghost.ok, false);
+  assert.match(ghost.error, /ghost\.md/);
+
+  const same = validatePair(goodPair({ docB: 'a.md' }), { knownPaths: KNOWN });
+  assert.equal(same.ok, false);
+  assert.match(same.error, /itself/);
+});
+
+test('a pair needs a justification and evidence from each side', () => {
+  for (const field of ['justification', 'evidenceA', 'evidenceB']) {
+    const result = validatePair(goodPair({ [field]: '  ' }), { knownPaths: KNOWN });
+    assert.equal(result.ok, false, field);
+    assert.match(result.error, new RegExp(field));
+  }
+});
+
+test('addPairs assigns stable p<n> ids and refuses the whole batch on one bad entry', () => {
+  const ledger = withSources(...KNOWN);
+  const bad = addPairs(ledger, [goodPair(), goodPair({ docA: 'c.md', relation: 'nope' })]);
+  assert.equal(bad.ok, false);
+  assert.equal(bad.ledger, undefined);
+
+  const good = addPairs(ledger, [goodPair(), goodPair({ docA: 'c.md', relation: 'overlaps' })]);
+  assert.equal(good.ok, true);
+  assert.deepEqual(good.added.map((p) => p.id), ['p1', 'p2']);
+  assert.equal(good.ledger.pairs[0].status, 'open');
+});
+
+test('re-recording the same unordered pair replaces it under the same id', () => {
+  let ledger = withSources(...KNOWN);
+  ledger = addPairs(ledger, [goodPair()]).ledger;
+  ledger = addPairs(ledger, [goodPair({ docA: 'c.md' })]).ledger;
+  const result = addPairs(ledger, [goodPair({ docA: 'b.md', docB: 'a.md', relation: 'contradicts' })]);
+  assert.equal(result.ok, true);
+  assert.equal(result.added[0].id, 'p1', 'the id an inconsistency may already cite');
+  assert.equal(result.ledger.pairs.length, 2);
+  assert.equal(result.ledger.pairs.find((p) => p.id === 'p1').relation, 'contradicts');
+  assert.deepEqual(result.ledger.pairs.map((p) => p.id), ['p1', 'p2'], 'kept in id order');
+});
+
 // --- through the real CLI ----------------------------------------------------------
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -323,4 +388,42 @@ test('shortlist refuses a threshold that is not a number between 0 and 1', async
   const result = await dev(['reorg', 'shortlist', '--similarity-threshold', 'high']);
   assert.notEqual(result.code, 0);
   assert.match(result.stderr, /similarity-threshold/);
+});
+
+const detectFile = (repo, pairs) => {
+  const file = join(repo, 'pairs.json');
+  writeFileSync(file, JSON.stringify(pairs));
+  return file;
+};
+
+test('detect records a batch of pairs and reports their ids', async () => {
+  const { repo, dev } = await withPairedDocs();
+  const file = detectFile(repo, [
+    {
+      docA: 'README.md',
+      docB: 'docs/design.md',
+      relation: 'overlaps',
+      justification: 'both explain the Postgres choice',
+      evidenceA: 'README.md:3',
+      evidenceB: 'docs/design.md:3',
+    },
+  ]);
+  const result = await dev(['reorg', 'detect', `@${file}`]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /1 pair\(s\) recorded/);
+  assert.match(result.stdout, /p1/);
+  assert.equal(readLedger(repo).pairs.length, 1);
+});
+
+test('detect refuses the whole batch on one bad pair, touching nothing', async () => {
+  const { repo, dev } = await withPairedDocs();
+  const before = readLedger(repo);
+  const file = detectFile(repo, [
+    { docA: 'README.md', docB: 'docs/design.md', relation: 'overlaps', justification: 'x', evidenceA: 'a', evidenceB: 'b' },
+    { docA: 'README.md', docB: 'docs/setup.md', relation: 'overlaps', justification: 'x', evidenceA: 'a' },
+  ]);
+  const result = await dev(['reorg', 'detect', `@${file}`]);
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /evidenceB/);
+  assert.deepEqual(readLedger(repo), before);
 });

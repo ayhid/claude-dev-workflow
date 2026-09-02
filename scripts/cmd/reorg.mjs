@@ -4,6 +4,7 @@
  *   dev.mjs reorg                where classification stands
  *   dev.mjs reorg classify @file batch of {path, classification, justification, mergeTarget?}
  *   dev.mjs reorg shortlist      pairs of keep/merge documents whose keywords overlap
+ *   dev.mjs reorg detect @file   batch of {docA, docB, relation, justification, evidenceA, evidenceB}
  *
  * Reads and writes the same `_dev-workflow/artifacts/documentation/ledger.json`
  * `ingest` already owns — one project's documentation state, not two ledgers
@@ -16,7 +17,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { addVerdicts, DEFAULT_SIMILARITY_THRESHOLD, describeVerdicts, shortlistPairs } from '../../lib/reorg.mjs';
+import { addPairs, addVerdicts, DEFAULT_SIMILARITY_THRESHOLD, describeVerdicts, shortlistPairs } from '../../lib/reorg.mjs';
 import { ARTIFACT_DIR } from './ingest.mjs';
 import { context, readArg, UserError } from './common.mjs';
 
@@ -27,7 +28,8 @@ const USAGE = `usage: dev.mjs reorg <verb>
   (no verb)          where classification stands
   classify <@file>   batch of {path, classification, justification, mergeTarget?}, as JSON
   shortlist [--similarity-threshold N]
-                     pairs of keep/merge documents whose keywords overlap (Jaccard ≥ N, default ${DEFAULT_SIMILARITY_THRESHOLD})`;
+                     pairs of keep/merge documents whose keywords overlap (Jaccard ≥ N, default ${DEFAULT_SIMILARITY_THRESHOLD})
+  detect <@file>     batch of {docA, docB, relation, justification, evidenceA, evidenceB}, as JSON`;
 
 const ledgerPath = (root) => join(root, ARTIFACT_DIR, LEDGER);
 
@@ -50,6 +52,19 @@ function saveLedger(root, ledger) {
   writeFileSync(path, `${JSON.stringify(ledger, null, 2)}\n`);
 }
 
+/** A `@file` argument holding a JSON array, or the error that says which verb wanted one. */
+function readBatch(raw, verb, what) {
+  if (!raw) throw new UserError(`usage: dev.mjs reorg ${verb} @${what}.json`);
+  let payload;
+  try {
+    payload = JSON.parse(readArg(raw, `${what} file`));
+  } catch (err) {
+    throw new UserError(`the ${what} file is not valid JSON: ${err.message}`);
+  }
+  if (!Array.isArray(payload)) throw new UserError(`the ${what} file must be a JSON array`);
+  return payload;
+}
+
 /** The ledger, or a message naming the command that would create one. */
 function requireLedger(root) {
   const ledger = loadLedger(root);
@@ -68,23 +83,27 @@ export async function run(argv) {
   }
 
   if (verb === 'classify') {
-    const raw = rest[0];
-    if (!raw) throw new UserError('usage: dev.mjs reorg classify @verdicts.json');
-
-    let payload;
-    try {
-      payload = JSON.parse(readArg(raw, 'verdicts file'));
-    } catch (err) {
-      throw new UserError(`the verdicts file is not valid JSON: ${err.message}`);
-    }
-    if (!Array.isArray(payload)) throw new UserError('the verdicts file must be a JSON array');
-
+    const payload = readBatch(rest[0], 'classify', 'verdicts');
     const ledger = requireLedger(root);
     const result = addVerdicts(ledger, payload);
     if (!result.ok) throw new UserError(result.error);
 
     saveLedger(root, result.ledger);
     process.stdout.write(`dev reorg: ${result.added.length} verdict(s) recorded\n`);
+    return 0;
+  }
+
+  if (verb === 'detect') {
+    const payload = readBatch(rest[0], 'detect', 'pairs');
+    const ledger = requireLedger(root);
+    const result = addPairs(ledger, payload);
+    if (!result.ok) throw new UserError(result.error);
+
+    saveLedger(root, result.ledger);
+    process.stdout.write(
+      `dev reorg: ${result.added.length} pair(s) recorded\n` +
+        (result.added.length ? `  ${result.added.map((p) => `${p.id} ${p.docA} ${p.relation} ${p.docB}`).join('\n  ')}\n` : ''),
+    );
     return 0;
   }
 
