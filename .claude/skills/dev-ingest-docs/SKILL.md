@@ -16,7 +16,7 @@ What comes out is `_dev-workflow/artifacts/documentation/map.md` — every claim
 make, checked against the code that would prove or disprove it, grouped by topic, with the
 contradictions and the questions still unsettled sitting right beside them. It never touches the
 project's own documentation, not one line: reorganising it is a proposal you get at the end, in
-chat, not something this skill does for you (§5).
+chat, not something this skill does for you (§6).
 
 It **runs in steps and across sessions.** Every step persists to a ledger *once it is recorded* —
 stop after ten minutes and pick it up next week, and nothing recorded is lost or re-derived
@@ -103,7 +103,10 @@ that makes it worth doing"). Its job, in its own isolated context:
 3. **Verify before it returns.** For every `observable` claim, open the anchor itself and confirm
    it says what the document says. This does not move to the coordinating session — a subagent that
    reports an anchor unchecked has skipped the one thing that makes a claim worth recording.
-4. Return **only** a JSON object in its final message, nothing else around it — **no `questions`
+4. Note the document's **enrichment** too, since it is already read: a `summary` (3-5 sentences),
+   5-10 `keywords`, and `headings` — the `#`/`##`/`###` lines, verbatim. One pass, not two; §3 uses
+   this to classify relevance without re-reading every document.
+5. Return **only** a JSON object in its final message, nothing else around it — **no `questions`
    field**: a question needs a claim id, ids are assigned by `ingest record` at the moment it runs,
    and a subagent never sees the ledger to learn one, so it can never write a valid `because`. If
    two of a document's own claims conflict, name that in `conflicts` by **position** in this same
@@ -112,7 +115,10 @@ that makes it worth doing"). Its job, in its own isolated context:
 ```json
 {
   "claims": [ ... ],
-  "conflicts": [ { "about": [0, 2], "text": "claim 0 and claim 2 disagree about X" } ]
+  "conflicts": [ { "about": [0, 2], "text": "claim 0 and claim 2 disagree about X" } ],
+  "summary": "...",
+  "keywords": [ ... ],
+  "headings": [ "## Storage", "## Auth" ]
 }
 ```
 
@@ -138,7 +144,8 @@ Bash call at a time — do not issue these as parallel tool calls**, and mark it
 document reads as done with something not recorded for it:
 
 1. Write the subagent's returned JSON to `<scratch>/claims-<doc>.json` — its final message is the
-   content of that file, not a command to run.
+   content of that file, not a command to run. One file; `record` and `enrich` below each read only
+   the keys they know and ignore the rest, so it is never split in two.
 2. Record its claims:
 
 ```bash
@@ -149,7 +156,14 @@ node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest record @<scrat
    each of that batch's claims got, in the order you submitted them — map each `conflicts[].about`
    position to its real id, and record the question citing them in a second `record` call, before
    moving on.
-4. Only now, with every claim and question for this document recorded:
+4. Record its enrichment from the same file, if the subagent returned any — `summary`, `keywords`
+   and `headings` are all optional, so skip this call for a document that came back with none:
+
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest enrich <path> @<scratch>/claims-<doc>.json
+```
+
+5. Only now, with every claim, question and enrichment for this document recorded:
 
 ```bash
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest read <path>
@@ -183,7 +197,41 @@ was last read leaves its old claims `stale`, and `nextUnit` surfaces those as mo
 straight to emit. Reading is only actually finished once `next` itself reports the arbitrate or
 emit phase, not just because the pending list emptied.
 
-## 3. Arbitration
+## 3. Classify relevance
+
+Once every document is read, decide what each one still is — using the claims and the enrichment
+already recorded, corpus-wide, not per-document: spotting an overlap needs to see more than one
+document at once, which is exactly what a subagent isolated to a single document never could (§2).
+
+Four classifications, and nothing else:
+
+- **`keep`** — current, relevant, unique.
+- **`merge`** — relevant, but overlaps one or more other documents. Name the strongest overlap as
+  `mergeTarget`.
+- **`archive`** — outdated, but worth keeping for history (a deprecated feature's own docs, say).
+- **`delete`** — no value: empty, an abandoned draft, superseded with nothing left worth keeping.
+
+Every verdict needs a `justification`, the same way a question needs its `because` — a classification
+with no reasoning behind it is exactly the guess-in-the-voice-of-a-fact this ledger refuses
+everywhere else. Write the batch and record it in one call:
+
+```json
+[
+  { "path": "docs/old-setup.md", "classification": "delete", "justification": "..." },
+  { "path": "docs/api.md", "classification": "merge", "justification": "...", "mergeTarget": "docs/reference.md" }
+]
+```
+
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" reorg classify @<scratch>/verdicts.json
+```
+
+A verdict is asserted, not arbitrated — the same standing a claim has, not a question's. It is not
+put to the user for approval one at a time; it is recorded, and `dev.mjs reorg` reports the counts.
+Re-classifying a document (a rescan changed it, or the reasoning improves) simply replaces its
+verdict — nothing to undo first.
+
+## 4. Arbitration
 
 When the reading is done, `ingest next` switches to the open questions. **Put them to the user in
 one message, at most five at a time**, each with the claims that produced it and the options you
@@ -199,7 +247,7 @@ properly and record what they actually said, not a tidied version of it.
 If they do not know, or want to check with someone, **leave it open**. An unanswered question is
 published as unsettled, which is true and useful. A guessed answer is neither.
 
-## 4. Emit
+## 5. Emit
 
 ```bash
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest emit
@@ -209,14 +257,15 @@ Writes `_dev-workflow/artifacts/documentation/map.md`: claims grouped by topic, 
 anchor, plus the decisions and anything still unsettled. It is generated — regenerate it, never
 edit it.
 
-## 5. Propose the reorganisation. Do not perform it.
+## 6. Propose the reorganisation. Do not perform it.
 
 **This skill never rewrites the project's documentation.** Not one line. Everything it writes lives
 under `_dev-workflow/artifacts/documentation/`.
 
 What you produce at the end is a *proposal*, in chat: which documents are stale and what in them is
-false, which two say the same thing, what is missing, what should move where. Cite the claim ids and
-the anchors, so each one can be checked rather than taken on trust.
+false, which two say the same thing, what is missing, what should move where. Cite the claim ids,
+the anchors and the classification verdicts (§3), so each one can be checked rather than taken on
+trust.
 
 If the user wants it done, that is ordinary work — `/dev-task` it, so it goes through a ticket, a
 branch and a review like any other change. Do not start editing their docs because the map made it
@@ -228,9 +277,9 @@ obvious what to fix.
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest        # where it stands
 ```
 
-Stop whenever. The ledger holds the sources, the claims, the questions and the answers, and it is
-committed with the rest of `_dev-workflow/`, so a colleague picking it up gets the arbitration
-decisions too — not just the map.
+Stop whenever. The ledger holds the sources, the claims, the questions and answers, and the
+classification verdicts, and it is committed with the rest of `_dev-workflow/`, so a colleague
+picking it up gets the arbitration decisions and the classification too — not just the map.
 
 Two things worth saying out loud when you report progress: how many documents are left, and how many
 claims turned out to contradict the code. The second number is the finding.
