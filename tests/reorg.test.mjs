@@ -356,6 +356,16 @@ test('a resolution is never overwritten — a changed mind is a new inconsistenc
   assert.match(again.error, /already resolved/);
 });
 
+test('an inconsistency whose because or options is not an array is refused, not thrown on', () => {
+  const ledger = withPairs();
+  const because = addInconsistencies(ledger, [{ text: 'which port?', because: 'p1' }]);
+  assert.equal(because.ok, false);
+  assert.match(because.error, /because.*array/);
+  const options = addInconsistencies(ledger, [{ text: 'which port?', because: ['p1'], options: '5432' }]);
+  assert.equal(options.ok, false);
+  assert.match(options.error, /options.*array/);
+});
+
 // --- the gate: nothing maps over an open inconsistency ------------------------------
 
 test('mappingGate refuses while any inconsistency is open, naming them', () => {
@@ -665,4 +675,18 @@ test('bare reorg reports the gate, and clears it once the inconsistency is resol
   await dev(['reorg', 'resolve', 'i1', 'dismiss', 'same reason, two phrasings']);
   const clear = await dev(['reorg']);
   assert.doesNotMatch(clear.stdout, /blocked/);
+});
+
+test('detect refuses a payload that is neither an array nor an object, rather than throwing or recording nothing', async () => {
+  const { repo, dev } = await withPairedDocs();
+  const before = readLedger(repo);
+  for (const payload of ['null', '42', '"pairs"']) {
+    const file = join(repo, 'pairs.json');
+    writeFileSync(file, payload);
+    const result = await dev(['reorg', 'detect', `@${file}`]);
+    assert.notEqual(result.code, 0, payload);
+    assert.match(result.stderr, /array.*or.*object|object.*or.*array/i, payload);
+    assert.doesNotMatch(result.stderr, /TypeError/, payload);
+  }
+  assert.deepEqual(readLedger(repo), before);
 });

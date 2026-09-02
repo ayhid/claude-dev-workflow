@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.18.2",
     "installDate": "2026-08-31T20:48:47.144Z",
-    "lastUpdated": "2026-09-02T09:34:11.642Z"
+    "lastUpdated": "2026-09-02T12:52:09.567Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -77,7 +77,7 @@
     },
     {
       "path": "_dev-workflow/lib/reorg.mjs",
-      "sha256": "9182c5ed4bb510dfaf6e65da418b7635fe0268670e69c372217ee2402859ab37"
+      "sha256": "ca43df0967370cb3db02e90702e2b6b8f506239b5d0dd84ff3cbaa153a0d0b84"
     },
     {
       "path": "_dev-workflow/lib/review.mjs",
@@ -169,7 +169,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/reorg.mjs",
-      "sha256": "c2119e07eecc5f6b45dbc064321e52864a4575aac0f573d0fc32979e03ca158e"
+      "sha256": "c614a2411c21e978a2fed06e926548c084c8fc49572f941f1bd23b356be9f3b6"
     },
     {
       "path": "_dev-workflow/scripts/cmd/resume.mjs",

@@ -130,6 +130,9 @@ export async function run(argv) {
 
   if (verb === 'detect') {
     const payload = readJson(rest[0], 'detect', 'pairs');
+    if (typeof payload !== 'object' || payload === null) {
+      throw new UserError('the pairs file must be a JSON array of pairs, or an object with "pairs" and "inconsistencies"');
+    }
     // A bare array is pairs alone; an object carries the inconsistencies that
     // cite them. Pairs first either way, the same order `ingest record` keeps
     // for claims and questions: an id has to exist before it can be cited.
