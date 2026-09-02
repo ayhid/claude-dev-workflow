@@ -561,6 +561,15 @@ test('setMapping refuses one targetFile claimed by two different sections', () =
   assert.match(result.error, /shared\.md.*architecture.*operations/);
 });
 
+test('setMapping refuses two targetFile spellings that are one file on a case-insensitive file system', () => {
+  const result = setMapping(mappable(), [
+    entry({ targetFile: 'Shared.md' }),
+    entry({ heading: 'Auth', operation: 'split', sources: [{ path: 'a.md', headings: ['## Auth'] }], targetFile: 'shared.md' }),
+  ], { sections: SECTIONS });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /Shared\.md.*shared\.md/);
+});
+
 // --- rendering: slices of sources, assembled under one target --------------------------
 
 const DOC = `# A

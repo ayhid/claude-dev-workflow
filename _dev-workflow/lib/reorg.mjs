@@ -608,14 +608,21 @@ export function setMapping(ledger, incoming, { sections }) {
 
   // One file belongs to one section: its title and frontmatter come from
   // the section, so a second section writing into it would be rendered
-  // under the first one's name.
+  // under the first one's name. Keyed ignoring case, because on a
+  // case-insensitive file system two spellings are one file — and two
+  // spellings are refused outright, since even in one section they would
+  // be two files on Linux and one on macOS.
   const owner = new Map();
   for (const e of mapping) {
-    const other = owner.get(e.targetFile);
-    if (other && other !== e.section) {
-      return { ok: false, error: `targetFile "${e.targetFile}" is claimed by two sections, ${other} and ${e.section} — give one of them another targetFile` };
+    const key = e.targetFile.toLowerCase();
+    const other = owner.get(key);
+    if (other && other.targetFile !== e.targetFile) {
+      return { ok: false, error: `targetFile "${other.targetFile}" and "${e.targetFile}" are one file on a case-insensitive file system — use one spelling` };
     }
-    owner.set(e.targetFile, e.section);
+    if (other && other.section !== e.section) {
+      return { ok: false, error: `targetFile "${e.targetFile}" is claimed by two sections, ${other.section} and ${e.section} — give one of them another targetFile` };
+    }
+    owner.set(key, { targetFile: e.targetFile, section: e.section });
   }
   return { ok: true, ledger: { ...ledger, architecture: sections.map((s) => ({ ...s })), mapping } };
 }
