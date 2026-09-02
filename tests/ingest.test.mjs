@@ -20,7 +20,9 @@ import {
   mergeSources,
   nextUnit,
   renderMap,
+  setEnrichment,
   validateClaim,
+  validateEnrichment,
 } from '../lib/ingest.mjs';
 
 const NOW = new Date('2026-08-28T09:00:00.000Z');
@@ -175,6 +177,84 @@ test('a document that disappeared is recorded as gone, not dropped', () => {
 test('sources are sorted, so the same inventory always renders the same bytes', () => {
   const a = mergeSources(base(), [file('z.md', '1'), file('a.md', '2')]).ledger;
   assert.deepEqual(a.sources.map((s) => s.path), ['a.md', 'z.md']);
+});
+
+// --- enrichment -----------------------------------------------------------------------
+
+test('enrichment with none of the recognised fields is refused', () => {
+  const result = validateEnrichment({});
+  assert.equal(result.ok, false);
+  assert.match(result.error, /nothing to enrich/);
+});
+
+test('a blank summary is refused rather than stored as an empty string', () => {
+  const result = validateEnrichment({ summary: '   ' });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /summary/);
+});
+
+test('keywords must be a non-empty array of non-empty strings', () => {
+  assert.equal(validateEnrichment({ keywords: [] }).ok, false);
+  assert.equal(validateEnrichment({ keywords: ['', '  '] }).ok, false);
+  assert.equal(validateEnrichment({ keywords: 'not-an-array' }).ok, false);
+  assert.equal(validateEnrichment({ keywords: [1, 2] }).ok, false, 'a number is not silently stringified');
+
+  const ok = validateEnrichment({ keywords: [' redis ', 'cache'] });
+  assert.equal(ok.ok, true);
+  assert.deepEqual(ok.enrichment.keywords, ['redis', 'cache']);
+});
+
+test('headings must be an array of non-empty strings', () => {
+  assert.equal(validateEnrichment({ headings: [1, 2] }).ok, false);
+  const ok = validateEnrichment({ headings: ['## Storage', '## Auth'] });
+  assert.equal(ok.ok, true);
+  assert.deepEqual(ok.enrichment.headings, ['## Storage', '## Auth']);
+});
+
+test('wordCount must be a non-negative integer', () => {
+  assert.equal(validateEnrichment({ wordCount: -1 }).ok, false);
+  assert.equal(validateEnrichment({ wordCount: 1.5 }).ok, false);
+  assert.equal(validateEnrichment({ wordCount: 'many' }).ok, false);
+  assert.equal(validateEnrichment({ wordCount: 0 }).ok, true);
+});
+
+test('frontmatter must be a plain object, not an array or a scalar', () => {
+  assert.equal(validateEnrichment({ frontmatter: ['a'] }).ok, false);
+  assert.equal(validateEnrichment({ frontmatter: 'title: x' }).ok, false);
+  const ok = validateEnrichment({ frontmatter: { title: 'Storage' } });
+  assert.equal(ok.ok, true);
+  assert.deepEqual(ok.enrichment.frontmatter, { title: 'Storage' });
+});
+
+test('setEnrichment refuses a path that is not in the inventory', () => {
+  const ledger = mergeSources(base(), [file('README.md', 'aaa')]).ledger;
+  const result = setEnrichment(ledger, 'missing.md', { summary: 'x' });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /missing\.md/);
+});
+
+test('setEnrichment merges fields onto the matching source, leaving others untouched', () => {
+  let ledger = mergeSources(base(), [file('README.md', 'aaa'), file('docs/design.md', 'bbb')]).ledger;
+  const result = setEnrichment(ledger, 'README.md', { summary: 'What the project does.', wordCount: 42 });
+  assert.equal(result.ok, true);
+
+  const readme = result.ledger.sources.find((s) => s.path === 'README.md');
+  assert.equal(readme.summary, 'What the project does.');
+  assert.equal(readme.wordCount, 42);
+
+  const design = result.ledger.sources.find((s) => s.path === 'docs/design.md');
+  assert.equal(design.summary, undefined);
+});
+
+test('a re-scan with an unchanged hash keeps enrichment; a changed hash drops it', () => {
+  let ledger = mergeSources(base(), [file('README.md', 'aaa')]).ledger;
+  ledger = setEnrichment(ledger, 'README.md', { summary: 'Stable summary.' }).ledger;
+
+  const same = mergeSources(ledger, [file('README.md', 'aaa')]).ledger;
+  assert.equal(same.sources[0].summary, 'Stable summary.');
+
+  const changed = mergeSources(ledger, [file('README.md', 'zzz')]).ledger;
+  assert.equal(changed.sources[0].summary, undefined, 'stale enrichment for a changed file is not carried over');
 });
 
 // --- one step at a time -------------------------------------------------------------
@@ -375,6 +455,44 @@ test('next --all prints every pending document, and bare next is unchanged', asy
   const bare = await dev(['ingest', 'next']);
   assert.match(bare.stdout, /left: {2}2 document\(s\) after this one/);
   assert.doesNotMatch(bare.stdout, /docs\/ops\.md/);
+});
+
+test('enrich stores summary/keywords/headings on the matching source', async () => {
+  const { repo, dev } = await withDocs();
+  await dev(['ingest', 'scan']);
+
+  const enrichment = join(repo, 'enrichment.json');
+  writeFileSync(
+    enrichment,
+    JSON.stringify({ summary: 'What the project does.', keywords: ['postgres', 'storage'] }),
+  );
+  const result = await dev(['ingest', 'enrich', 'README.md', `@${enrichment}`]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /README\.md enriched/);
+
+  const ledger = readLedger(repo);
+  const readme = ledger.sources.find((s) => s.path === 'README.md');
+  assert.equal(readme.summary, 'What the project does.');
+  assert.deepEqual(readme.keywords, ['postgres', 'storage']);
+});
+
+test('enrich refuses an unknown path or a malformed payload, touching nothing', async () => {
+  const { repo, dev } = await withDocs();
+  await dev(['ingest', 'scan']);
+  const before = readLedger(repo);
+
+  const enrichment = join(repo, 'enrichment.json');
+  writeFileSync(enrichment, JSON.stringify({ summary: 'x' }));
+  const unknownPath = await dev(['ingest', 'enrich', 'nope.md', `@${enrichment}`]);
+  assert.notEqual(unknownPath.code, 0);
+  assert.match(unknownPath.stderr, /nope\.md/);
+
+  writeFileSync(enrichment, JSON.stringify({ wordCount: -1 }));
+  const badPayload = await dev(['ingest', 'enrich', 'README.md', `@${enrichment}`]);
+  assert.notEqual(badPayload.code, 0);
+  assert.match(badPayload.stderr, /wordCount/);
+
+  assert.deepEqual(readLedger(repo), before, 'a refused enrich writes nothing');
 });
 
 test('arbitration blocks the emit until it is settled, and the answer persists', async () => {
