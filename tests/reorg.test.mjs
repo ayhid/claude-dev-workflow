@@ -17,6 +17,7 @@ import {
   describeReorg,
   describeVerdicts,
   mappingGate,
+  renderMigrationPlan,
   resolveInconsistency,
   setMapping,
   shortlistPairs,
@@ -529,6 +530,25 @@ test('setMapping is all-or-nothing and replaces the previous mapping outright', 
   assert.equal(second.ledger.mapping[0].heading, 'Data');
 });
 
+test('renderMigrationPlan lists entries per target, the unmapped keep/merge documents and the archive/delete list', () => {
+  let ledger = mappable();
+  ledger = addVerdicts(ledger, [{ path: 'c.md', classification: 'delete', justification: 'empty' }]).ledger;
+  ledger = setMapping(ledger, [
+    entry(),
+    entry({ section: 'operations', heading: 'Auth', operation: 'split', sources: [{ path: 'a.md', headings: ['## Auth'] }] }),
+  ], { sections: SECTIONS }).ledger;
+
+  const plan = renderMigrationPlan(ledger, { ignored: ['i4'] });
+  assert.match(plan, /^# Migration plan/m);
+  assert.match(plan, /## architecture\.md — Architecture/);
+  assert.match(plan, /### Storage\n\n- operation: copy\n- sources: a\.md\n- why: a\.md is the current description/);
+  assert.match(plan, /### Auth\n\n- operation: split\n- sources: a\.md › ## Auth/);
+  assert.match(plan, /## Not mapped\n\n[^\n]+\n\n- b\.md \(merge → a\.md\)/, 'a keep/merge document no entry names');
+  assert.match(plan, /## Listed, not deleted\n\n[^\n]+\n\n- c\.md — delete: empty\n- d\.md — archive: x/);
+  assert.match(plan, /## Inconsistencies ignored\n\n[^\n]+\n\n- i4/);
+  assert.equal(plan, renderMigrationPlan(ledger, { ignored: ['i4'] }), 'byte-stable');
+});
+
 // --- through the real CLI ----------------------------------------------------------
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -785,4 +805,74 @@ test('detect refuses a payload that is neither an array nor an object, rather th
     assert.doesNotMatch(result.stderr, /TypeError/, payload);
   }
   assert.deepEqual(readLedger(repo), before);
+});
+
+const REORG = (repo) => join(repo, '_dev-workflow', 'artifacts', 'reorg');
+
+const ARCH_YAML = `sections:
+  - id: architecture
+    title: Architecture
+    description: how it is built
+  - id: operations
+    title: Operations
+    description: how it is run
+`;
+
+/** The phase-2 fixture with headings recorded, an architecture file and a mapping file on disk. */
+async function withMapping() {
+  const s = await withInconsistency();
+  const enrich = join(s.repo, 'h.json');
+  writeFileSync(enrich, JSON.stringify({ headings: ['# The project'] }));
+  await s.dev(['ingest', 'enrich', 'README.md', `@${enrich}`]);
+  writeFileSync(enrich, JSON.stringify({ headings: ['# Design'] }));
+  await s.dev(['ingest', 'enrich', 'docs/design.md', `@${enrich}`]);
+
+  const arch = join(s.repo, 'arch.yaml');
+  writeFileSync(arch, ARCH_YAML);
+  const mapping = join(s.repo, 'mapping.json');
+  writeFileSync(mapping, JSON.stringify([
+    { section: 'architecture', heading: 'Storage', operation: 'merge', justification: 'both explain the Postgres choice',
+      sources: [{ path: 'README.md' }, { path: 'docs/design.md' }] },
+    { section: 'operations', heading: 'Install', operation: 'copy', justification: 'the only setup doc',
+      sources: [{ path: 'docs/setup.md' }] },
+  ]));
+  return { ...s, arch, mapping };
+}
+
+test('map refuses over an open inconsistency, and --ignore-inconsistencies names what it ignored', async () => {
+  const { repo, dev, arch, mapping } = await withMapping();
+
+  const blocked = await dev(['reorg', 'map', '--architecture', arch, `@${mapping}`]);
+  assert.notEqual(blocked.code, 0);
+  assert.match(blocked.stderr, /i1/);
+  assert.equal(readLedger(repo).mapping, undefined);
+
+  const forced = await dev(['reorg', 'map', '--architecture', arch, `@${mapping}`, '--ignore-inconsistencies']);
+  assert.equal(forced.code, 0, forced.stderr);
+  assert.match(forced.stdout, /ignor.*i1/);
+  assert.match(forced.stdout, /migration-plan\.md/);
+  const ledger = readLedger(repo);
+  assert.equal(ledger.mapping.length, 2);
+  assert.equal(ledger.architecture.length, 2);
+  const plan = readFileSync(join(REORG(repo), 'migration-plan.md'), 'utf8');
+  assert.match(plan, /### Storage/);
+  assert.match(plan, /## Inconsistencies ignored\n\n[^\n]+\n\n- i1/);
+});
+
+test('map passes once the inconsistency is resolved, and refuses a bad architecture file by line', async () => {
+  const { repo, dev, arch, mapping } = await withMapping();
+  await dev(['reorg', 'resolve', 'i1', 'dismiss', 'same thing']);
+
+  const bad = join(repo, 'bad.yaml');
+  writeFileSync(bad, 'sections:\n  - id: a\n    title: A\n    description: d\n    owner: me\n');
+  const refused = await dev(['reorg', 'map', '--architecture', bad, `@${mapping}`]);
+  assert.notEqual(refused.code, 0);
+  assert.match(refused.stderr, /line 5/);
+
+  const ok = await dev(['reorg', 'map', '--architecture', arch, `@${mapping}`]);
+  assert.equal(ok.code, 0, ok.stderr);
+  assert.doesNotMatch(readFileSync(join(REORG(repo), 'migration-plan.md'), 'utf8'), /ignored/);
+
+  const status = await dev(['reorg']);
+  assert.match(status.stdout, /mapping:\s+2 entr/);
 });

@@ -8,6 +8,13 @@
  *                                and the inconsistencies {text, because, options?} that cite them
  *   dev.mjs reorg resolve <id> <kind> "<note>"   settle one; kind is prefer:<path>, rewrite or dismiss
  *   dev.mjs reorg resolve @file  batch of {id, kind, path?, note}
+ *   dev.mjs reorg map --architecture <file> @file [--ignore-inconsistencies]
+ *                                the mapping onto the target set; writes migration-plan.md
+ *
+ * Phase 3 writes under `_dev-workflow/artifacts/reorg/` — beside the ledger's
+ * directory, inside the payload root, so the installer's delete pass never
+ * plans it and `ingest scan` never reads it back in. Never the project's own
+ * docs: applying the staged tree is separate work the user approves per file.
  *
  * Reads and writes the same `_dev-workflow/artifacts/documentation/ledger.json`
  * `ingest` already owns — one project's documentation state, not two ledgers
@@ -20,19 +27,29 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
+import { extname } from 'node:path';
+
+import { parseArchitecture } from '../../lib/architecture.mjs';
 import {
   addInconsistencies,
   addPairs,
   addVerdicts,
   DEFAULT_SIMILARITY_THRESHOLD,
   describeReorg,
+  mappingGate,
+  renderMigrationPlan,
   resolveInconsistency,
+  setMapping,
   shortlistPairs,
 } from '../../lib/reorg.mjs';
 import { ARTIFACT_DIR } from './ingest.mjs';
 import { context, readArg, UserError } from './common.mjs';
 
 const LEDGER = 'ledger.json';
+
+/** Everything phase 3 writes lives here, and nothing of it lives anywhere else. */
+export const REORG_DIR = join('_dev-workflow', 'artifacts', 'reorg');
+const PLAN = 'migration-plan.md';
 
 const USAGE = `usage: dev.mjs reorg <verb>
 
@@ -44,7 +61,9 @@ const USAGE = `usage: dev.mjs reorg <verb>
                      or {pairs: [...], inconsistencies: [{text, because: [pairId], options?}]}
   resolve <id> <kind> "<note>"
                      settle one inconsistency; kind is prefer:<path>, rewrite or dismiss
-  resolve <@file>    batch of {id, kind, path?, note}, as JSON`;
+  resolve <@file>    batch of {id, kind, path?, note}, as JSON
+  map --architecture <file> <@file> [--ignore-inconsistencies]
+                     record the mapping onto the target set and write migration-plan.md`;
 
 const ledgerPath = (root) => join(root, ARTIFACT_DIR, LEDGER);
 
@@ -210,5 +229,57 @@ export async function run(argv) {
     return 0;
   }
 
+  if (verb === 'map') {
+    const opts = { architecture: '', mapping: '', ignore: false };
+    for (let i = 0; i < rest.length; i++) {
+      if (rest[i] === '--architecture') opts.architecture = rest[++i] ?? '';
+      else if (rest[i] === '--ignore-inconsistencies') opts.ignore = true;
+      else if (rest[i].startsWith('@')) opts.mapping = rest[i];
+      else throw new UserError(`unknown argument '${rest[i]}'\n\n${USAGE}`);
+    }
+    if (!opts.architecture || !opts.mapping) {
+      throw new UserError('usage: dev.mjs reorg map --architecture <file.json|file.yaml> @mapping.json [--ignore-inconsistencies]');
+    }
+
+    const ledger = requireLedger(root);
+
+    // The gate, before anything is read or written: a mapping over an open
+    // inconsistency picks a side silently, which is the one thing the whole
+    // pipeline exists to avoid. Overriding it is allowed, and is printed.
+    const gate = mappingGate(ledger, { ignoreInconsistencies: opts.ignore });
+    if (!gate.ok) throw new UserError(gate.error);
+
+    const sections = readArchitecture(opts.architecture);
+    const entries = readBatch(opts.mapping, 'map', 'mapping');
+    const result = setMapping(ledger, entries, { sections });
+    if (!result.ok) throw new UserError(result.error);
+
+    saveLedger(root, result.ledger);
+    const planPath = join(root, REORG_DIR, PLAN);
+    mkdirSync(dirname(planPath), { recursive: true });
+    writeFileSync(planPath, renderMigrationPlan(result.ledger, { ignored: gate.open }));
+
+    const L = [`dev reorg: ${result.ledger.mapping.length} mapping entr${result.ledger.mapping.length === 1 ? 'y' : 'ies'} recorded`];
+    if (gate.open.length) L.push(`dev reorg: ignored ${gate.open.length} open inconsistenc${gate.open.length === 1 ? 'y' : 'ies'}: ${gate.open.join(', ')}`);
+    L.push(`dev reorg: wrote ${join(REORG_DIR, PLAN)} — review it, then: dev.mjs reorg rewrite --dry-run`);
+    process.stdout.write(`${L.join('\n')}\n`);
+    return 0;
+  }
+
   throw new UserError(`unknown verb '${verb}'\n\n${USAGE}`);
+}
+
+/** The architecture file, parsed by the format its extension names. */
+function readArchitecture(path) {
+  const ext = extname(path).toLowerCase();
+  const format = ext === '.json' ? 'json' : ext === '.yaml' || ext === '.yml' ? 'yaml' : ext.slice(1);
+  let text;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch (err) {
+    throw new UserError(`could not read the architecture file ${path}: ${err.message}`);
+  }
+  const parsed = parseArchitecture(text, { format });
+  if (!parsed.ok) throw new UserError(parsed.error);
+  return parsed.sections;
 }
