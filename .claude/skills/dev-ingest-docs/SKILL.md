@@ -73,7 +73,9 @@ node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest scan
 
 Lists every tracked document, hashes it, and creates the ledger. Safe to re-run at any point: a
 document whose hash is unchanged keeps its read state, and one that changed comes back as pending
-with its old claims marked stale rather than deleted.
+with its old claims marked stale rather than deleted. A document deleted from disk is `gone` and
+keeps its claims; one still on disk that no longer counts as documentation — a vendored skill pack,
+say — is `excluded`, its claims with it, and neither is reported again on the next scan.
 
 Relay its scope to the user in one line before moving on — `scan`'s own output has the document
 count, and a bare `dev.mjs ingest` right after it has the read/pending split (`sources: N (M read,
