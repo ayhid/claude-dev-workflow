@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.18.2",
     "installDate": "2026-08-31T20:48:47.144Z",
-    "lastUpdated": "2026-09-01T20:19:42.163Z"
+    "lastUpdated": "2026-09-02T05:40:00.619Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -53,7 +53,7 @@
     },
     {
       "path": "_dev-workflow/lib/ingest.mjs",
-      "sha256": "64f933d960980732fda4bcbff0a6473cfd860a736e73eba204fa4c676ef6517b"
+      "sha256": "c8b70e2166b4fc3a5b38193fc930246ebb42e1220090755f19f16bdd19aa36d5"
     },
     {
       "path": "_dev-workflow/lib/issueid.mjs",
@@ -74,6 +74,10 @@
     {
       "path": "_dev-workflow/lib/provider.mjs",
       "sha256": "07978cf75668bc390336b4ba9e291d50a0dad40b576271716c34d56a6bc1e5a3"
+    },
+    {
+      "path": "_dev-workflow/lib/reorg.mjs",
+      "sha256": "78bd426ef6fee77aaa1f5240991a5f07fc880e47d703eabe7361dd3b02076d86"
     },
     {
       "path": "_dev-workflow/lib/review.mjs",
@@ -153,7 +157,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/ingest.mjs",
-      "sha256": "f9e5789d8847be945cf0e1248b27c09082b032dd9c26b8908ae8b10425383f4f"
+      "sha256": "91ae223112d58b52e4eb93a1c98ce227448e6c77342a38aa1a677667c8ed3d89"
     },
     {
       "path": "_dev-workflow/scripts/cmd/land.mjs",
@@ -162,6 +166,10 @@
     {
       "path": "_dev-workflow/scripts/cmd/note.mjs",
       "sha256": "e213ce655214ee8cab4a2838f876d76d77fa028cfe099fcf285de42c33247890"
+    },
+    {
+      "path": "_dev-workflow/scripts/cmd/reorg.mjs",
+      "sha256": "b763b196714b174f02af6b13a89646637c3eb401412849d780ecdf4a5711f0e9"
     },
     {
       "path": "_dev-workflow/scripts/cmd/resume.mjs",
@@ -201,7 +209,7 @@
     },
     {
       "path": "_dev-workflow/scripts/dev.mjs",
-      "sha256": "97c821b149bd70f1c344ff59d7a82493439a0ad4df600b4fd5e622faa663a6b0"
+      "sha256": "bcf3a0e6f36bca6a30e29448ec3213f4f479a7a5818e68e2aac9cc7a55e000a1"
     },
     {
       "path": ".claude/skills/dev-adr/SKILL.md",
@@ -221,7 +229,7 @@
     },
     {
       "path": ".claude/skills/dev-ingest-docs/SKILL.md",
-      "sha256": "4a3a8f9284db1904f70dec26c5a3afba5432079931ee5afd1948225ae3c7ddc6"
+      "sha256": "ba8e8ed0f68dae14c5bf7e778465eeef57954a098525ea2b0a56cb184066fa1e"
     },
     {
       "path": ".claude/skills/dev-init/SKILL.md",

@@ -6,6 +6,7 @@
  *   dev.mjs ingest next         the single next unit of work
  *   dev.mjs ingest record @file claims and questions, as JSON
  *   dev.mjs ingest read <path>  mark one document read
+ *   dev.mjs ingest enrich <path> @file   summary/keywords/headings, as JSON
  *   dev.mjs ingest answer <id> "<text>"
  *   dev.mjs ingest emit         regenerate the map from the ledger
  *
@@ -42,6 +43,8 @@ import {
   mergeSources,
   nextUnit,
   renderMap,
+  setEnrichment,
+  validateEnrichment,
 } from '../../lib/ingest.mjs';
 import { sh } from '../../lib/sh.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
@@ -58,6 +61,7 @@ const USAGE = `usage: dev.mjs ingest <verb>
   scan [--repo PATH]     inventory the documents; safe to re-run
   next [--all]           the single next unit of work; --all lists every pending document
   read <path>            mark one document read
+  enrich <path> <@file>  summary/keywords/headings/frontmatter/wordCount, as JSON
   record <@file>         add claims and questions, as JSON
   answer <id> <text>     settle one open question
   emit                   regenerate the map from the ledger`;
@@ -159,6 +163,29 @@ export async function run(argv) {
       ),
     });
     process.stdout.write(`dev ingest: ${path} marked read\n`);
+    return 0;
+  }
+
+  if (verb === 'enrich') {
+    const [path, raw] = rest;
+    if (!path || !raw) throw new UserError('usage: dev.mjs ingest enrich <path> @enrichment.json');
+
+    let fields;
+    try {
+      fields = JSON.parse(readArg(raw, 'enrichment file'));
+    } catch (err) {
+      throw new UserError(`the enrichment file is not valid JSON: ${err.message}`);
+    }
+
+    const validated = validateEnrichment(fields);
+    if (!validated.ok) throw new UserError(validated.error);
+
+    const ledger = requireLedger(root);
+    const result = setEnrichment(ledger, path, validated.enrichment);
+    if (!result.ok) throw new UserError(result.error);
+
+    saveLedger(root, result.ledger);
+    process.stdout.write(`dev ingest: ${path} enriched\n`);
     return 0;
   }
 
