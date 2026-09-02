@@ -376,7 +376,7 @@ test('init registers what it wrote, so ingest scan never offers it back for extr
   writeFileSync(join(repo, 'docs', 'operations.md'), `${read(repo, 'docs/operations.md')}\nIt deploys on Fridays.\n`);
   await git(repo, 'add', '-A');
   const rescan = await dev(['ingest', 'scan']);
-  assert.match(rescan.stdout, /changed: +docs\/operations\.md/);
+  assert.match(rescan.stdout, /changed: +1 — docs\/operations\.md/);
   assert.equal(ledgerOf(repo).sources.find((s) => s.path === 'docs/operations.md').state, 'pending');
 });
 

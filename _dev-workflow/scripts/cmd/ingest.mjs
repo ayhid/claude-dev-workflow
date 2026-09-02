@@ -44,6 +44,8 @@ import {
   nextUnit,
   renderMap,
   setEnrichment,
+  SUMMARISED_PATHS,
+  summarisePaths,
   validateEnrichment,
 } from '../../lib/ingest.mjs';
 import { sh } from '../../lib/sh.mjs';
@@ -302,10 +304,15 @@ async function scan({ config, root, rest }) {
   const merged = mergeSources(before, found);
   saveLedger(root, merged.ledger);
 
+  // Counts and a few names, never the whole list: this output lands in the
+  // session's context, and the ledger already holds every path (#61).
   const L = [`repo:     ${configured.path} (${dir})`, `documents: ${found.length}`];
   if (merged.added.length) L.push(`new:      ${merged.added.length}`);
-  if (merged.changed.length) L.push(`changed:  ${merged.changed.join(', ')}`);
-  if (merged.gone.length) L.push(`gone:     ${merged.gone.join(', ')}   (their claims are kept)`);
+  if (merged.changed.length) L.push(`changed:  ${summarisePaths(merged.changed)}`);
+  if (merged.gone.length) L.push(`gone:     ${summarisePaths(merged.gone)}   (their claims are kept)`);
+  if (merged.changed.length > SUMMARISED_PATHS || merged.gone.length > SUMMARISED_PATHS) {
+    L.push(`          (every path is in the ledger: ${join(ARTIFACT_DIR, LEDGER)})`);
+  }
   L.push('', `next:     ${nextUnit(merged.ledger).what}`);
 
   process.stdout.write(`${L.join('\n')}\n`);
