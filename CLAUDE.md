@@ -339,8 +339,8 @@ Two consequences, both deliberate:
 Work with an issue behind it references it as `(#123)`. Work without one keeps the
 `<type>(no-ticket):` escape hatch; the type in it is incidental, so any configured type carries it.
 
-Three hooks ship, registered by one list — `SHIPPED_HOOKS` in `bin/lib/payload.mjs`. The merge into
-`.claude/settings.json` is what makes a hook apply at all, so a fourth is one entry in that list
+Four hooks ship, registered by one list — `SHIPPED_HOOKS` in `bin/lib/payload.mjs`. The merge into
+`.claude/settings.json` is what makes a hook apply at all, so a fifth is one entry in that list
 rather than a second copy of the merge. Each entry carries its **event** as well as its matcher: the
 merge assumed `PreToolUse` until `session-standup.mjs` needed `SessionStart`, which is precisely the
 assumption a list exists to prevent. The match stays keyed by command string, per event, so a re-run
@@ -359,8 +359,17 @@ but that is a decision with a price, not a free convenience, and `standup`'s own
 to keep short. The 3s ceiling is the other half: past it the hook prints one line and gives up,
 because a greeting that delays a session is worse than no greeting.
 
-**Turning a hook off is one vocabulary.** `hooks.sessionStart`, `hooks.commitTicket` and
-`hooks.adrImmutable` in `.dev-workflow.json`, honoured by the hooks themselves — which is what makes
+`session-updatecheck.mjs` is the second `SessionStart` hook: one line when a newer version is
+published, from the cached daily lookup, and **never an update** — the command is printed, running
+it is the user's decision. It is its own hook rather than a paragraph in the standup so that turning
+the standup off does not turn the notice off, and it passes `announceOnce: false` to
+`checkForUpdate`: a command says it once per cache window, a greeting says it every session the
+project is behind, and either one spends the announcement so the other stays quiet. Same 3s
+ceiling, same exit-0-always rule, same Node-hook argument — made again in its own header, as this
+file asks.
+
+**Turning a hook off is one vocabulary.** `hooks.sessionStart`, `hooks.updateCheck`,
+`hooks.commitTicket` and `hooks.adrImmutable` in `.dev-workflow.json`, honoured by the hooks themselves — which is what makes
 an opt-out survive `--update`, since the installer would otherwise re-add an entry the user deleted.
 The two older spellings, `commit.enforce` and `docs.enforce`, are still honoured and must stay so:
 they are documented, and an update that switched a guard back on would be exactly the silent
