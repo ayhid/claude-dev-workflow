@@ -190,6 +190,14 @@ test('a document that disappeared is recorded as gone, not dropped', () => {
   assert.equal(again.ledger.sources[0].state, 'missing');
 });
 
+test('a vanished document drops its relevance verdict too — there is nothing left to classify', () => {
+  let ledger = mergeSources(base(), [file('gone.md', 'aaa')]).ledger;
+  ledger = { ...ledger, verdicts: [{ path: 'gone.md', classification: 'keep', justification: 'current' }] };
+
+  const again = mergeSources(ledger, []);
+  assert.deepEqual(again.ledger.verdicts, []);
+});
+
 test('sources are sorted, so the same inventory always renders the same bytes', () => {
   const a = mergeSources(base(), [file('z.md', '1'), file('a.md', '2')]).ledger;
   assert.deepEqual(a.sources.map((s) => s.path), ['a.md', 'z.md']);
