@@ -629,3 +629,41 @@ test('an express dry run reports the new keys and writes nothing', async () => {
   assert.match(dry.out, /language = English/);
   assert.equal(readFileSync(join(dir, '.dev-workflow.json'), 'utf8'), before);
 });
+
+// --- subcommands, through the spawned binary --------------------------------------
+
+test('version prints the package version and exits 0', async () => {
+  const { version } = JSON.parse(readFileSync(join(SOURCE_ROOT, 'package.json'), 'utf8'));
+  const r = await runInstaller(['version']);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(r.out.trim(), version);
+});
+
+test('help names the subcommands and the three install routes', async () => {
+  for (const args of [['help'], ['--help']]) {
+    const r = await runInstaller(args);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /init/);
+    assert.match(r.out, /update/);
+    assert.match(r.out, /brew install/);
+    assert.match(r.out, /npm install -g/);
+    assert.match(r.out, /npx claude-dev-workflow@latest/);
+  }
+});
+
+test('an unknown subcommand prints the usage and exits non-zero, with stdin closed', async () => {
+  const r = await runInstaller(['instal']);
+  assert.notEqual(r.code, 0);
+  assert.equal(r.signal, null, 'must not block on a prompt');
+  assert.match(r.out, /instal/);
+  assert.match(r.out, /init, update, version, help/);
+});
+
+test('update --print is the express path under its subcommand name, and writes nothing', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dwf-sub-'));
+  const r = await runInstaller(['update', '--print', '--dir', dir]);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(r.signal, null, 'update blocked on a prompt with no TTY');
+  assert.match(r.out, /Planned only/);
+  assert.ok(!existsSync(join(dir, '_dev-workflow')), 'a dry run writes nothing');
+});

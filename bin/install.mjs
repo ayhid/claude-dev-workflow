@@ -56,6 +56,7 @@ import {
 } from './lib/config-keys.mjs';
 import { baseBranch, commitIdPosition, describeRepo, findRepos } from './lib/detect.mjs';
 import { createLabelCommand, ghAuthStatus, ghLabels, ghRepoView, ghVersion } from './lib/gh.mjs';
+import { COMMANDS, parseCommand } from './lib/argv.mjs';
 import { PAYLOAD_DIR, installPayload, readManifest } from './lib/payload.mjs';
 import { buildConfig, pickDefaultPriority, proposeProvider } from './lib/wizard-config.mjs';
 
@@ -73,32 +74,47 @@ const VERSION = (() => {
 })();
 
 // --- argv --------------------------------------------------------------------
-const argv = process.argv.slice(2);
-const flag = (name) => argv.includes(name);
-const opt = (name, fallback) => {
-  const i = argv.indexOf(name);
-  return i !== -1 && argv[i + 1] ? argv[i + 1] : fallback;
-};
+//
+// One parser for two spellings: the verbs a once-installed binary reads
+// naturally (`claude-dev-workflow update`) and the flags every documented
+// `npx claude-dev-workflow@latest --update` line uses. `flag` and `opt` below
+// are the face the rest of this file has always read; they answer from the
+// parse so no step downstream knows which spelling was typed.
+const parsed = parseCommand(process.argv.slice(2));
+const flag = (name) =>
+  ({
+    '--update': parsed.command === 'update',
+    '--reconfigure': parsed.flags.reconfigure,
+    '--print': parsed.flags.print,
+    '--force': parsed.flags.force,
+    '--help': parsed.command === 'help',
+    '-h': parsed.command === 'help',
+  })[name] ?? false;
+const opt = (name, fallback) => (name === '--dir' ? (parsed.flags.dir ?? fallback) : fallback);
 
-if (flag('--help') || flag('-h')) {
-  console.log(`
-${c.bold('dev-workflow')} — set up the ticket workflow for a project
+const USAGE = `
+${c.bold('claude-dev-workflow')} — set up the ticket workflow for a project
 
-Asks which issue tracker the project uses — YouTrack or GitHub Issues — and
-configures that one. To amend an existing config from inside Claude Code, or to
-talk it through rather than click, run ${c.cyan('/dev-init')} instead.
+Install the tool once, then initialise it in any project:
 
-Installs into the project itself: the runtime under ${c.cyan(PAYLOAD_DIR + '/')}, the four
-skills under ${c.cyan('.claude/skills/dev-*')}, and the commit hook into
-${c.cyan('.claude/settings.json')}. Nothing is installed globally.
+  ${c.cyan('brew tap ayhid/claude-dev-workflow https://github.com/ayhid/claude-dev-workflow')}
+  ${c.cyan('brew install claude-dev-workflow')}         or   ${c.cyan('npm install -g claude-dev-workflow')}
+  ${c.cyan('cd your-project && claude-dev-workflow init')}
 
-Updating an already-configured project has two modes:
+or run it without installing: ${c.cyan('npx claude-dev-workflow@latest')} — always spelled
+${c.cyan('@latest')}, since npx caches by the literal spec string and a bare
+${c.cyan('npx claude-dev-workflow')} keeps re-running whatever version it cached first.
 
-  ${c.cyan('npx claude-dev-workflow@latest --update')}                 ${c.bold('express')} — refresh the files,
-                                                         keep every value you answered
-  ${c.cyan('npx claude-dev-workflow@latest --update --reconfigure')}   ${c.bold('change config')} — refresh, then
-                                                         the wizard, current values as defaults
-  ${c.cyan('npx claude-dev-workflow@latest --update --print')}         show what would change
+Either way it installs into the project itself: the runtime under ${c.cyan(PAYLOAD_DIR + '/')},
+the skills under ${c.cyan('.claude/skills/dev-*')}, and the hooks into ${c.cyan('.claude/settings.json')}.
+That copy is what a project commits; the global binary only puts it there.
+
+  ${c.cyan('init')}                    the wizard: which tracker, which states, which branch pattern
+  ${c.cyan('update')}                  ${c.bold('express')} — refresh the files, keep every value you answered
+  ${c.cyan('update --reconfigure')}    ${c.bold('change config')} — refresh, then the wizard, current values as defaults
+  ${c.cyan('update --print')}          show what would change, write nothing
+  ${c.cyan('version')}                 this binary's version
+  ${c.cyan('help')}                    this message
 
 Express asks nothing, with one exception: a setting this version has that your
 config does not. That was never answered, so it is asked — labelled as new, and
@@ -106,16 +122,25 @@ on its own. With no TTY it writes the default and prints which key it added.
 
 Files you have edited are reported and left alone unless you pass ${c.cyan('--force')}.
 
-Always spell it ${c.cyan('@latest')}: npx caches by the literal spec string, so a bare
-${c.cyan('npx claude-dev-workflow')} keeps re-running whatever version it cached first.
+The flags spell the same commands — ${c.cyan('--update')}, ${c.cyan('--update --reconfigure')} — and
+${c.cyan('--dir <path>')} targets another directory, ${c.cyan('--print')} writes nothing, ${c.cyan('--force')}
+overwrites an existing .dev-workflow.json and any edited payload file.
 
-  --update        express update: install/refresh the files, keep the config
-  --reconfigure   with --update, walk the wizard afterwards to change values
-  --dir <path>    target project directory (default: cwd)
-  --print         print the resulting config instead of writing it
-  --force         overwrite an existing .dev-workflow.json, and any edited payload file
-  --help          this message
-`);
+Asks which issue tracker the project uses — YouTrack or GitHub Issues — and
+configures that one. To amend an existing config from inside Claude Code, or to
+talk it through rather than click, run ${c.cyan('/dev-init')} instead.
+`;
+
+if (parsed.command === 'error') {
+  console.error(`${c.red(parsed.error)}\n\nusage: claude-dev-workflow [${COMMANDS.join('|')}] [--dir <path>] [--print] [--force]${USAGE}`);
+  process.exit(2);
+}
+if (parsed.command === 'version') {
+  console.log(VERSION);
+  process.exit(0);
+}
+if (parsed.command === 'help') {
+  console.log(USAGE);
   process.exit(0);
 }
 
