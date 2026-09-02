@@ -232,3 +232,30 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
+
+      # The Homebrew formula follows the release from inside this job, not on
+      # the `release` event: a release created with the workflow token fires no
+      # other workflow. semantic-release has already pushed the version bump to
+      # package.json, so the formula is behind exactly when the two disagree —
+      # and a run that published nothing leaves both alone.
+      #
+      # The checksum is taken from the tarball the registry serves, never from a
+      # local `npm pack`, so the formula can only describe what `brew` downloads.
+      - name: Point the Homebrew formula at the release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch --quiet origin main
+          git checkout --quiet main
+          released="$(node -p 'require("./package.json").version')"
+          formula="$(node --input-type=module -e 'import { readFileSync } from "node:fs"; import { formulaVersion } from "./tools/bump-formula.mjs"; console.log(formulaVersion(readFileSync("Formula/claude-dev-workflow.rb", "utf8")) ?? "")')"
+          if [ "$released" = "$formula" ]; then
+            echo "formula already at $released"
+            exit 0
+          fi
+          node tools/bump-formula.mjs "$released"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/claude-dev-workflow.rb
+          git commit --quiet -m "chore(release): brew formula $released [skip ci]"
+          git push --quiet "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
