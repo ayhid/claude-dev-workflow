@@ -44,8 +44,10 @@ test('the installer itself is shipped', () => {
   // Asserted against pkg.name rather than a literal: the previous version
   // hardcoded 'youtrack-workflow' and went stale the moment the product was
   // renamed. `npx <name>` is what users type, so the two must agree.
-  assert.deepEqual(Object.keys(pkg.bin), [pkg.name]);
-  assert.equal(pkg.bin[pkg.name], './bin/install.mjs');
+  // `dw` is the short spelling of the same file (#86). Every name must point
+  // at the one installer: two bins with two entry points would be two tools.
+  assert.deepEqual(Object.keys(pkg.bin), [pkg.name, 'dw']);
+  assert.ok(Object.values(pkg.bin).every((v) => v === './bin/install.mjs'));
   assert.ok(existsSync(join(ROOT, 'bin', 'install.mjs')));
 });
 

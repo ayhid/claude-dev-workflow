@@ -667,3 +667,50 @@ test('update --print is the express path under its subcommand name, and writes n
   assert.match(r.out, /Planned only/);
   assert.ok(!existsSync(join(dir, '_dev-workflow')), 'a dry run writes nothing');
 });
+
+// --- dw: the short spelling, and an update that knows what version it is ------------
+
+test('dw is a second name for the same binary, in the package and the formula', () => {
+  const pkg = JSON.parse(readFileSync(join(SOURCE_ROOT, 'package.json'), 'utf8'));
+  assert.equal(pkg.bin.dw, pkg.bin['claude-dev-workflow'], 'one file, two names');
+  const formula = readFileSync(join(SOURCE_ROOT, 'Formula', 'claude-dev-workflow.rb'), 'utf8');
+  assert.match(formula, /bin\.install_symlink Dir\["#\{libexec\}\/bin\/\*"\]/, 'the formula links every bin, so dw comes with it');
+  assert.match(formula, /dw version/, 'and its test proves the alias answers');
+});
+
+test('update says which version the project is on and which it is getting', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dwf-upd-'));
+  const { version } = JSON.parse(readFileSync(join(SOURCE_ROOT, 'package.json'), 'utf8'));
+  const first = await runInstaller(['update', '--dir', dir]);
+  assert.equal(first.code, 0, first.out);
+  assert.match(first.out, new RegExp(`v${version.replace(/\\./g, '\\\\.')} in `));
+
+  // Age the manifest, then update again: the report names both versions.
+  const manifestPath = join(dir, '_dev-workflow', '_config', 'manifest.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  manifest.installation.version = '0.9.0';
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  const again = await runInstaller(['update', '--print', '--dir', dir]);
+  assert.equal(again.code, 0, again.out);
+  assert.match(again.out, new RegExp(`v0\\.9\\.0 → v${version.replace(/\\./g, '\\\\.')}`));
+});
+
+test('update refuses to downgrade a project below what a newer binary installed, unless forced', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dwf-down-'));
+  await runInstaller(['update', '--dir', dir]);
+  const manifestPath = join(dir, '_dev-workflow', '_config', 'manifest.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  manifest.installation.version = '99.0.0';
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+
+  const refused = await runInstaller(['update', '--dir', dir]);
+  assert.notEqual(refused.code, 0);
+  assert.equal(refused.signal, null);
+  assert.match(refused.out, /99\.0\.0/);
+  assert.match(refused.out, /brew upgrade claude-dev-workflow|npm update -g claude-dev-workflow/);
+  assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).installation.version, '99.0.0', 'nothing written');
+
+  const forced = await runInstaller(['update', '--force', '--dir', dir]);
+  assert.equal(forced.code, 0, forced.out);
+  assert.notEqual(JSON.parse(readFileSync(manifestPath, 'utf8')).installation.version, '99.0.0');
+});

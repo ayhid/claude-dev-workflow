@@ -9,7 +9,8 @@
 #   brew install claude-dev-workflow
 #
 # The binary installs the workflow *into a project* — `claude-dev-workflow init`
-# in its directory. Nothing else lands globally.
+# in its directory, or `dw init`, the same file under its short name. Nothing
+# else lands globally.
 class ClaudeDevWorkflow < Formula
   desc "Ticket-driven dev workflow for Claude Code, against YouTrack or GitHub Issues"
   homepage "https://github.com/ayhid/claude-dev-workflow"
@@ -26,5 +27,6 @@ class ClaudeDevWorkflow < Formula
 
   test do
     assert_equal version.to_s, shell_output("#{bin}/claude-dev-workflow version").strip
+    assert_equal version.to_s, shell_output("#{bin}/dw version").strip
   end
 end

@@ -56,6 +56,7 @@ import {
 } from './lib/config-keys.mjs';
 import { baseBranch, commitIdPosition, describeRepo, findRepos } from './lib/detect.mjs';
 import { createLabelCommand, ghAuthStatus, ghLabels, ghRepoView, ghVersion } from './lib/gh.mjs';
+import { compareVersions } from '../lib/manifest.mjs';
 import { COMMANDS, parseCommand } from './lib/argv.mjs';
 import { PAYLOAD_DIR, installPayload, readManifest } from './lib/payload.mjs';
 import { buildConfig, pickDefaultPriority, proposeProvider } from './lib/wizard-config.mjs';
@@ -93,13 +94,13 @@ const flag = (name) =>
 const opt = (name, fallback) => (name === '--dir' ? (parsed.flags.dir ?? fallback) : fallback);
 
 const USAGE = `
-${c.bold('claude-dev-workflow')} — set up the ticket workflow for a project
+${c.bold('claude-dev-workflow')} — set up the ticket workflow for a project   (${c.cyan('dw')} for short)
 
 Install the tool once, then initialise it in any project:
 
   ${c.cyan('brew tap ayhid/claude-dev-workflow https://github.com/ayhid/claude-dev-workflow')}
   ${c.cyan('brew install claude-dev-workflow')}         or   ${c.cyan('npm install -g claude-dev-workflow')}
-  ${c.cyan('cd your-project && claude-dev-workflow init')}
+  ${c.cyan('cd your-project && dw init')}
 
 or run it without installing: ${c.cyan('npx claude-dev-workflow@latest')} — always spelled
 ${c.cyan('@latest')}, since npx caches by the literal spec string and a bare
@@ -110,7 +111,8 @@ the skills under ${c.cyan('.claude/skills/dev-*')}, and the hooks into ${c.cyan(
 That copy is what a project commits; the global binary only puts it there.
 
   ${c.cyan('init')}                    the wizard: which tracker, which states, which branch pattern
-  ${c.cyan('update')}                  ${c.bold('express')} — refresh the files, keep every value you answered
+  ${c.cyan('update')}                  ${c.bold('express')} — refresh the files to this binary's version, keep every
+                          value you answered; refuses to downgrade a project unless --force
   ${c.cyan('update --reconfigure')}    ${c.bold('change config')} — refresh, then the wizard, current values as defaults
   ${c.cyan('update --print')}          show what would change, write nothing
   ${c.cyan('version')}                 this binary's version
@@ -348,6 +350,26 @@ if (!existsSync(targetDir)) {
 const reconfigure = flag('--reconfigure');
 
 if (flag('--update')) {
+  // A binary installed once carries one version, and `update` installs *that*
+  // — so say what the project is on and what it is getting, and never move it
+  // backwards by accident: a global binary older than the project's copy is
+  // the binary that needs updating, not the project.
+  const installedVersion = readManifest(targetDir)?.installation?.version ?? null;
+  if (installedVersion) {
+    const cmp = compareVersions(installedVersion, VERSION);
+    if (cmp === 0) p.log.info(`Project is at ${c.cyan(`v${VERSION}`)}, the version this binary installs.`);
+    else if (cmp === -1) p.log.info(`Project ${c.cyan(`v${installedVersion} → v${VERSION}`)}.`);
+    else if (cmp === 1 && !flag('--force')) {
+      p.log.error(
+        `The project is at ${c.cyan(`v${installedVersion}`)} and this binary would install ${c.cyan(`v${VERSION}`)} — a downgrade.\n` +
+          `Update the binary first: ${c.cyan('brew upgrade claude-dev-workflow')} or ${c.cyan('npm update -g claude-dev-workflow')},\n` +
+          `or ${c.cyan('npx claude-dev-workflow@latest --update')} for the latest release. Pass ${c.cyan('--force')} to downgrade anyway.`,
+      );
+      p.outro(c.yellow('Nothing was updated.'));
+      process.exit(1);
+    } else if (cmp === 1) p.log.warn(`Downgrading the project ${c.cyan(`v${installedVersion} → v${VERSION}`)} — --force given.`);
+  }
+
   const ok = installIntoProject({ force: flag('--force'), dryRun: flag('--print') });
   if (!ok) {
     p.outro(c.yellow('Nothing was updated.'));

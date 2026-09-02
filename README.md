@@ -61,7 +61,7 @@ brew trust ayhid/claude-dev-workflow       # Homebrew ≥ 6 asks this once for a
 brew install claude-dev-workflow           # or: npm install -g claude-dev-workflow
 
 cd your-project
-claude-dev-workflow init
+dw init                                    # dw is claude-dev-workflow, for short
 ```
 
 Or run it without installing anything: `npx claude-dev-workflow@latest`, in the project.
@@ -159,13 +159,14 @@ binary only puts it there.
 
 | Route | Install once | Then, in each project |
 |---|---|---|
-| Homebrew | `brew tap ayhid/claude-dev-workflow https://github.com/ayhid/claude-dev-workflow`, `brew trust ayhid/claude-dev-workflow`, `brew install claude-dev-workflow` | `claude-dev-workflow init` |
-| npm | `npm install -g claude-dev-workflow` | `claude-dev-workflow init` |
+| Homebrew | `brew tap ayhid/claude-dev-workflow https://github.com/ayhid/claude-dev-workflow`, `brew trust ayhid/claude-dev-workflow`, `brew install claude-dev-workflow` | `dw init` |
+| npm | `npm install -g claude-dev-workflow` | `dw init` |
 | nothing | — | `npx claude-dev-workflow@latest` |
 
 The formula lives in this repository, so `brew upgrade` follows every release; `brew trust` is
-Homebrew 6's one-time question for any tap outside homebrew-core. `claude-dev-workflow help`
-lists the subcommands: `init`, `update`, `update --reconfigure`, `version`.
+Homebrew 6's one-time question for any tap outside homebrew-core. Both installs put two names on
+PATH, `claude-dev-workflow` and `dw`, for one binary; `dw help` lists the subcommands: `init`,
+`update`, `update --reconfigure`, `version`.
 
 `claude-dev-workflow init` runs an interactive wizard
 ([`@clack/prompts`](https://github.com/bombshell-dev/clack)) that:
@@ -244,15 +245,19 @@ your-project/
 Updating has two modes. Both refresh the files; they differ in what happens to your config.
 
 ```bash
-claude-dev-workflow update                 # express: refresh the files, keep your config
-claude-dev-workflow update --reconfigure   # change config: refresh, then the wizard
-claude-dev-workflow update --print         # show what would change, write nothing
-claude-dev-workflow update --force         # and overwrite files you have edited
+dw update                 # express: refresh the files, keep your config
+dw update --reconfigure   # change config: refresh, then the wizard
+dw update --print         # show what would change, write nothing
+dw update --force         # and overwrite files you have edited
 ```
+
+`update` installs the version the binary carries and says so — `Project v1.18.2 → v1.19.0` — and
+it refuses to move a project *backwards* when the binary is older than the project's copy, naming
+the upgrade command for the binary instead. `--force` downgrades anyway.
 
 With no global install, each is `npx claude-dev-workflow@latest --update …` — and that is also the
 spelling `dev.mjs version` prints, since it works on every machine. A global binary updates a
-project to *its own* version, so keep it current first (`brew upgrade claude-dev-workflow` or
+project to *its own* version, so keep it current (`brew upgrade claude-dev-workflow` or
 `npm update -g claude-dev-workflow`); `dev.mjs version --upgrade` only uses the global binary when
 it already reports the latest release, and falls back to `npx …@latest` otherwise.
 
