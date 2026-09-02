@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.18.2",
     "installDate": "2026-08-31T20:48:47.144Z",
-    "lastUpdated": "2026-09-02T05:40:00.619Z"
+    "lastUpdated": "2026-09-02T05:41:06.283Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -53,7 +53,7 @@
     },
     {
       "path": "_dev-workflow/lib/ingest.mjs",
-      "sha256": "c8b70e2166b4fc3a5b38193fc930246ebb42e1220090755f19f16bdd19aa36d5"
+      "sha256": "696f0f5ddffdf8bc64000dd8846ccc62c45906a4aa4935782a5b36c3e5dd40f0"
     },
     {
       "path": "_dev-workflow/lib/issueid.mjs",
@@ -157,7 +157,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/ingest.mjs",
-      "sha256": "91ae223112d58b52e4eb93a1c98ce227448e6c77342a38aa1a677667c8ed3d89"
+      "sha256": "fdf41b766b1e87e616ed850411472e164a9a06a585ed5386974ee9fed6c014b2"
     },
     {
       "path": "_dev-workflow/scripts/cmd/land.mjs",
@@ -229,7 +229,7 @@
     },
     {
       "path": ".claude/skills/dev-ingest-docs/SKILL.md",
-      "sha256": "ba8e8ed0f68dae14c5bf7e778465eeef57954a098525ea2b0a56cb184066fa1e"
+      "sha256": "4a3a8f9284db1904f70dec26c5a3afba5432079931ee5afd1948225ae3c7ddc6"
     },
     {
       "path": ".claude/skills/dev-init/SKILL.md",
