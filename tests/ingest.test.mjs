@@ -750,3 +750,16 @@ test('scan tells a file that left the corpus from one that was deleted, and reco
   const status = await dev(['ingest']);
   assert.match(status.stdout, /1 gone, 1 excluded\)/);
 });
+
+test('a missing source that reappears unchanged is read again if it has claims, pending if it has none', () => {
+  const vanished = mergeSources(surveyed(), [file('README.md', '0')]).ledger;
+  assert.equal(vanished.sources.find((s) => s.path === 'docs/gone.md').state, 'missing');
+
+  const back = mergeSources(vanished, [file('README.md', '0'), file('docs/gone.md', '2')]).ledger;
+  assert.equal(back.sources.find((s) => s.path === 'docs/gone.md').state, 'read', 'same bytes, claims intact');
+  assert.equal(back.claims.find((c) => c.source === 'docs/gone.md').status, 'open');
+
+  const noClaims = { ...vanished, claims: vanished.claims.filter((c) => c.source !== 'docs/gone.md'), questions: [] };
+  const backEmpty = mergeSources(noClaims, [file('README.md', '0'), file('docs/gone.md', '2')]).ledger;
+  assert.equal(backEmpty.sources.find((s) => s.path === 'docs/gone.md').state, 'pending', 'nothing recorded for it, so it is read');
+});
