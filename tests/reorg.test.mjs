@@ -936,3 +936,105 @@ test('map passes once the inconsistency is resolved, and refuses a bad architect
   const status = await dev(['reorg']);
   assert.match(status.stdout, /mapping:\s+2 entr/);
 });
+
+const STAGED = (repo, file) => join(REORG(repo), 'docs-reorganized', file);
+const readTree = (repo) => {
+  const { readdirSync, statSync } = require('node:fs');
+  const out = {};
+  const walk = (dir, rel) => {
+    for (const name of readdirSync(dir).sort()) {
+      if (name === '_dev-workflow' || name === '.git') continue;
+      const abs = join(dir, name);
+      const key = rel ? `${rel}/${name}` : name;
+      if (statSync(abs).isDirectory()) walk(abs, key);
+      else out[key] = readFileSync(abs, 'utf8');
+    }
+  };
+  walk(repo, '');
+  return out;
+};
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+
+/** A recorded mapping, gate clear, ready to rewrite. */
+async function withMapped() {
+  const s = await withMapping();
+  await s.dev(['reorg', 'resolve', 'i1', 'dismiss', 'same thing']);
+  const mapped = await s.dev(['reorg', 'map', '--architecture', s.arch, `@${s.mapping}`]);
+  assert.equal(mapped.code, 0, mapped.stderr);
+  return s;
+}
+
+test('rewrite writes one file per target plus the report; a second run changes nothing; --dry-run writes nothing', async () => {
+  const { repo, dev } = await withMapped();
+
+  const dry = await dev(['reorg', 'rewrite', '--dry-run']);
+  assert.equal(dry.code, 0, dry.stderr);
+  assert.match(dry.stdout, /would create.*architecture\.md/);
+  assert.equal(readLedger(repo).rewritten, undefined, 'a dry run records nothing');
+  assert.ok(!require('node:fs').existsSync(STAGED(repo, 'architecture.md')));
+
+  const first = await dev(['reorg', 'rewrite']);
+  assert.equal(first.code, 0, first.stderr);
+  assert.match(first.stdout, /created.*docs-reorganized\/architecture\.md/);
+  assert.match(first.stdout, /created.*docs-reorganized\/operations\.md/);
+  assert.match(first.stdout, /migration-report\.md/);
+
+  const arch = readFileSync(STAGED(repo, 'architecture.md'), 'utf8');
+  assert.match(arch, /^---\ntitle: Architecture\nsection: architecture\n/);
+  assert.match(arch, /## Storage\n\n_merge from README\.md, docs\/design\.md — both explain the Postgres choice_\n\nIt talks to Postgres\.\n\nWe chose Postgres for the JSON support\./);
+  const ops = readFileSync(STAGED(repo, 'operations.md'), 'utf8');
+  assert.match(ops, /## Install\n\n_copy of docs\/setup\.md — the only setup doc_\n\nInstall Postgres\./);
+
+  const report = readFileSync(join(REORG(repo), 'migration-report.md'), 'utf8');
+  assert.match(report, /^# Migration report/m);
+  assert.match(report, /docs-reorganized\/architecture\.md.*\n.*README\.md/s);
+  assert.match(report, /## Not mapped/);
+  assert.match(report, /## Listed, not deleted/);
+
+  const ledger = readLedger(repo);
+  assert.deepEqual(Object.keys(ledger.rewritten).sort(), ['architecture.md', 'operations.md']);
+
+  const second = await dev(['reorg', 'rewrite']);
+  assert.equal(second.code, 0, second.stderr);
+  assert.match(second.stdout, /unchanged.*architecture\.md/);
+  assert.match(second.stdout, /unchanged.*operations\.md/);
+  assert.equal(readFileSync(STAGED(repo, 'architecture.md'), 'utf8'), arch);
+});
+
+test('a staged file edited by hand is refused by name; --force overwrites it', async () => {
+  const { repo, dev } = await withMapped();
+  await dev(['reorg', 'rewrite']);
+  const generated = readFileSync(STAGED(repo, 'architecture.md'), 'utf8');
+  writeFileSync(STAGED(repo, 'architecture.md'), `${generated}\nA line somebody added.\n`);
+
+  const refused = await dev(['reorg', 'rewrite']);
+  assert.notEqual(refused.code, 0);
+  assert.match(refused.stdout + refused.stderr, /refused.*architecture\.md/);
+  assert.match(refused.stdout + refused.stderr, /--force/);
+  assert.match(readFileSync(STAGED(repo, 'architecture.md'), 'utf8'), /somebody added/, 'the edit survives');
+  assert.match(refused.stdout, /unchanged.*operations\.md/, 'the other file is still handled');
+
+  const forced = await dev(['reorg', 'rewrite', '--force']);
+  assert.equal(forced.code, 0, forced.stderr);
+  assert.match(forced.stdout, /rewritten.*architecture\.md/);
+  assert.equal(readFileSync(STAGED(repo, 'architecture.md'), 'utf8'), generated);
+});
+
+test('rewrite refuses without a mapping, and honours the gate like map does', async () => {
+  const { dev } = await withInconsistency();
+  const noMapping = await dev(['reorg', 'rewrite']);
+  assert.notEqual(noMapping.code, 0);
+  assert.match(noMapping.stderr, /reorg map/);
+});
+
+test('map and rewrite leave every document of the project byte-identical and write nothing outside _dev-workflow', async () => {
+  const s = await withMapping();
+  const before = readTree(s.repo);
+  await s.dev(['reorg', 'resolve', 'i1', 'dismiss', 'same thing']);
+  await s.dev(['reorg', 'map', '--architecture', s.arch, `@${s.mapping}`]);
+  const rewritten = await s.dev(['reorg', 'rewrite']);
+  assert.equal(rewritten.code, 0, rewritten.stderr);
+  assert.deepEqual(readTree(s.repo), before);
+  assert.ok(require('node:fs').existsSync(STAGED(s.repo, 'architecture.md')));
+});

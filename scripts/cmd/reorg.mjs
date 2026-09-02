@@ -10,6 +10,8 @@
  *   dev.mjs reorg resolve @file  batch of {id, kind, path?, note}
  *   dev.mjs reorg map --architecture <file> @file [--ignore-inconsistencies]
  *                                the mapping onto the target set; writes migration-plan.md
+ *   dev.mjs reorg rewrite [--dry-run] [--force] [--ignore-inconsistencies]
+ *                                assemble docs-reorganized/ and migration-report.md
  *
  * Phase 3 writes under `_dev-workflow/artifacts/reorg/` — beside the ledger's
  * directory, inside the payload root, so the installer's delete pass never
@@ -24,11 +26,14 @@
  * A ledger with no sources yet is refused, not defaulted to empty: classifying
  * a document that has never been scanned is not classifying anything.
  */
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 import { extname } from 'node:path';
 
+import { sh } from '../../lib/sh.mjs';
+import { makeVcs } from '../../lib/vcs.mjs';
 import { parseArchitecture } from '../../lib/architecture.mjs';
 import {
   addInconsistencies,
@@ -38,18 +43,25 @@ import {
   describeReorg,
   mappingGate,
   renderMigrationPlan,
+  renderMigrationReport,
+  renderRewrittenDoc,
   resolveInconsistency,
   setMapping,
   shortlistPairs,
 } from '../../lib/reorg.mjs';
 import { ARTIFACT_DIR } from './ingest.mjs';
-import { context, readArg, UserError } from './common.mjs';
+import { context, readArg, resolveRepo, UserError } from './common.mjs';
 
 const LEDGER = 'ledger.json';
 
 /** Everything phase 3 writes lives here, and nothing of it lives anywhere else. */
 export const REORG_DIR = join('_dev-workflow', 'artifacts', 'reorg');
 const PLAN = 'migration-plan.md';
+const REPORT = 'migration-report.md';
+const STAGED = 'docs-reorganized';
+
+const sha256 = (text) => createHash('sha256').update(text).digest('hex');
+const label = (word) => `${word}:`.padEnd(15);
 
 const USAGE = `usage: dev.mjs reorg <verb>
 
@@ -63,7 +75,9 @@ const USAGE = `usage: dev.mjs reorg <verb>
                      settle one inconsistency; kind is prefer:<path>, rewrite or dismiss
   resolve <@file>    batch of {id, kind, path?, note}, as JSON
   map --architecture <file> <@file> [--ignore-inconsistencies]
-                     record the mapping onto the target set and write migration-plan.md`;
+                     record the mapping onto the target set and write migration-plan.md
+  rewrite [--dry-run] [--force] [--ignore-inconsistencies]
+                     assemble the staged tree under docs-reorganized/ and write migration-report.md`;
 
 const ledgerPath = (root) => join(root, ARTIFACT_DIR, LEDGER);
 
@@ -128,7 +142,7 @@ function requireLedger(root) {
 
 export async function run(argv) {
   const [verb, ...rest] = argv;
-  const { root } = await context();
+  const { config, root } = await context();
 
   if (!verb || verb === 'status') {
     const ledger = requireLedger(root);
@@ -264,6 +278,100 @@ export async function run(argv) {
     L.push(`dev reorg: wrote ${join(REORG_DIR, PLAN)} — review it, then: dev.mjs reorg rewrite --dry-run`);
     process.stdout.write(`${L.join('\n')}\n`);
     return 0;
+  }
+
+  if (verb === 'rewrite') {
+    const opts = { dryRun: false, force: false, ignore: false };
+    for (const arg of rest) {
+      if (arg === '--dry-run') opts.dryRun = true;
+      else if (arg === '--force') opts.force = true;
+      else if (arg === '--ignore-inconsistencies') opts.ignore = true;
+      else throw new UserError(`unknown argument '${arg}'\n\n${USAGE}`);
+    }
+
+    const ledger = requireLedger(root);
+    if (!ledger.mapping?.length) {
+      throw new UserError('nothing is mapped yet — run: dev.mjs reorg map --architecture <file> @mapping.json');
+    }
+    // Re-checked here, not only at `map`: an inconsistency raised after the
+    // plan was made is still a side picked silently if the tree is written.
+    const gate = mappingGate(ledger, { ignoreInconsistencies: opts.ignore });
+    if (!gate.ok) throw new UserError(gate.error);
+
+    // Sources are read from the same checkout `ingest scan` inventoried.
+    const vcs = makeVcs({ run: sh });
+    const dir = await vcs.mainCheckout(resolveRepo(config, root, '').dir);
+    const sourceText = (path) => readFileSync(resolve(dir, path), 'utf8');
+
+    const sections = new Map((ledger.architecture ?? []).map((s) => [s.id, s]));
+    const byTarget = new Map();
+    for (const e of ledger.mapping) {
+      if (!byTarget.has(e.targetFile)) byTarget.set(e.targetFile, []);
+      byTarget.get(e.targetFile).push(e);
+    }
+
+    const rewritten = { ...(ledger.rewritten ?? {}) };
+    const written = [];
+    const L = [];
+    let refused = 0;
+    let wrote = false;
+
+    for (const file of [...byTarget.keys()].sort()) {
+      const entries = byTarget.get(file);
+      const rel = join(REORG_DIR, STAGED, file);
+      const abs = join(root, rel);
+      let text;
+      try {
+        text = renderRewrittenDoc({ file, section: sections.get(entries[0].section) }, entries, { sourceText });
+      } catch (err) {
+        throw new UserError(`${file}: ${err.message}`);
+      }
+      const before = existsSync(abs) ? readFileSync(abs, 'utf8') : null;
+
+      // A file we wrote and somebody edited since is not ours to overwrite
+      // — the same rule `docs render` keeps. `--force` is the user saying
+      // the edit is theirs to lose.
+      if (before !== null && sha256(before) !== rewritten[file] && !opts.force) {
+        L.push(`${label('refused')}${rel}   (edited by hand since it was written, or never written by this tool)`);
+        written.push({ file, status: 'refused — edited by hand' });
+        refused++;
+        continue;
+      }
+      if (before === text) {
+        L.push(`${label('unchanged')}${rel}`);
+        written.push({ file, status: 'unchanged' });
+        continue;
+      }
+      const status = before === null ? 'created' : 'rewritten';
+      if (opts.dryRun) {
+        L.push(`${label(`would ${status === 'created' ? 'create' : 'rewrite'}`)}${rel}`);
+        written.push({ file, status: `would be ${status}` });
+        continue;
+      }
+      mkdirSync(dirname(abs), { recursive: true });
+      writeFileSync(abs, text);
+      rewritten[file] = sha256(text);
+      wrote = true;
+      L.push(`${label(status)}${rel}`);
+      written.push({ file, status });
+    }
+
+    if (!opts.dryRun) {
+      const reportPath = join(root, REORG_DIR, REPORT);
+      mkdirSync(dirname(reportPath), { recursive: true });
+      writeFileSync(reportPath, renderMigrationReport(ledger, { written, ignored: gate.open }));
+      L.push(`${label('report')}${join(REORG_DIR, REPORT)}`);
+      if (wrote) saveLedger(root, { ...ledger, rewritten });
+    }
+    if (gate.open.length) L.push('', `ignored ${gate.open.length} open inconsistenc${gate.open.length === 1 ? 'y' : 'ies'}: ${gate.open.join(', ')}`);
+    if (refused) {
+      L.push('', 'A refused file keeps its edits. Move them into the mapping (a rewrite entry carries text) and run again,');
+      L.push('or pass --force to overwrite what was edited.');
+    }
+    L.push('', `The staged tree is a draft. Applying it to the project's own documentation is separate work — /dev-task it.`);
+
+    process.stdout.write(`${L.join('\n')}\n`);
+    return refused ? 1 : 0;
   }
 
   throw new UserError(`unknown verb '${verb}'\n\n${USAGE}`);
