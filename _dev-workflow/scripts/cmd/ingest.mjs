@@ -44,6 +44,7 @@ import {
   nextUnit,
   renderMap,
   setEnrichment,
+  SUMMARISED_PATHS,
   summarisePaths,
   validateEnrichment,
 } from '../../lib/ingest.mjs';
@@ -309,7 +310,7 @@ async function scan({ config, root, rest }) {
   if (merged.added.length) L.push(`new:      ${merged.added.length}`);
   if (merged.changed.length) L.push(`changed:  ${summarisePaths(merged.changed)}`);
   if (merged.gone.length) L.push(`gone:     ${summarisePaths(merged.gone)}   (their claims are kept)`);
-  if (merged.changed.length > 5 || merged.gone.length > 5) {
+  if (merged.changed.length > SUMMARISED_PATHS || merged.gone.length > SUMMARISED_PATHS) {
     L.push(`          (every path is in the ledger: ${join(ARTIFACT_DIR, LEDGER)})`);
   }
   L.push('', `next:     ${nextUnit(merged.ledger).what}`);
