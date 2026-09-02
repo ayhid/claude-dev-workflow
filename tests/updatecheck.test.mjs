@@ -586,3 +586,28 @@ test('upgrade falls back to npx@latest when the global binary is behind, or abse
   await upgrade(root, { run: unknown.run, hasBin: async () => true, vcs: cleanVcs, latest: null });
   assert.deepEqual(unknown.calls.at(-1), ['npx', ...UPGRADE_ARGS, '--dir', root], 'with no latest to compare against, npx@latest is the only spelling that provably resolves it');
 });
+
+// --- #87: a session greeting says it every session, a command says it once a day ------
+
+test('announceOnce:false returns the banner even when this latest was already announced', async () => {
+  const io = fakeIO({ cache: { latest: '2.3.1', checkedAt: NOW - 60_000, announced: '2.3.1' } });
+  assert.equal(await check(io), null, 'the command banner is once per window');
+  assert.match(await check(io, { announceOnce: false }), /An update is available: 2\.0\.0 → 2\.3\.1/);
+  assert.equal(io.fetches, 0, 'from the cache');
+});
+
+test('announceOnce:false still records the announcement, so the commands that follow stay quiet', async () => {
+  const io = fakeIO({ cache: { latest: '2.3.1', checkedAt: NOW - 60_000, announced: null } });
+  assert.match(await check(io, { announceOnce: false }), /An update is available/);
+  assert.deepEqual(io.writes.map((w) => w.record), [{ latest: '2.3.1', checkedAt: NOW - 60_000, announced: '2.3.1' }]);
+
+  const after = fakeIO({ cache: io.writes[0].record });
+  assert.equal(await check(after), null, 'the once-per-window banner has been spent');
+});
+
+test('announceOnce:false is still silent when up to date, and still honours the env switches', async () => {
+  const io = fakeIO({ cache: { latest: '2.0.0', checkedAt: NOW - 60_000, announced: '2.0.0' } });
+  assert.equal(await check(io, { announceOnce: false }), null);
+  const behind = fakeIO({ cache: { latest: '2.3.1', checkedAt: NOW - 60_000, announced: null } });
+  assert.equal(await check(behind, { announceOnce: false, env: { DEV_WORKFLOW_NO_BANNER: '1' } }), null);
+});
