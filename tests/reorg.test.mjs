@@ -18,7 +18,9 @@ import {
   describeVerdicts,
   mappingGate,
   resolveInconsistency,
+  setMapping,
   shortlistPairs,
+  validateMappingEntry,
   validatePair,
   validateVerdict,
 } from '../lib/reorg.mjs';
@@ -431,6 +433,100 @@ test('a rescan that changes nothing leaves every pair open', () => {
   ledger = addPairs(ledger, [goodPair()]).ledger;
   const rescanned = mergeSources(ledger, [file('a.md', '0'), file('b.md', '1')]).ledger;
   assert.equal(rescanned.pairs[0].status, 'open');
+});
+
+// --- mapping: where each source goes -----------------------------------------------
+
+const SECTIONS = [
+  { id: 'architecture', title: 'Architecture', description: 'how it is built' },
+  { id: 'operations', title: 'Operations', description: 'how it is run' },
+];
+
+/** a.md keep with headings, b.md merge with headings, c.md keep without headings, d.md archived. */
+function mappable() {
+  let ledger = withSources('a.md', 'b.md', 'c.md', 'd.md');
+  ledger = setEnrichment(ledger, 'a.md', { headings: ['# A', '## Storage', '## Auth'] }).ledger;
+  ledger = setEnrichment(ledger, 'b.md', { headings: ['# B', '## Storage'] }).ledger;
+  return addVerdicts(ledger, [
+    { path: 'a.md', classification: 'keep', justification: 'x' },
+    { path: 'b.md', classification: 'merge', justification: 'x', mergeTarget: 'a.md' },
+    { path: 'c.md', classification: 'keep', justification: 'x' },
+    { path: 'd.md', classification: 'archive', justification: 'x' },
+  ]).ledger;
+}
+
+const entry = (over = {}) => ({
+  section: 'architecture',
+  heading: 'Storage',
+  sources: [{ path: 'a.md' }],
+  operation: 'copy',
+  justification: 'a.md is the current description',
+  ...over,
+});
+
+const check = (over, ledger = mappable()) => validateMappingEntry(entry(over), { sections: SECTIONS, ledger });
+
+test('a mapping entry names a section of the architecture, a heading and a justification', () => {
+  assert.equal(check({}).ok, true, check({}).error);
+  assert.match(check({ section: 'glossary' }).error, /glossary.*architecture, operations/);
+  assert.match(check({ heading: ' ' }).error, /heading/);
+  assert.match(check({ justification: '' }).error, /justification/);
+});
+
+test('targetFile defaults to <section>.md and must stay a relative .md path', () => {
+  assert.equal(check({}).entry.targetFile, 'architecture.md');
+  assert.equal(check({ targetFile: 'architecture/storage.md' }).entry.targetFile, 'architecture/storage.md');
+  for (const targetFile of ['/etc/x.md', '../x.md', 'a/../../x.md', 'x.txt', 'C:\\x.md']) {
+    const r = check({ targetFile });
+    assert.equal(r.ok, false, targetFile);
+    assert.match(r.error, /targetFile/);
+  }
+});
+
+test('a source must be in the inventory and classified keep or merge', () => {
+  assert.match(check({ sources: [{ path: 'ghost.md' }] }).error, /ghost\.md/);
+  assert.match(check({ sources: [{ path: 'd.md' }] }).error, /d\.md.*archive/);
+  let ledger = mappable();
+  ledger = { ...ledger, verdicts: ledger.verdicts.filter((v) => v.path !== 'c.md') };
+  assert.match(check({ sources: [{ path: 'c.md' }] }, ledger).error, /c\.md.*classif/);
+  assert.match(check({ sources: [] }).error, /source/);
+});
+
+test('a source heading must be one phase 1 recorded for that document', () => {
+  const ok = check({ operation: 'split', sources: [{ path: 'a.md', headings: ['## Auth'] }] });
+  assert.equal(ok.ok, true, ok.error);
+  const unknown = check({ operation: 'split', sources: [{ path: 'a.md', headings: ['## Billing'] }] });
+  assert.match(unknown.error, /Billing.*Storage/);
+  const unenriched = check({ operation: 'split', sources: [{ path: 'c.md', headings: ['## X'] }] });
+  assert.match(unenriched.error, /c\.md.*ingest enrich/);
+});
+
+test('the operation decides the arity: copy one, split one with headings, merge two or more, rewrite with text', () => {
+  assert.match(check({ operation: 'move' }).error, /copy, merge, split, rewrite/);
+  assert.match(check({ operation: 'copy', sources: [{ path: 'a.md' }, { path: 'b.md' }] }).error, /copy.*one source/);
+  assert.match(check({ operation: 'copy', sources: [{ path: 'a.md', headings: ['## Auth'] }] }).error, /copy.*split/);
+  assert.match(check({ operation: 'split', sources: [{ path: 'a.md' }] }).error, /split.*headings/);
+  assert.match(check({ operation: 'merge', sources: [{ path: 'a.md' }] }).error, /merge.*two/);
+  assert.equal(check({ operation: 'merge', sources: [{ path: 'a.md' }, { path: 'b.md', headings: ['## Storage'] }] }).ok, true);
+  assert.match(check({ operation: 'rewrite' }).error, /rewrite.*text/);
+  assert.equal(check({ operation: 'rewrite', text: 'The store is Postgres.' }).ok, true);
+  assert.match(check({ operation: 'copy', text: 'x' }).error, /text.*rewrite/);
+});
+
+test('setMapping is all-or-nothing and replaces the previous mapping outright', () => {
+  const ledger = mappable();
+  const bad = setMapping(ledger, [entry(), entry({ section: 'nope' })], { sections: SECTIONS });
+  assert.equal(bad.ok, false);
+  assert.equal(bad.ledger, undefined);
+
+  const first = setMapping(ledger, [entry(), entry({ section: 'operations', heading: 'Runbook', sources: [{ path: 'c.md' }] })], { sections: SECTIONS });
+  assert.equal(first.ok, true, first.error);
+  assert.equal(first.ledger.mapping.length, 2);
+  assert.deepEqual(first.ledger.architecture, SECTIONS);
+
+  const second = setMapping(first.ledger, [entry({ heading: 'Data' })], { sections: SECTIONS });
+  assert.equal(second.ledger.mapping.length, 1, 'a plan is one thing, not an accumulation');
+  assert.equal(second.ledger.mapping[0].heading, 'Data');
 });
 
 // --- through the real CLI ----------------------------------------------------------
