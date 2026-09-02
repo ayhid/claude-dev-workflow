@@ -536,3 +536,53 @@ test('a corrupt cache leaves the command untouched', () => {
   assert.doesNotMatch(r.stderr, /An update is available/);
   assert.match(r.stdout, /provider:/);
 });
+
+// --- #86: upgrade prefers a global binary, but only one that is current ---------------
+
+import { upgrade } from '../scripts/cmd/version.mjs';
+
+function installedRoot(version) {
+  const root = mkdtempSync(join(tmpdir(), 'dwf-upgrade-'));
+  mkdirSync(join(root, '_dev-workflow', '_config'), { recursive: true });
+  writeFileSync(
+    join(root, '_dev-workflow', '_config', 'manifest.json'),
+    JSON.stringify({ installation: { version }, payloadDir: '_dev-workflow', files: [] }),
+  );
+  return root;
+}
+
+/** A runner that answers `claude-dev-workflow version` with `globalVersion` and records every spawn. */
+function fakeRunner({ globalVersion }) {
+  const calls = [];
+  const run = async (bin, args) => {
+    calls.push([bin, ...args]);
+    if (bin === 'claude-dev-workflow' && args[0] === 'version') return { ok: true, code: 0, stdout: `${globalVersion}\n`, stderr: '' };
+    return { ok: true, code: 0, stdout: 'Up to date.', stderr: '' };
+  };
+  return { run, calls };
+}
+const cleanVcs = { isClean: async () => ({ ok: true, clean: true, dirty: [] }) };
+
+test('upgrade runs the global binary when it is on PATH and already at the latest version', async () => {
+  const root = installedRoot('1.0.0');
+  const { run, calls } = fakeRunner({ globalVersion: '2.0.0' });
+  await upgrade(root, { run, hasBin: async (b) => b === 'claude-dev-workflow' || b === 'npx', vcs: cleanVcs, latest: '2.0.0' });
+  assert.deepEqual(calls.at(-1), ['claude-dev-workflow', 'update', '--dir', root]);
+});
+
+test('upgrade falls back to npx@latest when the global binary is behind, or absent, or the latest is unknown', async () => {
+  const root = installedRoot('1.0.0');
+
+  const behind = fakeRunner({ globalVersion: '1.5.0' });
+  await upgrade(root, { run: behind.run, hasBin: async () => true, vcs: cleanVcs, latest: '2.0.0' });
+  assert.deepEqual(behind.calls.at(-1), ['npx', ...UPGRADE_ARGS, '--dir', root], 'a stale global binary is never what upgrade runs');
+
+  const absent = fakeRunner({ globalVersion: '2.0.0' });
+  await upgrade(root, { run: absent.run, hasBin: async (b) => b === 'npx', vcs: cleanVcs, latest: '2.0.0' });
+  assert.deepEqual(absent.calls.at(-1), ['npx', ...UPGRADE_ARGS, '--dir', root]);
+  assert.ok(!absent.calls.some((c) => c[0] === 'claude-dev-workflow'), 'nothing is spawned that is not on PATH');
+
+  const unknown = fakeRunner({ globalVersion: '2.0.0' });
+  await upgrade(root, { run: unknown.run, hasBin: async () => true, vcs: cleanVcs, latest: null });
+  assert.deepEqual(unknown.calls.at(-1), ['npx', ...UPGRADE_ARGS, '--dir', root], 'with no latest to compare against, npx@latest is the only spelling that provably resolves it');
+});
