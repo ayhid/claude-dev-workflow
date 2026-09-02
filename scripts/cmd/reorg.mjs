@@ -3,6 +3,7 @@
  *
  *   dev.mjs reorg                where classification stands
  *   dev.mjs reorg classify @file batch of {path, classification, justification, mergeTarget?}
+ *   dev.mjs reorg shortlist      pairs of keep/merge documents whose keywords overlap
  *
  * Reads and writes the same `_dev-workflow/artifacts/documentation/ledger.json`
  * `ingest` already owns — one project's documentation state, not two ledgers
@@ -15,7 +16,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { addVerdicts, describeVerdicts } from '../../lib/reorg.mjs';
+import { addVerdicts, DEFAULT_SIMILARITY_THRESHOLD, describeVerdicts, shortlistPairs } from '../../lib/reorg.mjs';
 import { ARTIFACT_DIR } from './ingest.mjs';
 import { context, readArg, UserError } from './common.mjs';
 
@@ -24,7 +25,9 @@ const LEDGER = 'ledger.json';
 const USAGE = `usage: dev.mjs reorg <verb>
 
   (no verb)          where classification stands
-  classify <@file>   batch of {path, classification, justification, mergeTarget?}, as JSON`;
+  classify <@file>   batch of {path, classification, justification, mergeTarget?}, as JSON
+  shortlist [--similarity-threshold N]
+                     pairs of keep/merge documents whose keywords overlap (Jaccard ≥ N, default ${DEFAULT_SIMILARITY_THRESHOLD})`;
 
 const ledgerPath = (root) => join(root, ARTIFACT_DIR, LEDGER);
 
@@ -82,6 +85,42 @@ export async function run(argv) {
 
     saveLedger(root, result.ledger);
     process.stdout.write(`dev reorg: ${result.added.length} verdict(s) recorded\n`);
+    return 0;
+  }
+
+  if (verb === 'shortlist') {
+    let threshold = DEFAULT_SIMILARITY_THRESHOLD;
+    for (let i = 0; i < rest.length; i++) {
+      if (rest[i] === '--similarity-threshold') {
+        threshold = Number(rest[++i]);
+        if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
+          throw new UserError('--similarity-threshold takes a number between 0 and 1');
+        }
+      } else {
+        throw new UserError(`unknown argument '${rest[i]}'\n\n${USAGE}`);
+      }
+    }
+
+    const ledger = requireLedger(root);
+    const { pairs, skipped } = shortlistPairs(ledger, { threshold });
+
+    const L = [`threshold: ${threshold}   (Jaccard over each document's keywords)`];
+    if (pairs.length) {
+      L.push('', `  ${pairs.length} pair(s) to judge — duplicate, overlaps, or contradicts — then: dev.mjs reorg detect @pairs.json`, '');
+      for (const p of pairs) {
+        L.push(`  ${p.docA}  ${p.docB}  ${p.score.toFixed(2)}${p.recorded ? `  (recorded as ${p.recorded})` : ''}`);
+        L.push(`    shared: ${p.shared.join(', ')}`);
+      }
+    } else {
+      L.push('', '  no pair reaches the threshold — lower it with --similarity-threshold to see the nearest ones');
+    }
+    const skippedLines = [];
+    if (skipped.noVerdict) skippedLines.push(`${skipped.noVerdict} unclassified (run: dev.mjs reorg classify)`);
+    if (skipped.noKeywords) skippedLines.push(`${skipped.noKeywords} without keywords (run: dev.mjs ingest enrich)`);
+    if (skipped.notKeptOrMerged) skippedLines.push(`${skipped.notKeptOrMerged} archived or deleted`);
+    if (skippedLines.length) L.push('', `  not compared: ${skippedLines.join('; ')}`);
+
+    process.stdout.write(`${L.join('\n')}\n`);
     return 0;
   }
 
