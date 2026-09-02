@@ -14,7 +14,9 @@ import {
   addInconsistencies,
   addPairs,
   addVerdicts,
+  describeReorg,
   describeVerdicts,
+  mappingGate,
   resolveInconsistency,
   shortlistPairs,
   validatePair,
@@ -354,6 +356,73 @@ test('a resolution is never overwritten — a changed mind is a new inconsistenc
   assert.match(again.error, /already resolved/);
 });
 
+// --- the gate: nothing maps over an open inconsistency ------------------------------
+
+test('mappingGate refuses while any inconsistency is open, naming them', () => {
+  let ledger = addInconsistencies(withPairs(), [
+    { text: 'which port?', because: ['p1'] },
+    { text: 'which host?', because: ['p1', 'p2'] },
+  ]).ledger;
+
+  const blocked = mappingGate(ledger);
+  assert.equal(blocked.ok, false);
+  assert.match(blocked.error, /i1, i2/);
+  assert.match(blocked.error, /reorg resolve/);
+
+  const overridden = mappingGate(ledger, { ignoreInconsistencies: true });
+  assert.equal(overridden.ok, true);
+  assert.deepEqual(overridden.open, ['i1', 'i2'], 'still reported, so the override is visible');
+
+  ledger = resolveInconsistency(ledger, 'i1', { kind: 'dismiss', note: 'x' }).ledger;
+  assert.equal(mappingGate(ledger).ok, false, 'one resolved is not all resolved');
+  ledger = resolveInconsistency(ledger, 'i2', { kind: 'rewrite', note: 'x' }).ledger;
+  assert.deepEqual(mappingGate(ledger), { ok: true, open: [] });
+});
+
+test('mappingGate passes on a ledger that never had an inconsistency', () => {
+  assert.deepEqual(mappingGate(withSources('a.md')), { ok: true, open: [] });
+});
+
+test('describeReorg reports pairs, inconsistencies and whether mapping is blocked', () => {
+  let ledger = addInconsistencies(withPairs(), [{ text: 'which port?', because: ['p1'] }]).ledger;
+  ledger = addVerdicts(ledger, [{ path: 'a.md', classification: 'keep', justification: 'x' }]).ledger;
+
+  const blocked = describeReorg(ledger).join('\n');
+  assert.match(blocked, /keep: 1/, 'the verdict counts are still there');
+  assert.match(blocked, /pairs:\s+2 \(0 duplicate, 1 overlaps, 1 contradicts\)/);
+  assert.match(blocked, /inconsistencies:\s+1 \(1 open, 0 resolved\)/);
+  assert.match(blocked, /blocked.*i1/);
+
+  ledger = resolveInconsistency(ledger, 'i1', { kind: 'dismiss', note: 'x' }).ledger;
+  assert.doesNotMatch(describeReorg(ledger).join('\n'), /blocked/);
+});
+
+// --- rescan: a pair about a document that changed is stale, the decision on it is not ---
+
+test('a rescan marks a pair stale when either side changed or vanished, and leaves its inconsistency alone', () => {
+  let ledger = withSources('a.md', 'b.md', 'c.md');
+  ledger = addPairs(ledger, [
+    goodPair({ relation: 'contradicts' }),
+    goodPair({ docA: 'b.md', docB: 'c.md', relation: 'overlaps' }),
+  ]).ledger;
+  ledger = addInconsistencies(ledger, [{ text: 'which?', because: ['p1'] }]).ledger;
+  ledger = resolveInconsistency(ledger, 'i1', { kind: 'prefer', path: 'a.md', note: 'x' }).ledger;
+
+  // a.md changed, c.md is gone, b.md is untouched
+  const rescanned = mergeSources(ledger, [file('a.md', 'changed'), file('b.md', '1')]).ledger;
+
+  assert.equal(rescanned.pairs.find((p) => p.id === 'p1').status, 'stale', 'a.md changed');
+  assert.equal(rescanned.pairs.find((p) => p.id === 'p2').status, 'stale', 'c.md vanished');
+  assert.deepEqual(rescanned.inconsistencies, ledger.inconsistencies, 'a human decision survives a rescan');
+});
+
+test('a rescan that changes nothing leaves every pair open', () => {
+  let ledger = withSources('a.md', 'b.md');
+  ledger = addPairs(ledger, [goodPair()]).ledger;
+  const rescanned = mergeSources(ledger, [file('a.md', '0'), file('b.md', '1')]).ledger;
+  assert.equal(rescanned.pairs[0].status, 'open');
+});
+
 // --- through the real CLI ----------------------------------------------------------
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -584,4 +653,16 @@ test('resolve takes a batch file, and one bad entry writes nothing', async () =>
   const ok = await dev(['reorg', 'resolve', `@${file}`]);
   assert.equal(ok.code, 0, ok.stderr);
   assert.equal(readLedger(repo).inconsistencies[0].status, 'resolved');
+});
+
+test('bare reorg reports the gate, and clears it once the inconsistency is resolved', async () => {
+  const { dev } = await withInconsistency();
+  const blocked = await dev(['reorg']);
+  assert.equal(blocked.code, 0, blocked.stderr);
+  assert.match(blocked.stdout, /inconsistencies:\s+1 \(1 open/);
+  assert.match(blocked.stdout, /blocked.*i1/);
+
+  await dev(['reorg', 'resolve', 'i1', 'dismiss', 'same reason, two phrasings']);
+  const clear = await dev(['reorg']);
+  assert.doesNotMatch(clear.stdout, /blocked/);
 });

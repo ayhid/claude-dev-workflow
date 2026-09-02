@@ -1,7 +1,7 @@
 /**
  * Turn a `dev-ingest-docs` survey into a reorganisation — phase 1: relevance.
  *
- *   dev.mjs reorg                where classification stands
+ *   dev.mjs reorg                where classification, detection and the gate stand
  *   dev.mjs reorg classify @file batch of {path, classification, justification, mergeTarget?}
  *   dev.mjs reorg shortlist      pairs of keep/merge documents whose keywords overlap
  *   dev.mjs reorg detect @file   pairs {docA, docB, relation, justification, evidenceA, evidenceB},
@@ -25,7 +25,7 @@ import {
   addPairs,
   addVerdicts,
   DEFAULT_SIMILARITY_THRESHOLD,
-  describeVerdicts,
+  describeReorg,
   resolveInconsistency,
   shortlistPairs,
 } from '../../lib/reorg.mjs';
@@ -36,7 +36,7 @@ const LEDGER = 'ledger.json';
 
 const USAGE = `usage: dev.mjs reorg <verb>
 
-  (no verb)          where classification stands
+  (no verb)          where classification, detection and the gate stand
   classify <@file>   batch of {path, classification, justification, mergeTarget?}, as JSON
   shortlist [--similarity-threshold N]
                      pairs of keep/merge documents whose keywords overlap (Jaccard ≥ N, default ${DEFAULT_SIMILARITY_THRESHOLD})
@@ -113,7 +113,7 @@ export async function run(argv) {
 
   if (!verb || verb === 'status') {
     const ledger = requireLedger(root);
-    process.stdout.write(`${describeVerdicts(ledger).join('\n')}\n`);
+    process.stdout.write(`${describeReorg(ledger).join('\n')}\n`);
     return 0;
   }
 
