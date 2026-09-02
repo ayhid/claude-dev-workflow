@@ -15,9 +15,11 @@ as a summary.
 What comes out is `_dev-workflow/artifacts/documentation/map.md` — every claim the project's docs
 make, checked against the code that would prove or disprove it, grouped by topic, with the
 contradictions and the questions still unsettled sitting right beside them. Beside the map, the
-ledger records what each document still is (§3) and which two say the same thing or disagree (§4).
-It never touches the project's own documentation, not one line: reorganising it is a proposal you
-get at the end, in chat, not something this skill does for you (§7).
+ledger records what each document still is (§3), which two say the same thing or disagree (§4), and
+where each one goes in the documentation the project should have (§7) — and `reorg rewrite`
+assembles that as a **staged draft** under `_dev-workflow/artifacts/reorg/`. It never touches the
+project's own documentation, not one line: applying the draft is separate work you approve file by
+file (§7).
 
 It **runs in steps and across sessions.** Every step persists to a ledger *once it is recorded* —
 stop after ten minutes and pick it up next week, and nothing recorded is lost or re-derived
@@ -337,19 +339,85 @@ Writes `_dev-workflow/artifacts/documentation/map.md`: claims grouped by topic, 
 anchor, plus the decisions and anything still unsettled. It is generated — regenerate it, never
 edit it.
 
-## 7. Propose the reorganisation. Do not perform it.
+## 7. Map onto the target set, and write the staged tree
 
 **This skill never rewrites the project's documentation.** Not one line. Everything it writes lives
-under `_dev-workflow/artifacts/documentation/`.
+under `_dev-workflow/artifacts/` — the survey under `documentation/`, and from here on the draft
+under `reorg/`. The draft is the deliverable; applying it is not this skill's job.
 
-What you produce at the end is a *proposal*, in chat: which documents are stale and what in them is
-false, which two say the same thing, what is missing, what should move where. Cite the claim ids,
-the anchors, the classification verdicts (§3) and the pairs and resolutions (§4), so each one can be
-checked rather than taken on trust.
+**a. The target set comes from the user, as a file.** Ask for it, or draft one and show it: which
+documents the project should end up with, each with an `id` (it names the file, `<id>.md`), a
+`title` and a `description` of what belongs in it. JSON, or YAML of exactly this shape — a flat
+`sections:` list, nothing nested, no block scalars; the parser refuses anything else by line rather
+than guessing:
 
-If the user wants it done, that is ordinary work — `/dev-task` it, so it goes through a ticket, a
-branch and a review like any other change. Do not start editing their docs because the map made it
-obvious what to fix.
+```yaml
+sections:
+  - id: architecture
+    title: Architecture
+    description: how the system is built and why
+  - id: operations
+    title: Operations
+    description: how it is run, deployed and observed
+```
+
+Where the project has `docs.set` configured, the eight keys of `lib/docset.mjs` are the natural
+sections; the file is still the user's to write, because the target set is a decision, not an
+inference.
+
+**b. Map each current document onto it.** Using the verdicts (§3), the pairs and resolutions (§4)
+and the recorded headings, write one entry per heading of the new tree — which sources, or which
+headings of them, become it, and how:
+
+- **`copy`** — one whole document becomes this section.
+- **`split`** — named headings of one document become it; the rest goes elsewhere.
+- **`merge`** — two or more documents (or headings of them) become one section, in order.
+- **`rewrite`** — you write the new text yourself, in `text`, from the sources you name.
+
+A `merge` verdict names its target, a `prefer` resolution names which side survives a
+contradiction, a `rewrite` resolution is exactly the `rewrite` operation with both sides as sources.
+Archived and deleted documents cannot be sources; the tool refuses them, and lists them in the plan
+instead. Every entry carries a `justification`, the same standing as everything else recorded here.
+
+```json
+[
+  { "section": "architecture", "heading": "Storage", "operation": "merge",
+    "sources": [{ "path": "docs/design.md", "headings": ["## Storage"] }, { "path": "README.md" }],
+    "justification": "design.md is authoritative (i2 prefer); README's paragraph adds the pool size" },
+  { "section": "operations", "heading": "Install", "operation": "copy",
+    "sources": [{ "path": "docs/setup.md" }], "justification": "the only setup document; keep verdict" }
+]
+```
+
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" reorg map --architecture <arch.yaml> @<scratch>/mapping.json
+```
+
+It refuses while an inconsistency is open — that is the gate §4 described, and
+`--ignore-inconsistencies` is the override, printed and recorded in the plan so nobody mistakes it
+for a settled tree. It writes `_dev-workflow/artifacts/reorg/migration-plan.md`: the entries per
+target, **the current documents no entry names**, and the archive/delete list. Show the plan to the
+user, and fix the mapping until the "Not mapped" section says what they mean it to say — a
+document left out by accident and one left out on purpose look identical in the output.
+
+**c. Write the draft.**
+
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" reorg rewrite --dry-run
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" reorg rewrite
+```
+
+One file per target under `_dev-workflow/artifacts/reorg/docs-reorganized/`, assembled from the
+real source text — a whole document, or the heading ranges named — plus `migration-report.md`
+saying what was written from what, what was not mapped, and what is listed as archive or delete.
+**Listed, never deleted:** this tool removes nothing, ever. A file in the staged tree that somebody
+edited by hand is refused on the next run rather than overwritten, and says so; `--force` is the
+user's call.
+
+**d. Then it is ordinary work.** The staged tree is a draft for review, not the project's docs.
+Applying it — copying a file into `docs/`, deleting a superseded one, archiving another — is a
+change to the project like any other: `/dev-task` it, so it goes through a ticket, a branch and a
+review. Do not start moving their files because the draft made it obvious what to do.
 
 ## Stopping and resuming
 
@@ -358,9 +426,9 @@ node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest        # where
 ```
 
 Stop whenever. The ledger holds the sources, the claims, the questions and answers, the
-classification verdicts, and the pairs with their resolutions, and it is committed with the rest of
-`_dev-workflow/`, so a colleague picking it up gets every decision too — not just the map.
-`dev.mjs reorg` says where classification, detection and the gate stand.
+classification verdicts, the pairs with their resolutions, and the mapping, and it is committed with
+the rest of `_dev-workflow/`, so a colleague picking it up gets every decision too — not just the
+map. `dev.mjs reorg` says where classification, detection, the gate and the mapping stand.
 
 Two things worth saying out loud when you report progress: how many documents are left, and how many
 claims turned out to contradict the code. The second number is the finding.
