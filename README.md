@@ -348,6 +348,7 @@ Each command below is prefixed with `node _dev-workflow/scripts/dev.mjs`.
 | `land --apply --criteria first-pass` | the same, recording whether the criteria passed first time | git + GitHub CLI |
 | `assess` | greenfield or brownfield, decided by what code and docs exist | git |
 | `ingest scan` \| `next` \| `read` \| `record` \| `answer` \| `emit` | absorb existing documentation, one step at a time | git |
+| `reorg classify` \| `shortlist` \| `detect` \| `resolve` | what each document still is, which two overlap, and what only a person can settle | — |
 | `standup [--since 3d] [--stale 7d]` | what merged, what is in flight, what is stale, what is next | HTTP + git + GitHub CLI |
 | `sync` | dry run: report state drift and stranded labels | git + GitHub CLI |
 | `sync --apply --since 14d` | applies it, over a 14-day window | HTTP + git + GitHub CLI |
