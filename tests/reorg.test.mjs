@@ -14,11 +14,17 @@ import {
   addInconsistencies,
   addPairs,
   addVerdicts,
+  demoteHeadings,
   describeReorg,
   describeVerdicts,
   mappingGate,
+  renderMigrationPlan,
+  renderRewrittenDoc,
   resolveInconsistency,
+  setMapping,
   shortlistPairs,
+  sliceHeading,
+  validateMappingEntry,
   validatePair,
   validateVerdict,
 } from '../lib/reorg.mjs';
@@ -433,9 +439,205 @@ test('a rescan that changes nothing leaves every pair open', () => {
   assert.equal(rescanned.pairs[0].status, 'open');
 });
 
+// --- mapping: where each source goes -----------------------------------------------
+
+const SECTIONS = [
+  { id: 'architecture', title: 'Architecture', description: 'how it is built' },
+  { id: 'operations', title: 'Operations', description: 'how it is run' },
+];
+
+/** a.md keep with headings, b.md merge with headings, c.md keep without headings, d.md archived. */
+function mappable() {
+  let ledger = withSources('a.md', 'b.md', 'c.md', 'd.md');
+  ledger = setEnrichment(ledger, 'a.md', { headings: ['# A', '## Storage', '## Auth'] }).ledger;
+  ledger = setEnrichment(ledger, 'b.md', { headings: ['# B', '## Storage'] }).ledger;
+  return addVerdicts(ledger, [
+    { path: 'a.md', classification: 'keep', justification: 'x' },
+    { path: 'b.md', classification: 'merge', justification: 'x', mergeTarget: 'a.md' },
+    { path: 'c.md', classification: 'keep', justification: 'x' },
+    { path: 'd.md', classification: 'archive', justification: 'x' },
+  ]).ledger;
+}
+
+const entry = (over = {}) => ({
+  section: 'architecture',
+  heading: 'Storage',
+  sources: [{ path: 'a.md' }],
+  operation: 'copy',
+  justification: 'a.md is the current description',
+  ...over,
+});
+
+const check = (over, ledger = mappable()) => validateMappingEntry(entry(over), { sections: SECTIONS, ledger });
+
+test('a mapping entry names a section of the architecture, a heading and a justification', () => {
+  assert.equal(check({}).ok, true, check({}).error);
+  assert.match(check({ section: 'glossary' }).error, /glossary.*architecture, operations/);
+  assert.match(check({ heading: ' ' }).error, /heading/);
+  assert.match(check({ justification: '' }).error, /justification/);
+});
+
+test('targetFile defaults to <section>.md and must stay a relative .md path', () => {
+  assert.equal(check({}).entry.targetFile, 'architecture.md');
+  assert.equal(check({ targetFile: 'architecture/storage.md' }).entry.targetFile, 'architecture/storage.md');
+  for (const targetFile of ['/etc/x.md', '../x.md', 'a/../../x.md', 'x.txt', 'C:\\x.md']) {
+    const r = check({ targetFile });
+    assert.equal(r.ok, false, targetFile);
+    assert.match(r.error, /targetFile/);
+  }
+});
+
+test('a source must be in the inventory and classified keep or merge', () => {
+  assert.match(check({ sources: [{ path: 'ghost.md' }] }).error, /ghost\.md/);
+  assert.match(check({ sources: [{ path: 'd.md' }] }).error, /d\.md.*archive/);
+  let ledger = mappable();
+  ledger = { ...ledger, verdicts: ledger.verdicts.filter((v) => v.path !== 'c.md') };
+  assert.match(check({ sources: [{ path: 'c.md' }] }, ledger).error, /c\.md.*classif/);
+  assert.match(check({ sources: [] }).error, /source/);
+});
+
+test('a source heading must be one phase 1 recorded for that document', () => {
+  const ok = check({ operation: 'split', sources: [{ path: 'a.md', headings: ['## Auth'] }] });
+  assert.equal(ok.ok, true, ok.error);
+  const unknown = check({ operation: 'split', sources: [{ path: 'a.md', headings: ['## Billing'] }] });
+  assert.match(unknown.error, /Billing.*Storage/);
+  const unenriched = check({ operation: 'split', sources: [{ path: 'c.md', headings: ['## X'] }] });
+  assert.match(unenriched.error, /c\.md.*ingest enrich/);
+});
+
+test('the operation decides the arity: copy one, split one with headings, merge two or more, rewrite with text', () => {
+  assert.match(check({ operation: 'move' }).error, /copy, merge, split, rewrite/);
+  assert.match(check({ operation: 'copy', sources: [{ path: 'a.md' }, { path: 'b.md' }] }).error, /copy.*one source/);
+  assert.match(check({ operation: 'copy', sources: [{ path: 'a.md', headings: ['## Auth'] }] }).error, /copy.*split/);
+  assert.match(check({ operation: 'split', sources: [{ path: 'a.md' }] }).error, /split.*headings/);
+  assert.match(check({ operation: 'merge', sources: [{ path: 'a.md' }] }).error, /merge.*two/);
+  assert.equal(check({ operation: 'merge', sources: [{ path: 'a.md' }, { path: 'b.md', headings: ['## Storage'] }] }).ok, true);
+  assert.match(check({ operation: 'rewrite' }).error, /rewrite.*text/);
+  assert.equal(check({ operation: 'rewrite', text: 'The store is Postgres.' }).ok, true);
+  assert.match(check({ operation: 'copy', text: 'x' }).error, /text.*rewrite/);
+});
+
+test('setMapping is all-or-nothing and replaces the previous mapping outright', () => {
+  const ledger = mappable();
+  const bad = setMapping(ledger, [entry(), entry({ section: 'nope' })], { sections: SECTIONS });
+  assert.equal(bad.ok, false);
+  assert.equal(bad.ledger, undefined);
+
+  const first = setMapping(ledger, [entry(), entry({ section: 'operations', heading: 'Runbook', sources: [{ path: 'c.md' }] })], { sections: SECTIONS });
+  assert.equal(first.ok, true, first.error);
+  assert.equal(first.ledger.mapping.length, 2);
+  assert.deepEqual(first.ledger.architecture, SECTIONS);
+
+  const second = setMapping(first.ledger, [entry({ heading: 'Data' })], { sections: SECTIONS });
+  assert.equal(second.ledger.mapping.length, 1, 'a plan is one thing, not an accumulation');
+  assert.equal(second.ledger.mapping[0].heading, 'Data');
+});
+
+test('renderMigrationPlan lists entries per target, the unmapped keep/merge documents and the archive/delete list', () => {
+  let ledger = mappable();
+  ledger = addVerdicts(ledger, [{ path: 'c.md', classification: 'delete', justification: 'empty' }]).ledger;
+  ledger = setMapping(ledger, [
+    entry(),
+    entry({ section: 'operations', heading: 'Auth', operation: 'split', sources: [{ path: 'a.md', headings: ['## Auth'] }] }),
+  ], { sections: SECTIONS }).ledger;
+
+  const plan = renderMigrationPlan(ledger, { ignored: ['i4'] });
+  assert.match(plan, /^# Migration plan/m);
+  assert.match(plan, /## architecture\.md — Architecture/);
+  assert.match(plan, /### Storage\n\n- operation: copy\n- sources: a\.md\n- why: a\.md is the current description/);
+  assert.match(plan, /### Auth\n\n- operation: split\n- sources: a\.md › ## Auth/);
+  assert.match(plan, /## Not mapped\n\n[^\n]+\n\n- b\.md \(merge → a\.md\)/, 'a keep/merge document no entry names');
+  assert.match(plan, /## Listed, not deleted\n\n[^\n]+\n\n- c\.md — delete: empty\n- d\.md — archive: x/);
+  assert.match(plan, /## Inconsistencies ignored\n\n[^\n]+\n\n- i4/);
+  assert.equal(plan, renderMigrationPlan(ledger, { ignored: ['i4'] }), 'byte-stable');
+});
+
+test('setMapping refuses one targetFile claimed by two different sections', () => {
+  const result = setMapping(mappable(), [
+    entry({ targetFile: 'shared.md' }),
+    entry({ section: 'operations', heading: 'Runbook', sources: [{ path: 'c.md' }], targetFile: 'shared.md' }),
+  ], { sections: SECTIONS });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /shared\.md.*architecture.*operations/);
+});
+
+test('setMapping refuses two targetFile spellings that are one file on a case-insensitive file system', () => {
+  const result = setMapping(mappable(), [
+    entry({ targetFile: 'Shared.md' }),
+    entry({ heading: 'Auth', operation: 'split', sources: [{ path: 'a.md', headings: ['## Auth'] }], targetFile: 'shared.md' }),
+  ], { sections: SECTIONS });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /Shared\.md.*shared\.md/);
+});
+
+// --- rendering: slices of sources, assembled under one target --------------------------
+
+const DOC = `# A
+
+Intro.
+
+## Storage
+
+Postgres.
+
+### Pooling
+
+pgbouncer.
+
+## Auth
+
+\`\`\`md
+## not a heading
+\`\`\`
+
+Sessions.
+`;
+
+test('sliceHeading returns a heading and its body up to the next heading of the same or a higher level', () => {
+  assert.equal(sliceHeading(DOC, '## Storage'), '## Storage\n\nPostgres.\n\n### Pooling\n\npgbouncer.\n');
+  assert.equal(sliceHeading(DOC, '### Pooling'), '### Pooling\n\npgbouncer.\n');
+  assert.equal(sliceHeading(DOC, '## Auth'), '## Auth\n\n```md\n## not a heading\n```\n\nSessions.\n', 'runs to end of file; a fence is not a heading');
+  assert.equal(sliceHeading(DOC, '## Billing'), null);
+});
+
+test('demoteHeadings shifts every heading so the shallowest sits at the requested level, fences untouched', () => {
+  const out = demoteHeadings(sliceHeading(DOC, '## Auth'), 3);
+  assert.equal(out, '### Auth\n\n```md\n## not a heading\n```\n\nSessions.\n');
+  assert.equal(demoteHeadings('# T\n\n## S\n', 3), '### T\n\n#### S\n');
+  assert.equal(demoteHeadings('no headings\n', 3), 'no headings\n');
+  assert.equal(demoteHeadings('##### deep\n\n###### deeper\n', 5), '##### deep\n\n###### deeper\n', 'never past level 6');
+});
+
+test('renderRewrittenDoc assembles frontmatter, a banner and one ## per entry with provenance, byte-stably', () => {
+  const target = { file: 'architecture.md', section: { id: 'architecture', title: 'Architecture', description: 'how it is built' } };
+  const entries = [
+    { heading: 'Storage', operation: 'split', justification: 'the storage half', sources: [{ path: 'a.md', headings: ['## Storage'] }], text: null },
+    { heading: 'Everything', operation: 'copy', justification: 'whole doc', sources: [{ path: 'b.md', headings: [] }], text: null },
+    { heading: 'Summary', operation: 'rewrite', justification: 'condensed', sources: [{ path: 'a.md', headings: [] }, { path: 'b.md', headings: [] }], text: 'Postgres, pooled.' },
+  ];
+  const sourceText = (path) => ({ 'a.md': DOC, 'b.md': '# B\n\nBody of b.\n\n## Part\n\nMore.\n' })[path];
+  const out = renderRewrittenDoc(target, entries, { sourceText, now: NOW });
+
+  assert.match(out, /^---\ntitle: "Architecture"\nsection: architecture\ngenerated: 2026-08-28\nsources:\n  - "a\.md"\n  - "b\.md"\n---\n/);
+  assert.match(out, /\n# Architecture\n\nhow it is built\n/);
+  assert.match(out, /Generated by `dev\.mjs reorg rewrite`/);
+  assert.match(out, /## Storage\n\n_split from a\.md › ## Storage — the storage half_\n\n### Storage\n\nPostgres\.\n\n#### Pooling\n\npgbouncer\.\n/);
+  assert.match(out, /## Everything\n\n_copy of b\.md — whole doc_\n\nBody of b\.\n\n### Part\n\nMore\.\n/, 'the source H1 is dropped, the rest demoted');
+  assert.match(out, /## Summary\n\n_rewrite from a\.md, b\.md — condensed_\n\nPostgres, pooled\.\n/);
+  assert.equal(out, renderRewrittenDoc(target, entries, { sourceText, now: NOW }));
+});
+
+test('frontmatter strings are quoted, so a title with a colon or a leading # survives a YAML parser', () => {
+  const target = { file: 'x.md', section: { id: 'x', title: 'Ops: the runbook', description: '' } };
+  const entries = [{ heading: 'H', operation: 'rewrite', justification: 'j', sources: [{ path: 'a b.md', headings: [] }], text: 't' }];
+  const out = renderRewrittenDoc(target, entries, { sourceText: () => '', now: NOW });
+  assert.match(out, /^---\ntitle: "Ops: the runbook"\nsection: x\ngenerated: 2026-08-28\nsources:\n  - "a b\.md"\n---\n/);
+  assert.match(out, /\n# Ops: the runbook\n/);
+});
+
 // --- through the real CLI ----------------------------------------------------------
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { git, withStubGh } from './ghstub.mjs';
@@ -689,4 +891,196 @@ test('detect refuses a payload that is neither an array nor an object, rather th
     assert.doesNotMatch(result.stderr, /TypeError/, payload);
   }
   assert.deepEqual(readLedger(repo), before);
+});
+
+const REORG = (repo) => join(repo, '_dev-workflow', 'artifacts', 'reorg');
+
+const ARCH_YAML = `sections:
+  - id: architecture
+    title: Architecture
+    description: how it is built
+  - id: operations
+    title: Operations
+    description: how it is run
+`;
+
+/** The phase-2 fixture with headings recorded, an architecture file and a mapping file on disk. */
+async function withMapping() {
+  const s = await withInconsistency();
+  const enrich = join(s.repo, 'h.json');
+  writeFileSync(enrich, JSON.stringify({ headings: ['# The project'] }));
+  await s.dev(['ingest', 'enrich', 'README.md', `@${enrich}`]);
+  writeFileSync(enrich, JSON.stringify({ headings: ['# Design'] }));
+  await s.dev(['ingest', 'enrich', 'docs/design.md', `@${enrich}`]);
+
+  const arch = join(s.repo, 'arch.yaml');
+  writeFileSync(arch, ARCH_YAML);
+  const mapping = join(s.repo, 'mapping.json');
+  writeFileSync(mapping, JSON.stringify([
+    { section: 'architecture', heading: 'Storage', operation: 'merge', justification: 'both explain the Postgres choice',
+      sources: [{ path: 'README.md' }, { path: 'docs/design.md' }] },
+    { section: 'operations', heading: 'Install', operation: 'copy', justification: 'the only setup doc',
+      sources: [{ path: 'docs/setup.md' }] },
+  ]));
+  return { ...s, arch, mapping };
+}
+
+test('map refuses over an open inconsistency, and --ignore-inconsistencies names what it ignored', async () => {
+  const { repo, dev, arch, mapping } = await withMapping();
+
+  const blocked = await dev(['reorg', 'map', '--architecture', arch, `@${mapping}`]);
+  assert.notEqual(blocked.code, 0);
+  assert.match(blocked.stderr, /i1/);
+  assert.equal(readLedger(repo).mapping, undefined);
+
+  const forced = await dev(['reorg', 'map', '--architecture', arch, `@${mapping}`, '--ignore-inconsistencies']);
+  assert.equal(forced.code, 0, forced.stderr);
+  assert.match(forced.stdout, /ignor.*i1/);
+  assert.match(forced.stdout, /migration-plan\.md/);
+  const ledger = readLedger(repo);
+  assert.equal(ledger.mapping.length, 2);
+  assert.equal(ledger.architecture.length, 2);
+  const plan = readFileSync(join(REORG(repo), 'migration-plan.md'), 'utf8');
+  assert.match(plan, /### Storage/);
+  assert.match(plan, /## Inconsistencies ignored\n\n[^\n]+\n\n- i1/);
+});
+
+test('map passes once the inconsistency is resolved, and refuses a bad architecture file by line', async () => {
+  const { repo, dev, arch, mapping } = await withMapping();
+  await dev(['reorg', 'resolve', 'i1', 'dismiss', 'same thing']);
+
+  const bad = join(repo, 'bad.yaml');
+  writeFileSync(bad, 'sections:\n  - id: a\n    title: A\n    description: d\n    owner: me\n');
+  const refused = await dev(['reorg', 'map', '--architecture', bad, `@${mapping}`]);
+  assert.notEqual(refused.code, 0);
+  assert.match(refused.stderr, /line 5/);
+
+  const ok = await dev(['reorg', 'map', '--architecture', arch, `@${mapping}`]);
+  assert.equal(ok.code, 0, ok.stderr);
+  assert.doesNotMatch(readFileSync(join(REORG(repo), 'migration-plan.md'), 'utf8'), /ignored/);
+
+  const status = await dev(['reorg']);
+  assert.match(status.stdout, /mapping:\s+2 entr/);
+});
+
+const STAGED = (repo, file) => join(REORG(repo), 'docs-reorganized', file);
+const readTree = (repo) => {
+  const out = {};
+  const walk = (dir, rel) => {
+    for (const name of readdirSync(dir).sort()) {
+      if (name === '_dev-workflow' || name === '.git') continue;
+      const abs = join(dir, name);
+      const key = rel ? `${rel}/${name}` : name;
+      if (statSync(abs).isDirectory()) walk(abs, key);
+      else out[key] = readFileSync(abs, 'utf8');
+    }
+  };
+  walk(repo, '');
+  return out;
+};
+
+/** A recorded mapping, gate clear, ready to rewrite. */
+async function withMapped() {
+  const s = await withMapping();
+  await s.dev(['reorg', 'resolve', 'i1', 'dismiss', 'same thing']);
+  const mapped = await s.dev(['reorg', 'map', '--architecture', s.arch, `@${s.mapping}`]);
+  assert.equal(mapped.code, 0, mapped.stderr);
+  return s;
+}
+
+test('rewrite writes one file per target plus the report; a second run changes nothing; --dry-run writes nothing', async () => {
+  const { repo, dev } = await withMapped();
+
+  const dry = await dev(['reorg', 'rewrite', '--dry-run']);
+  assert.equal(dry.code, 0, dry.stderr);
+  assert.match(dry.stdout, /would create.*architecture\.md/);
+  assert.equal(readLedger(repo).rewritten, undefined, 'a dry run records nothing');
+  assert.ok(!existsSync(STAGED(repo, 'architecture.md')));
+
+  const first = await dev(['reorg', 'rewrite']);
+  assert.equal(first.code, 0, first.stderr);
+  assert.match(first.stdout, /created.*docs-reorganized\/architecture\.md/);
+  assert.match(first.stdout, /created.*docs-reorganized\/operations\.md/);
+  assert.match(first.stdout, /migration-report\.md/);
+
+  const arch = readFileSync(STAGED(repo, 'architecture.md'), 'utf8');
+  assert.match(arch, /^---\ntitle: "Architecture"\nsection: architecture\n/);
+  assert.match(arch, /## Storage\n\n_merge from README\.md, docs\/design\.md — both explain the Postgres choice_\n\nIt talks to Postgres\.\n\nWe chose Postgres for the JSON support\./);
+  const ops = readFileSync(STAGED(repo, 'operations.md'), 'utf8');
+  assert.match(ops, /## Install\n\n_copy of docs\/setup\.md — the only setup doc_\n\nInstall Postgres\./);
+
+  const report = readFileSync(join(REORG(repo), 'migration-report.md'), 'utf8');
+  assert.match(report, /^# Migration report/m);
+  assert.match(report, /docs-reorganized\/architecture\.md.*\n.*README\.md/s);
+  assert.match(report, /## Not mapped/);
+  assert.match(report, /## Listed, not deleted/);
+
+  const ledger = readLedger(repo);
+  assert.deepEqual(Object.keys(ledger.rewritten).sort(), ['architecture.md', 'operations.md']);
+
+  const second = await dev(['reorg', 'rewrite']);
+  assert.equal(second.code, 0, second.stderr);
+  assert.match(second.stdout, /unchanged.*architecture\.md/);
+  assert.match(second.stdout, /unchanged.*operations\.md/);
+  assert.equal(readFileSync(STAGED(repo, 'architecture.md'), 'utf8'), arch);
+});
+
+test('a staged file edited by hand is refused by name; --force overwrites it', async () => {
+  const { repo, dev } = await withMapped();
+  await dev(['reorg', 'rewrite']);
+  const generated = readFileSync(STAGED(repo, 'architecture.md'), 'utf8');
+  writeFileSync(STAGED(repo, 'architecture.md'), `${generated}\nA line somebody added.\n`);
+
+  const refused = await dev(['reorg', 'rewrite']);
+  assert.notEqual(refused.code, 0);
+  assert.match(refused.stdout + refused.stderr, /refused.*architecture\.md/);
+  assert.match(refused.stdout + refused.stderr, /--force/);
+  assert.match(readFileSync(STAGED(repo, 'architecture.md'), 'utf8'), /somebody added/, 'the edit survives');
+  assert.match(refused.stdout, /unchanged.*operations\.md/, 'the other file is still handled');
+
+  const forced = await dev(['reorg', 'rewrite', '--force']);
+  assert.equal(forced.code, 0, forced.stderr);
+  assert.match(forced.stdout, /rewritten.*architecture\.md/);
+  assert.equal(readFileSync(STAGED(repo, 'architecture.md'), 'utf8'), generated);
+});
+
+test('rewrite refuses without a mapping, and honours the gate like map does', async () => {
+  const { dev } = await withInconsistency();
+  const noMapping = await dev(['reorg', 'rewrite']);
+  assert.notEqual(noMapping.code, 0);
+  assert.match(noMapping.stderr, /reorg map/);
+});
+
+test('map and rewrite leave every document of the project byte-identical and write nothing outside _dev-workflow', async () => {
+  const s = await withMapping();
+  const before = readTree(s.repo);
+  await s.dev(['reorg', 'resolve', 'i1', 'dismiss', 'same thing']);
+  await s.dev(['reorg', 'map', '--architecture', s.arch, `@${s.mapping}`]);
+  const rewritten = await s.dev(['reorg', 'rewrite']);
+  assert.equal(rewritten.code, 0, rewritten.stderr);
+  assert.deepEqual(readTree(s.repo), before);
+  assert.ok(existsSync(STAGED(s.repo, 'architecture.md')));
+});
+
+test('a staged file that already matches the render is unchanged, not refused, even with no recorded hash', async () => {
+  const { repo, dev } = await withMapped();
+  await dev(['reorg', 'rewrite']);
+  const ledger = readLedger(repo);
+  delete ledger.rewritten;
+  writeFileSync(LEDGER(repo), JSON.stringify(ledger, null, 2));
+
+  const again = await dev(['reorg', 'rewrite']);
+  assert.equal(again.code, 0, again.stderr);
+  assert.match(again.stdout, /unchanged.*architecture\.md/);
+  assert.doesNotMatch(again.stdout, /refused/);
+  assert.equal(Object.keys(readLedger(repo).rewritten ?? {}).length, 2, 'the hashes are recorded again');
+});
+
+test('rewrite takes --repo like scan does, and refuses an unknown flag', async () => {
+  const { dev } = await withMapped();
+  const ok = await dev(['reorg', 'rewrite', '--dry-run', '--repo', '.']);
+  assert.equal(ok.code, 0, ok.stderr);
+  const bad = await dev(['reorg', 'rewrite', '--nope']);
+  assert.notEqual(bad.code, 0);
+  assert.match(bad.stderr, /--nope/);
 });
