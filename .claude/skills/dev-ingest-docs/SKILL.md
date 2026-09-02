@@ -14,9 +14,10 @@ as a summary.
 
 What comes out is `_dev-workflow/artifacts/documentation/map.md` — every claim the project's docs
 make, checked against the code that would prove or disprove it, grouped by topic, with the
-contradictions and the questions still unsettled sitting right beside them. It never touches the
-project's own documentation, not one line: reorganising it is a proposal you get at the end, in
-chat, not something this skill does for you (§6).
+contradictions and the questions still unsettled sitting right beside them. Beside the map, the
+ledger records what each document still is (§3) and which two say the same thing or disagree (§4).
+It never touches the project's own documentation, not one line: reorganising it is a proposal you
+get at the end, in chat, not something this skill does for you (§7).
 
 It **runs in steps and across sessions.** Every step persists to a ledger *once it is recorded* —
 stop after ten minutes and pick it up next week, and nothing recorded is lost or re-derived
@@ -231,7 +232,86 @@ put to the user for approval one at a time; it is recorded, and `dev.mjs reorg` 
 Re-classifying a document (a rescan changed it, or the reasoning improves) simply replaces its
 verdict — nothing to undo first.
 
-## 4. Arbitration
+## 4. Find what says the same thing — and what disagrees
+
+Classification looked at each document on its own. This step looks at them two at a time, and
+only where the enrichment says it is worth looking:
+
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" reorg shortlist
+```
+
+It ranks every pair of `keep`/`merge` documents by how much their recorded keywords overlap and
+prints the ones at or above a threshold (`--similarity-threshold`, default 0.85), with the keywords
+they share. **Judge only the shortlisted pairs, never every pair** — that is the whole point of the
+shortlist: a corpus of sixty documents has 1,770 pairs, and reading both sides of each of them is
+the pass no session survives. If the list is empty, lower the threshold once to see the nearest
+pairs; if it is still empty, there is nothing to compare and this step is done. It also says how
+many documents it could not compare — unclassified, or without keywords — which is work for §3 or
+§2, not a reason to guess.
+
+**a. Judge each shortlisted pair yourself, here.** Open both documents, and decide which of three
+things they are:
+
+- **`duplicate`** — the same content, near enough word for word.
+- **`overlaps`** — the same subject, some of the same ground, each with something the other lacks.
+- **`contradicts`** — they disagree about a fact or a reason.
+
+A pair carries **evidence from each side** — `evidenceA` and `evidenceB`, an anchor or a quote — and
+a `justification`, and the tool refuses one without them, for the reason it refuses an unanchored
+claim. Record the batch in one call:
+
+```json
+[
+  { "docA": "docs/setup.md", "docB": "docs/install.md", "relation": "duplicate",
+    "justification": "the same twelve steps in the same order",
+    "evidenceA": "docs/setup.md:8-31", "evidenceB": "docs/install.md:5-28" }
+]
+```
+
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" reorg detect @<scratch>/pairs.json
+```
+
+A pair is asserted, like a verdict, not arbitrated: recorded, and re-judging the same two documents
+replaces the earlier call under the same id. Its output lists the id each pair got.
+
+**b. Raise an inconsistency sparingly.** A `contradicts` pair is usually settled by the code — one
+side is stale, the code says which, and the claims in the ledger already record that. Raise an
+**inconsistency** only where evidence genuinely cannot settle which document is right: two intents
+that disagree, or a contradiction the code is silent on. It cites the pairs behind it in `because`,
+and the tool refuses one that cites nothing — same discipline as a question. Record it in the same
+call as its pairs, or in a later one once you know their ids:
+
+```json
+{
+  "pairs": [ ... ],
+  "inconsistencies": [
+    { "text": "setup.md says the cache is advisory, design.md says it is the source of truth — which holds?",
+      "because": ["p3"], "options": ["advisory", "source of truth"] }
+  ]
+}
+```
+
+**c. Put the open inconsistencies to the user, at most five at a time**, exactly as §5 puts
+questions — each with the pairs and evidence behind it and the options you can see. A resolution is
+typed, because the mapping step that comes after this has to act on it:
+
+- **`prefer:<path>`** — that document is authoritative; it must be a side of a cited pair.
+- **`rewrite`** — both are partly right; the merge is where they get reconciled.
+- **`dismiss`** — they do not actually disagree.
+
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" reorg resolve i3 prefer:docs/design.md "design.md is what the team maintains; setup.md predates the cache"
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" reorg resolve @<scratch>/resolutions.json   # [{ "id", "kind", "path"?, "note" }]
+```
+
+A resolution is permanent, like an answer: record what they actually said, and if they do not know,
+**leave it open**. Nothing maps over an open inconsistency — `dev.mjs reorg` says which ones block
+it — and that gate is deliberate: a mapping that runs over an unsettled contradiction picks a side
+silently, which is the one thing this whole process exists to avoid.
+
+## 5. Arbitration
 
 When the reading is done, `ingest next` switches to the open questions. **Put them to the user in
 one message, at most five at a time**, each with the claims that produced it and the options you
@@ -247,7 +327,7 @@ properly and record what they actually said, not a tidied version of it.
 If they do not know, or want to check with someone, **leave it open**. An unanswered question is
 published as unsettled, which is true and useful. A guessed answer is neither.
 
-## 5. Emit
+## 6. Emit
 
 ```bash
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest emit
@@ -257,15 +337,15 @@ Writes `_dev-workflow/artifacts/documentation/map.md`: claims grouped by topic, 
 anchor, plus the decisions and anything still unsettled. It is generated — regenerate it, never
 edit it.
 
-## 6. Propose the reorganisation. Do not perform it.
+## 7. Propose the reorganisation. Do not perform it.
 
 **This skill never rewrites the project's documentation.** Not one line. Everything it writes lives
 under `_dev-workflow/artifacts/documentation/`.
 
 What you produce at the end is a *proposal*, in chat: which documents are stale and what in them is
 false, which two say the same thing, what is missing, what should move where. Cite the claim ids,
-the anchors and the classification verdicts (§3), so each one can be checked rather than taken on
-trust.
+the anchors, the classification verdicts (§3) and the pairs and resolutions (§4), so each one can be
+checked rather than taken on trust.
 
 If the user wants it done, that is ordinary work — `/dev-task` it, so it goes through a ticket, a
 branch and a review like any other change. Do not start editing their docs because the map made it
@@ -277,9 +357,10 @@ obvious what to fix.
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest        # where it stands
 ```
 
-Stop whenever. The ledger holds the sources, the claims, the questions and answers, and the
-classification verdicts, and it is committed with the rest of `_dev-workflow/`, so a colleague
-picking it up gets the arbitration decisions and the classification too — not just the map.
+Stop whenever. The ledger holds the sources, the claims, the questions and answers, the
+classification verdicts, and the pairs with their resolutions, and it is committed with the rest of
+`_dev-workflow/`, so a colleague picking it up gets every decision too — not just the map.
+`dev.mjs reorg` says where classification, detection and the gate stand.
 
 Two things worth saying out loud when you report progress: how many documents are left, and how many
 claims turned out to contradict the code. The second number is the finding.

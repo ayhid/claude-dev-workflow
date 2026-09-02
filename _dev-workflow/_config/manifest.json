@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.18.2",
     "installDate": "2026-08-31T20:48:47.144Z",
-    "lastUpdated": "2026-09-02T05:58:18.714Z"
+    "lastUpdated": "2026-09-02T09:34:11.642Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -53,7 +53,7 @@
     },
     {
       "path": "_dev-workflow/lib/ingest.mjs",
-      "sha256": "2f2077ccb5ed2b6b35773f799f91d9ade4862848ae7a005501b4b5298c9ccc23"
+      "sha256": "57d6c12408fac6b75bf33432328634055836c3dbf5c4fbd20a745bbb88b11170"
     },
     {
       "path": "_dev-workflow/lib/issueid.mjs",
@@ -77,7 +77,7 @@
     },
     {
       "path": "_dev-workflow/lib/reorg.mjs",
-      "sha256": "1e62e62aaa6ab97eb9f9221f978c41b51618033d87c2879368e136c01528f547"
+      "sha256": "9182c5ed4bb510dfaf6e65da418b7635fe0268670e69c372217ee2402859ab37"
     },
     {
       "path": "_dev-workflow/lib/review.mjs",
@@ -169,7 +169,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/reorg.mjs",
-      "sha256": "b763b196714b174f02af6b13a89646637c3eb401412849d780ecdf4a5711f0e9"
+      "sha256": "c2119e07eecc5f6b45dbc064321e52864a4575aac0f573d0fc32979e03ca158e"
     },
     {
       "path": "_dev-workflow/scripts/cmd/resume.mjs",
@@ -209,7 +209,7 @@
     },
     {
       "path": "_dev-workflow/scripts/dev.mjs",
-      "sha256": "8fba746102b132d2d2d808685e1a37ff3ad9a13f4876545fb173bb415cef7aa4"
+      "sha256": "3d263b02510727f91c4677e038e3d4de1f026daebc2d66be9914c09ee0948240"
     },
     {
       "path": ".claude/skills/dev-adr/SKILL.md",
@@ -229,7 +229,7 @@
     },
     {
       "path": ".claude/skills/dev-ingest-docs/SKILL.md",
-      "sha256": "ee71751d58117e099f7888cc59c49f0d550f3d632ea9b2ee8ebfd6537ca5b070"
+      "sha256": "9a3e5966246bd7be16221d373308feb32f4ff210ef3a6ca0133b841d1ef90adc"
     },
     {
       "path": ".claude/skills/dev-init/SKILL.md",

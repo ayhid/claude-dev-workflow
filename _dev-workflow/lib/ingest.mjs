@@ -207,8 +207,15 @@ export function mergeSources(ledger, found, { now = new Date() } = {}) {
   const goneSet = new Set(gone);
   const verdicts = (ledger.verdicts ?? []).filter((v) => !changed.includes(v.path) && !goneSet.has(v.path));
 
+  // A pair (lib/reorg.mjs) is treated like a claim, not like a verdict: kept
+  // and marked stale, because an inconsistency may cite it and a resolution
+  // is a human decision this function has no business discarding. The
+  // inconsistencies themselves are untouched for the same reason.
+  const touched = (path) => changed.includes(path) || goneSet.has(path);
+  const pairs = (ledger.pairs ?? []).map((p) => (touched(p.docA) || touched(p.docB) ? { ...p, status: 'stale' } : p));
+
   return {
-    ledger: { ...ledger, sources: sources.sort(byPath), claims, verdicts },
+    ledger: { ...ledger, sources: sources.sort(byPath), claims, verdicts, ...(ledger.pairs ? { pairs } : {}) },
     changed,
     gone,
     added: found.filter((f) => !before.has(f.path)).map((f) => f.path),
