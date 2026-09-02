@@ -201,6 +201,17 @@ test('the next unit is a single thing, and the phases run in order', () => {
   assert.equal(nextUnit(ledger).phase, 'emit');
 });
 
+test('nextUnit exposes the full pending batch, not only the next document', () => {
+  const ledger = mergeSources(base(), [file('a.md', '1'), file('b.md', '2'), file('c.md', '3')]).ledger;
+  const unit = nextUnit(ledger);
+  assert.equal(unit.phase, 'extract');
+  assert.deepEqual(
+    unit.detail.pending,
+    ['a.md', 'b.md', 'c.md'],
+    'every pending path, sorted — not only the one being read next',
+  );
+});
+
 test('stale claims are work, and are surfaced after the reading and the answering', () => {
   let ledger = mergeSources(base(), [file('a.md', '1')]).ledger;
   ledger = { ...ledger, sources: ledger.sources.map((s) => ({ ...s, state: 'read' })) };
@@ -348,6 +359,22 @@ test('a survey runs across separate invocations and remembers where it got to', 
   const status = await dev(['ingest']);
   assert.match(status.stdout, /sources: +2 \(1 read, 1 pending/);
   assert.match(status.stdout, /claims: +1 \(1 observable/);
+});
+
+test('next --all prints every pending document, and bare next is unchanged', async () => {
+  const { dev } = await withDocs({ 'docs/ops.md': '# Ops\n\nDeploys via CI.\n' });
+  await dev(['ingest', 'scan']);
+
+  const all = await dev(['ingest', 'next', '--all']);
+  assert.equal(all.code, 0, all.stderr);
+  assert.match(all.stdout, /README\.md/);
+  assert.match(all.stdout, /docs\/design\.md/);
+  assert.match(all.stdout, /docs\/ops\.md/);
+
+  // Bare `next` still gives the single-document summary — additive, not replaced.
+  const bare = await dev(['ingest', 'next']);
+  assert.match(bare.stdout, /left: {2}2 document\(s\) after this one/);
+  assert.doesNotMatch(bare.stdout, /docs\/ops\.md/);
 });
 
 test('arbitration blocks the emit until it is settled, and the answer persists', async () => {

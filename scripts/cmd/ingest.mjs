@@ -56,7 +56,7 @@ const USAGE = `usage: dev.mjs ingest <verb>
 
   (no verb)              where the survey stands
   scan [--repo PATH]     inventory the documents; safe to re-run
-  next                   the single next unit of work
+  next [--all]           the single next unit of work; --all lists every pending document
   read <path>            mark one document read
   record <@file>         add claims and questions, as JSON
   answer <id> <text>     settle one open question
@@ -107,17 +107,24 @@ export async function run(argv) {
   if (verb === 'scan') return scan({ config, root, rest });
 
   if (verb === 'next') {
+    const all = rest.includes('--all');
     const ledger = requireLedger(root);
     const unit = nextUnit(ledger);
     const L = [`[${unit.phase}] ${unit.what}`];
 
     if (unit.detail?.path) {
-      const after = unit.detail.remaining - 1;
-      L.push(
-        '',
-        `  read:  ${unit.detail.path}`,
-        `  left:  ${after} document(s) after this one`,
-      );
+      if (all) {
+        // Every pending path, not just the next one — for a caller handing a
+        // whole batch to parallel readers rather than reading them here.
+        L.push('', `  pending (${unit.detail.pending.length}):`, ...unit.detail.pending.map((p) => `    ${p}`));
+      } else {
+        const after = unit.detail.remaining - 1;
+        L.push(
+          '',
+          `  read:  ${unit.detail.path}`,
+          `  left:  ${after} document(s) after this one`,
+        );
+      }
     }
     if (unit.detail?.questions) {
       L.push('');
