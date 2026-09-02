@@ -167,6 +167,22 @@ test('a changed document is re-read, and its claims go stale rather than vanishi
   assert.equal(again.ledger.claims.length, 1);
 });
 
+test('a changed document drops its relevance verdict rather than keeping a stale classification', () => {
+  let ledger = mergeSources(base(), [file('README.md', 'aaa')]).ledger;
+  ledger = { ...ledger, verdicts: [{ path: 'README.md', classification: 'keep', justification: 'current' }] };
+
+  const again = mergeSources(ledger, [file('README.md', 'bbb')]);
+  assert.deepEqual(again.ledger.verdicts, [], 'the verdict was for content that no longer exists');
+});
+
+test('an unchanged document keeps its verdict across a rescan', () => {
+  let ledger = mergeSources(base(), [file('README.md', 'aaa')]).ledger;
+  ledger = { ...ledger, verdicts: [{ path: 'README.md', classification: 'keep', justification: 'current' }] };
+
+  const again = mergeSources(ledger, [file('README.md', 'aaa')]);
+  assert.deepEqual(again.ledger.verdicts, ledger.verdicts);
+});
+
 test('a document that disappeared is recorded as gone, not dropped', () => {
   const ledger = mergeSources(base(), [file('gone.md', 'aaa')]).ledger;
   const again = mergeSources(ledger, []);
@@ -189,6 +205,12 @@ test('enrichment with none of the recognised fields is refused', () => {
 
 test('a blank summary is refused rather than stored as an empty string', () => {
   const result = validateEnrichment({ summary: '   ' });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /summary/);
+});
+
+test('a non-string summary is refused rather than stringified', () => {
+  const result = validateEnrichment({ summary: { topic: 'db' } });
   assert.equal(result.ok, false);
   assert.match(result.error, /summary/);
 });

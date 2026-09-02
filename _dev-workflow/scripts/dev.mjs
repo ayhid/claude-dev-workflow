@@ -40,7 +40,7 @@ const USAGE = `usage: dev.mjs <command> [args]
   abandon <ISSUE-ID> <REASON|@FILE> [--force] [--repo PATH]
   land   [ISSUE-ID] [--apply] [--repo PATH] [--criteria first-pass|reworked]
   assess [--repo PATH] [--json]         greenfield or brownfield, proposed from signals
-  ingest [scan|next|read|record|answer|emit]   absorb existing documentation, in steps
+  ingest [scan|next|read|enrich|record|answer|emit]   absorb existing documentation, in steps
   reorg  [classify]                     relevance classification onto ingest's ledger
   docs   [init|record|render|check]     scaffold and render the documentation skeleton
   adr    [new|accept|reject|supersede|list|index]  architecture decision records

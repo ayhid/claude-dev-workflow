@@ -76,6 +76,15 @@ test('merge requires a mergeTarget that is itself a known document', () => {
   assert.equal(ok.verdict.mergeTarget, 'b.md');
 });
 
+test('a document cannot merge into itself', () => {
+  const result = validateVerdict(
+    { path: 'a.md', classification: 'merge', justification: 'overlaps', mergeTarget: 'a.md' },
+    { knownPaths: ['a.md', 'b.md'] },
+  );
+  assert.equal(result.ok, false);
+  assert.match(result.error, /itself/);
+});
+
 test('mergeTarget is refused on any classification other than merge', () => {
   const result = validateVerdict(
     { path: 'a.md', classification: 'keep', justification: 'current', mergeTarget: 'b.md' },
@@ -89,13 +98,14 @@ test('mergeTarget is refused on any classification other than merge', () => {
 
 test('a bad verdict rejects the whole batch, so half a batch is never mistaken for one', () => {
   const ledger = withSources('a.md', 'b.md');
+  const before = ledger.verdicts;
   const result = addVerdicts(ledger, [
     { path: 'a.md', classification: 'keep', justification: 'current' },
     { path: 'b.md', classification: 'bogus', justification: 'x' },
   ]);
   assert.equal(result.ok, false);
   assert.equal(result.ledger, undefined, 'a refused batch returns no ledger, mirroring addClaims/addQuestions');
-  assert.equal(ledger.verdicts, undefined, 'the input ledger itself is never mutated');
+  assert.equal(ledger.verdicts, before, 'the input ledger itself is never mutated');
 });
 
 test('addVerdicts appends new verdicts and reports what it added', () => {
@@ -196,6 +206,7 @@ test('classify validates a batch and reports counts', async () => {
 test('classify refuses the whole batch on one bad verdict, touching nothing', async () => {
   const { repo, dev } = await withDocs();
   await dev(['ingest', 'scan']);
+  const before = readLedger(repo);
 
   const verdicts = join(repo, 'verdicts.json');
   writeFileSync(
@@ -208,5 +219,5 @@ test('classify refuses the whole batch on one bad verdict, touching nothing', as
   const result = await dev(['reorg', 'classify', `@${verdicts}`]);
   assert.notEqual(result.code, 0);
   assert.match(result.stderr, /docs\/design\.md/);
-  assert.equal(readLedger(repo).verdicts, undefined);
+  assert.deepEqual(readLedger(repo), before, 'a refused batch writes nothing');
 });
