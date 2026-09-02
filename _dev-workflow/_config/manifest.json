@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.18.2",
     "installDate": "2026-08-31T20:48:47.144Z",
-    "lastUpdated": "2026-09-02T15:18:14.563Z"
+    "lastUpdated": "2026-09-02T16:31:34.681Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -57,7 +57,7 @@
     },
     {
       "path": "_dev-workflow/lib/ingest.mjs",
-      "sha256": "57d6c12408fac6b75bf33432328634055836c3dbf5c4fbd20a745bbb88b11170"
+      "sha256": "b15dadbd1051c3444f523c4856eb3c34ba834c9b9c7427f596b309fdf3b46d0f"
     },
     {
       "path": "_dev-workflow/lib/issueid.mjs",
@@ -161,7 +161,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/ingest.mjs",
-      "sha256": "fdf41b766b1e87e616ed850411472e164a9a06a585ed5386974ee9fed6c014b2"
+      "sha256": "1d39f64f6eacbdc35c41425562d2bee0c2ce3142f089e4674ebcf180c8148b94"
     },
     {
       "path": "_dev-workflow/scripts/cmd/land.mjs",

@@ -23,6 +23,7 @@ import {
   setEnrichment,
   validateClaim,
   validateEnrichment,
+  summarisePaths,
 } from '../lib/ingest.mjs';
 
 const NOW = new Date('2026-08-28T09:00:00.000Z');
@@ -598,7 +599,7 @@ test('a rescan after a document changes reopens it and marks its claims stale', 
 
   writeFileSync(join(repo, 'README.md'), '# The project\n\nIt talks to MySQL now.\n');
   const rescan = await dev(['ingest', 'scan']);
-  assert.match(rescan.stdout, /changed: +README\.md/);
+  assert.match(rescan.stdout, /changed: +1 — README\.md/);
 
   const ledger = readLedger(repo);
   assert.equal(ledger.sources.find((s) => s.path === 'README.md').state, 'pending');
@@ -635,4 +636,42 @@ test('assess reports the repo it looked at, and proposes rather than decides', a
   assert.match(r.stdout, /^repo: +\. \(/m, 'the repo path resolves, rather than rendering empty');
   assert.match(r.stdout, /stage:/);
   assert.match(r.stdout, /proposal, not a finding/);
+});
+
+// --- #61: scan's change lists are bounded ------------------------------------------
+
+test('summarisePaths shows a count, at most five names, and how many more', () => {
+  assert.equal(summarisePaths(['a.md']), '1 — a.md');
+  assert.equal(summarisePaths(['b.md', 'a.md', 'c.md']), '3 — a.md, b.md, c.md');
+  const many = Array.from({ length: 12 }, (_, i) => `docs/${String(i).padStart(2, '0')}.md`);
+  assert.equal(summarisePaths(many), '12 — docs/00.md, docs/01.md, docs/02.md, docs/03.md, docs/04.md, … 7 more');
+  assert.equal(summarisePaths([]), '0');
+});
+
+test('scan prints bounded changed and gone lists however long they are', async () => {
+  const docs = {};
+  for (let i = 0; i < 9; i++) docs[`docs/d${i}.md`] = `# d${i}
+
+body ${i}
+`;
+  const { repo, dev } = await withDocs(docs);
+  await dev(['ingest', 'scan']);
+
+  for (let i = 0; i < 7; i++) writeFileSync(join(repo, `docs/d${i}.md`), `# d${i}
+
+changed ${i}
+`);
+  const { rmSync } = await import('node:fs');
+  rmSync(join(repo, 'README.md'));
+  rmSync(join(repo, 'docs/design.md'));
+  await git(repo, 'add', '-A');
+  await git(repo, 'commit', '-m', 'chore(no-ticket): churn');
+
+  const rescan = await dev(['ingest', 'scan']);
+  assert.equal(rescan.code, 0, rescan.stderr);
+  assert.match(rescan.stdout, /changed: +7 — docs\/d0\.md, docs\/d1\.md, docs\/d2\.md, docs\/d3\.md, docs\/d4\.md, … 2 more/);
+  assert.match(rescan.stdout, /gone: +2 — README\.md, docs\/design\.md/);
+  assert.match(rescan.stdout, /ledger/, 'says where the full list is');
+  const longest = Math.max(...rescan.stdout.split('\n').map((l) => l.length));
+  assert.ok(longest < 200, `no line longer than 200 chars, got ${longest}`);
 });
