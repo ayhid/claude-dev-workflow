@@ -164,10 +164,20 @@ export function emptyLedger({ now = new Date() } = {}) {
  * kept and marked `stale` rather than deleted, since somebody may have answered
  * a question about one of them.
  *
+ * A source absent from the inventory is one of two things, and they are not
+ * the same (#60). Deleted from disk: `missing`, claims kept, because somebody
+ * may have arbitrated one. Still on disk but no longer a document — a
+ * classifier change, a vendored pack — `excluded`: out of scope, not gone.
+ * Its claims are marked `excluded` too, since claims about a file that was
+ * never this project's documentation are not claims about this project. The
+ * distinction needs one look at the disk, which is what `exists` is for; with
+ * no predicate every absent path is `missing`, as it always was.
+ *
  * @param {object} ledger
  * @param {Array<{path: string, sha256: string, bytes: number}>} found
+ * @param {{now?: Date, exists?: (path: string) => boolean}} [opts]
  */
-export function mergeSources(ledger, found, { now = new Date() } = {}) {
+export function mergeSources(ledger, found, { now = new Date(), exists = () => false } = {}) {
   const before = new Map((ledger.sources ?? []).map((s) => [s.path, s]));
   const sources = [];
   const changed = [];
@@ -175,8 +185,20 @@ export function mergeSources(ledger, found, { now = new Date() } = {}) {
   for (const file of found) {
     const previous = before.get(file.path);
     if (previous && previous.sha256 === file.sha256) {
-      sources.push({ ...previous, bytes: file.bytes });
-      continue;
+      // An excluded path back in the corpus is read again from scratch: its
+      // old claims stay excluded, and `pending` is what gets it fresh ones.
+      // A missing one back with the same bytes has lost nothing: its claims
+      // are still open, so it is `read` again — unless nothing was ever
+      // recorded for it, in which case it is simply pending.
+      if (previous.state === 'missing') {
+        const hasClaims = (ledger.claims ?? []).some((c) => c.source === file.path && c.status !== 'excluded');
+        sources.push({ ...previous, bytes: file.bytes, state: hasClaims ? 'read' : 'pending' });
+        continue;
+      }
+      if (previous.state !== 'excluded') {
+        sources.push({ ...previous, bytes: file.bytes });
+        continue;
+      }
     }
     if (previous) changed.push(file.path);
     sources.push({
@@ -189,13 +211,32 @@ export function mergeSources(ledger, found, { now = new Date() } = {}) {
   }
 
   // A source that has disappeared is not dropped silently: its claims are still
-  // in the ledger and somebody may have arbitrated one.
-  const gone = [...before.keys()].filter((p) => !found.some((f) => f.path === p));
-  for (const path of gone) sources.push({ ...before.get(path), state: 'missing' });
+  // in the ledger and somebody may have arbitrated one. One that merely left
+  // the corpus is settled as excluded, once, and a later scan has nothing to
+  // report about it.
+  const absent = [...before.keys()].filter((p) => !found.some((f) => f.path === p));
+  const gone = [];
+  const excluded = [];
+  for (const path of absent) {
+    const previous = before.get(path);
+    if (previous.state === 'missing' || previous.state === 'excluded') {
+      sources.push(previous);
+      continue;
+    }
+    if (exists(path)) {
+      excluded.push(path);
+      sources.push({ ...previous, state: 'excluded' });
+    } else {
+      gone.push(path);
+      sources.push({ ...previous, state: 'missing' });
+    }
+  }
 
-  const claims = (ledger.claims ?? []).map((c) =>
-    changed.includes(c.source) ? { ...c, status: 'stale', staleSince: now.toISOString() } : c,
-  );
+  const claims = (ledger.claims ?? []).map((c) => {
+    if (changed.includes(c.source)) return { ...c, status: 'stale', staleSince: now.toISOString() };
+    if (excluded.includes(c.source)) return { ...c, status: 'excluded' };
+    return c;
+  });
 
   // A relevance verdict (see lib/reorg.mjs) is a call about content that has
   // either just changed underneath it or vanished outright — dropped, not
@@ -204,7 +245,7 @@ export function mergeSources(ledger, found, { now = new Date() } = {}) {
   // is gone is nothing left to classify at all. Unlike claims, which are kept
   // for a vanished source because a human may have arbitrated a question about
   // one, a verdict has no such downstream decision to preserve.
-  const goneSet = new Set(gone);
+  const goneSet = new Set([...gone, ...excluded]);
   const verdicts = (ledger.verdicts ?? []).filter((v) => !changed.includes(v.path) && !goneSet.has(v.path));
 
   // A pair (lib/reorg.mjs) is treated like a claim, not like a verdict: kept
@@ -218,6 +259,7 @@ export function mergeSources(ledger, found, { now = new Date() } = {}) {
     ledger: { ...ledger, sources: sources.sort(byPath), claims, verdicts, ...(ledger.pairs ? { pairs } : {}) },
     changed,
     gone,
+    excluded,
     added: found.filter((f) => !before.has(f.path)).map((f) => f.path),
   };
 }
@@ -551,7 +593,8 @@ export function describeLedger(ledger) {
     `sources:  ${sources.length} (${count(sources, (s) => s.state === 'read')} read, ` +
       `${count(sources, (s) => s.state === 'pending')} pending, ` +
       `${count(sources, (s) => s.state === GENERATED_STATE)} generated, ` +
-      `${count(sources, (s) => s.state === 'missing')} gone)`,
+      `${count(sources, (s) => s.state === 'missing')} gone, ` +
+      `${count(sources, (s) => s.state === 'excluded')} excluded)`,
   );
   L.push(
     `claims:   ${claims.length} (${count(claims, (c) => c.kind === 'observable')} observable, ` +
@@ -579,7 +622,7 @@ export function describeLedger(ledger) {
  * produces the same bytes and a regeneration diffs as the change it actually was.
  */
 export function renderMap(ledger, { now = new Date(), project = null } = {}) {
-  const claims = (ledger.claims ?? []).filter((c) => c.status !== 'stale');
+  const claims = (ledger.claims ?? []).filter((c) => c.status !== 'stale' && c.status !== 'excluded');
   const L = [];
 
   L.push(`# ${project ? `${project} — ` : ''}what this codebase is`);

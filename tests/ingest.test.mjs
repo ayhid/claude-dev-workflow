@@ -675,3 +675,91 @@ changed ${i}
   const longest = Math.max(...rescan.stdout.split('\n').map((l) => l.length));
   assert.ok(longest < 200, `no line longer than 200 chars, got ${longest}`);
 });
+
+// --- #60: a file that leaves the corpus is excluded, not missing -----------------------
+
+const claimOn = (source) => ({ text: `from ${source}`, kind: 'observable', anchor: 'x:1', source, topic: 't' });
+
+function surveyed() {
+  let ledger = mergeSources(emptyLedger({ now: NOW }), [file('README.md', '0'), file('.claude/skills/pack/SKILL.md', '1'), file('docs/gone.md', '2')]).ledger;
+  ledger = addClaims(ledger, [claimOn('README.md'), claimOn('.claude/skills/pack/SKILL.md'), claimOn('docs/gone.md')], { now: NOW }).ledger;
+  ledger = addQuestions(ledger, [{ text: 'q?', because: ['c2'] }]).ledger;
+  return { ...ledger, sources: ledger.sources.map((s) => ({ ...s, state: 'read', readAt: NOW.toISOString() })) };
+}
+
+test('a ledger path absent from the inventory but present on disk is excluded; one absent from disk is missing', () => {
+  const onDisk = new Set(['README.md', '.claude/skills/pack/SKILL.md']);
+  const { ledger, gone, excluded } = mergeSources(surveyed(), [file('README.md', '0')], { exists: (p) => onDisk.has(p) });
+  const state = (p) => ledger.sources.find((s) => s.path === p).state;
+  assert.equal(state('.claude/skills/pack/SKILL.md'), 'excluded');
+  assert.equal(state('docs/gone.md'), 'missing');
+  assert.deepEqual(excluded, ['.claude/skills/pack/SKILL.md']);
+  assert.deepEqual(gone, ['docs/gone.md']);
+});
+
+test('without an exists predicate every absent path is missing, as before', () => {
+  const { ledger, excluded } = mergeSources(surveyed(), [file('README.md', '0')]);
+  assert.equal(ledger.sources.find((s) => s.path === '.claude/skills/pack/SKILL.md').state, 'missing');
+  assert.deepEqual(excluded, []);
+});
+
+test("an excluded source's claims are excluded too: out of the map and never offered for re-extraction, while its question still answers", () => {
+  const { ledger } = mergeSources(surveyed(), [file('README.md', '0')], { exists: () => true });
+  const claim = ledger.claims.find((c) => c.source === '.claude/skills/pack/SKILL.md');
+  assert.equal(claim.status, 'excluded');
+  assert.equal(ledger.claims.find((c) => c.source === 'README.md').status, 'open', 'a live claim is untouched');
+  assert.doesNotMatch(renderMap(ledger, { now: NOW }), /from \.claude\/skills/);
+  assert.notEqual(nextUnit({ ...ledger, questions: [] }).phase, 'extract', 'nothing pending, nothing stale');
+  assert.equal(answerQuestion(ledger, 'q1', 'still answerable', { now: NOW }).ok, true);
+});
+
+test('an excluded path that re-enters the corpus goes back to pending', () => {
+  const first = mergeSources(surveyed(), [file('README.md', '0')], { exists: () => true }).ledger;
+  const back = mergeSources(first, [file('README.md', '0'), file('.claude/skills/pack/SKILL.md', '1')], { exists: () => true }).ledger;
+  assert.equal(back.sources.find((s) => s.path === '.claude/skills/pack/SKILL.md').state, 'pending');
+});
+
+test('describeLedger counts excluded sources', () => {
+  const { ledger } = mergeSources(surveyed(), [file('README.md', '0')], { exists: (p) => p !== 'docs/gone.md' });
+  assert.match(describeLedger(ledger).join('\n'), /1 gone, 1 excluded\)/);
+});
+
+test('scan tells a file that left the corpus from one that was deleted, and records each accordingly', async () => {
+  const { repo, dev } = await withDocs({ '.claude/skills/pack/SKILL.md': '# pack\n\nagent instructions\n' });
+  await dev(['ingest', 'scan']);
+
+  // A ledger written before #34's classifier: the skill pack was a source.
+  const ledger = JSON.parse(readFileSync(LEDGER(repo), 'utf8'));
+  ledger.sources.push({ path: '.claude/skills/pack/SKILL.md', sha256: 'old', bytes: 1, state: 'read', readAt: NOW.toISOString() });
+  writeFileSync(LEDGER(repo), JSON.stringify(ledger, null, 2));
+  const { rmSync } = await import('node:fs');
+  rmSync(join(repo, 'docs/design.md'));
+  await git(repo, 'add', '-A');
+  await git(repo, 'commit', '-m', 'chore(no-ticket): drop design');
+
+  const rescan = await dev(['ingest', 'scan']);
+  assert.equal(rescan.code, 0, rescan.stderr);
+  assert.match(rescan.stdout, /gone: +1 — docs\/design\.md/);
+  assert.match(rescan.stdout, /excluded: +1 — \.claude\/skills\/pack\/SKILL\.md/);
+  const after = JSON.parse(readFileSync(LEDGER(repo), 'utf8'));
+  assert.equal(after.sources.find((s) => s.path === 'docs/design.md').state, 'missing');
+  assert.equal(after.sources.find((s) => s.path === '.claude/skills/pack/SKILL.md').state, 'excluded');
+
+  const again = await dev(['ingest', 'scan']);
+  assert.doesNotMatch(again.stdout, /excluded:|gone:/, 'settled: a second scan does not re-report either');
+  const status = await dev(['ingest']);
+  assert.match(status.stdout, /1 gone, 1 excluded\)/);
+});
+
+test('a missing source that reappears unchanged is read again if it has claims, pending if it has none', () => {
+  const vanished = mergeSources(surveyed(), [file('README.md', '0')]).ledger;
+  assert.equal(vanished.sources.find((s) => s.path === 'docs/gone.md').state, 'missing');
+
+  const back = mergeSources(vanished, [file('README.md', '0'), file('docs/gone.md', '2')]).ledger;
+  assert.equal(back.sources.find((s) => s.path === 'docs/gone.md').state, 'read', 'same bytes, claims intact');
+  assert.equal(back.claims.find((c) => c.source === 'docs/gone.md').status, 'open');
+
+  const noClaims = { ...vanished, claims: vanished.claims.filter((c) => c.source !== 'docs/gone.md'), questions: [] };
+  const backEmpty = mergeSources(noClaims, [file('README.md', '0'), file('docs/gone.md', '2')]).ledger;
+  assert.equal(backEmpty.sources.find((s) => s.path === 'docs/gone.md').state, 'pending', 'nothing recorded for it, so it is read');
+});

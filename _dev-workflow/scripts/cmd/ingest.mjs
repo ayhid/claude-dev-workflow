@@ -301,7 +301,9 @@ async function scan({ config, root, rest }) {
   }
 
   const before = loadLedger(root) ?? emptyLedger({});
-  const merged = mergeSources(before, found);
+  // `exists` is what tells a deleted file from one that merely stopped
+  // classifying as a document (#60): the first is gone, the second excluded.
+  const merged = mergeSources(before, found, { exists: (path) => existsSync(resolve(dir, path)) });
   saveLedger(root, merged.ledger);
 
   // Counts and a few names, never the whole list: this output lands in the
@@ -310,7 +312,8 @@ async function scan({ config, root, rest }) {
   if (merged.added.length) L.push(`new:      ${merged.added.length}`);
   if (merged.changed.length) L.push(`changed:  ${summarisePaths(merged.changed)}`);
   if (merged.gone.length) L.push(`gone:     ${summarisePaths(merged.gone)}   (their claims are kept)`);
-  if (merged.changed.length > SUMMARISED_PATHS || merged.gone.length > SUMMARISED_PATHS) {
+  if (merged.excluded.length) L.push(`excluded: ${summarisePaths(merged.excluded)}   (still on disk, no longer a document)`);
+  if (merged.changed.length > SUMMARISED_PATHS || merged.gone.length > SUMMARISED_PATHS || merged.excluded.length > SUMMARISED_PATHS) {
     L.push(`          (every path is in the ledger: ${join(ARTIFACT_DIR, LEDGER)})`);
   }
   L.push('', `next:     ${nextUnit(merged.ledger).what}`);
