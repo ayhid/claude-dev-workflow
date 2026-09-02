@@ -4,7 +4,10 @@
  *   dev.mjs reorg                where classification stands
  *   dev.mjs reorg classify @file batch of {path, classification, justification, mergeTarget?}
  *   dev.mjs reorg shortlist      pairs of keep/merge documents whose keywords overlap
- *   dev.mjs reorg detect @file   batch of {docA, docB, relation, justification, evidenceA, evidenceB}
+ *   dev.mjs reorg detect @file   pairs {docA, docB, relation, justification, evidenceA, evidenceB},
+ *                                and the inconsistencies {text, because, options?} that cite them
+ *   dev.mjs reorg resolve <id> <kind> "<note>"   settle one; kind is prefer:<path>, rewrite or dismiss
+ *   dev.mjs reorg resolve @file  batch of {id, kind, path?, note}
  *
  * Reads and writes the same `_dev-workflow/artifacts/documentation/ledger.json`
  * `ingest` already owns — one project's documentation state, not two ledgers
@@ -17,7 +20,15 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { addPairs, addVerdicts, DEFAULT_SIMILARITY_THRESHOLD, describeVerdicts, shortlistPairs } from '../../lib/reorg.mjs';
+import {
+  addInconsistencies,
+  addPairs,
+  addVerdicts,
+  DEFAULT_SIMILARITY_THRESHOLD,
+  describeVerdicts,
+  resolveInconsistency,
+  shortlistPairs,
+} from '../../lib/reorg.mjs';
 import { ARTIFACT_DIR } from './ingest.mjs';
 import { context, readArg, UserError } from './common.mjs';
 
@@ -29,7 +40,11 @@ const USAGE = `usage: dev.mjs reorg <verb>
   classify <@file>   batch of {path, classification, justification, mergeTarget?}, as JSON
   shortlist [--similarity-threshold N]
                      pairs of keep/merge documents whose keywords overlap (Jaccard ≥ N, default ${DEFAULT_SIMILARITY_THRESHOLD})
-  detect <@file>     batch of {docA, docB, relation, justification, evidenceA, evidenceB}, as JSON`;
+  detect <@file>     a JSON array of pairs {docA, docB, relation, justification, evidenceA, evidenceB},
+                     or {pairs: [...], inconsistencies: [{text, because: [pairId], options?}]}
+  resolve <id> <kind> "<note>"
+                     settle one inconsistency; kind is prefer:<path>, rewrite or dismiss
+  resolve <@file>    batch of {id, kind, path?, note}, as JSON`;
 
 const ledgerPath = (root) => join(root, ARTIFACT_DIR, LEDGER);
 
@@ -52,17 +67,37 @@ function saveLedger(root, ledger) {
   writeFileSync(path, `${JSON.stringify(ledger, null, 2)}\n`);
 }
 
-/** A `@file` argument holding a JSON array, or the error that says which verb wanted one. */
-function readBatch(raw, verb, what) {
+/** A `@file` argument holding JSON, or the error that says which verb wanted one. */
+function readJson(raw, verb, what) {
   if (!raw) throw new UserError(`usage: dev.mjs reorg ${verb} @${what}.json`);
-  let payload;
   try {
-    payload = JSON.parse(readArg(raw, `${what} file`));
+    return JSON.parse(readArg(raw, `${what} file`));
   } catch (err) {
     throw new UserError(`the ${what} file is not valid JSON: ${err.message}`);
   }
+}
+
+/** A `@file` argument holding a JSON array. */
+function readBatch(raw, verb, what) {
+  const payload = readJson(raw, verb, what);
   if (!Array.isArray(payload)) throw new UserError(`the ${what} file must be a JSON array`);
   return payload;
+}
+
+const RESOLVE_USAGE = 'usage: dev.mjs reorg resolve <id> <prefer:<path>|rewrite|dismiss> "<note>"   or   resolve @resolutions.json';
+
+/**
+ * `resolve i3 prefer:docs/a.md "why"` or `resolve @file` — both become the
+ * `{id, kind, path?, note}` records `resolveInconsistency` takes, so the
+ * command line and the batch file cannot disagree about what a resolution is.
+ */
+function parseResolutions(rest) {
+  if (rest[0]?.startsWith('@')) return readBatch(rest[0], 'resolve', 'resolutions');
+
+  const [id, spec, ...note] = rest;
+  if (!id || !spec || !note.length) throw new UserError(RESOLVE_USAGE);
+  const [kind, ...pathParts] = spec.split(':');
+  return [{ id, kind, path: pathParts.join(':') || undefined, note: note.join(' ') }];
 }
 
 /** The ledger, or a message naming the command that would create one. */
@@ -94,16 +129,45 @@ export async function run(argv) {
   }
 
   if (verb === 'detect') {
-    const payload = readBatch(rest[0], 'detect', 'pairs');
-    const ledger = requireLedger(root);
-    const result = addPairs(ledger, payload);
-    if (!result.ok) throw new UserError(result.error);
+    const payload = readJson(rest[0], 'detect', 'pairs');
+    // A bare array is pairs alone; an object carries the inconsistencies that
+    // cite them. Pairs first either way, the same order `ingest record` keeps
+    // for claims and questions: an id has to exist before it can be cited.
+    const { pairs, inconsistencies } = Array.isArray(payload) ? { pairs: payload, inconsistencies: [] } : payload;
+    if (!Array.isArray(pairs ?? [])) throw new UserError('"pairs" must be a JSON array');
+    if (!Array.isArray(inconsistencies ?? [])) throw new UserError('"inconsistencies" must be a JSON array');
 
-    saveLedger(root, result.ledger);
+    let ledger = requireLedger(root);
+    const withPairs = addPairs(ledger, pairs ?? []);
+    if (!withPairs.ok) throw new UserError(withPairs.error);
+    ledger = withPairs.ledger;
+
+    const withInconsistencies = addInconsistencies(ledger, inconsistencies ?? []);
+    if (!withInconsistencies.ok) throw new UserError(withInconsistencies.error);
+    ledger = withInconsistencies.ledger;
+
+    saveLedger(root, ledger);
+    const n = withInconsistencies.added.length;
     process.stdout.write(
-      `dev reorg: ${result.added.length} pair(s) recorded\n` +
-        (result.added.length ? `  ${result.added.map((p) => `${p.id} ${p.docA} ${p.relation} ${p.docB}`).join('\n  ')}\n` : ''),
+      `dev reorg: ${withPairs.added.length} pair(s)${n ? `, ${n} inconsistenc${n === 1 ? 'y' : 'ies'}` : ''} recorded\n` +
+        (withPairs.added.length ? `  ${withPairs.added.map((p) => `${p.id} ${p.docA} ${p.relation} ${p.docB}`).join('\n  ')}\n` : '') +
+        (n ? `  ${withInconsistencies.added.map((i) => i.id).join(', ')}\n` : ''),
     );
+    return 0;
+  }
+
+  if (verb === 'resolve') {
+    const resolutions = parseResolutions(rest);
+
+    let ledger = requireLedger(root);
+    for (const r of resolutions) {
+      const result = resolveInconsistency(ledger, r.id, r);
+      if (!result.ok) throw new UserError(result.error);
+      ledger = result.ledger;
+    }
+
+    saveLedger(root, ledger);
+    process.stdout.write(`dev reorg: ${resolutions.map((r) => r.id).join(', ')} resolved\n`);
     return 0;
   }
 

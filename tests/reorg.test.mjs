@@ -10,7 +10,16 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { emptyLedger, mergeSources, setEnrichment } from '../lib/ingest.mjs';
-import { addPairs, addVerdicts, describeVerdicts, shortlistPairs, validatePair, validateVerdict } from '../lib/reorg.mjs';
+import {
+  addInconsistencies,
+  addPairs,
+  addVerdicts,
+  describeVerdicts,
+  resolveInconsistency,
+  shortlistPairs,
+  validatePair,
+  validateVerdict,
+} from '../lib/reorg.mjs';
 
 const NOW = new Date('2026-08-28T09:00:00.000Z');
 const base = () => emptyLedger({ now: NOW });
@@ -259,6 +268,92 @@ test('re-recording the same unordered pair replaces it under the same id', () =>
   assert.deepEqual(result.ledger.pairs.map((p) => p.id), ['p1', 'p2'], 'kept in id order');
 });
 
+// --- inconsistencies: what only a person can settle ------------------------------
+
+function withPairs() {
+  let ledger = withSources(...KNOWN);
+  ledger = addPairs(ledger, [
+    goodPair({ relation: 'contradicts' }),
+    goodPair({ docA: 'c.md', relation: 'overlaps' }),
+  ]).ledger;
+  return ledger;
+}
+
+test('an inconsistency must cite recorded pairs in because, and gets an i<n> id, open, unresolved', () => {
+  const ledger = withPairs();
+
+  const noText = addInconsistencies(ledger, [{ because: ['p1'] }]);
+  assert.equal(noText.ok, false);
+  assert.match(noText.error, /text/);
+
+  const noBecause = addInconsistencies(ledger, [{ text: 'which port?' }]);
+  assert.equal(noBecause.ok, false);
+  assert.match(noBecause.error, /because/);
+
+  const ghost = addInconsistencies(ledger, [{ text: 'which port?', because: ['p1', 'p9'] }]);
+  assert.equal(ghost.ok, false);
+  assert.match(ghost.error, /p9/);
+
+  const ok = addInconsistencies(ledger, [
+    { text: 'a.md says 5432, b.md says 5433 — which is deployed?', because: ['p1'], options: ['5432', '5433'] },
+  ]);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.added[0].id, 'i1');
+  assert.equal(ok.added[0].status, 'open');
+  assert.equal(ok.added[0].resolution, null);
+  assert.deepEqual(ok.added[0].options, ['5432', '5433']);
+});
+
+const inconsistent = () =>
+  addInconsistencies(withPairs(), [{ text: 'which port?', because: ['p1'] }]).ledger;
+
+test('a resolution is one of prefer, rewrite or dismiss, and always carries a note', () => {
+  const ledger = inconsistent();
+
+  const unknownId = resolveInconsistency(ledger, 'i7', { kind: 'dismiss', note: 'x' });
+  assert.equal(unknownId.ok, false);
+  assert.match(unknownId.error, /i7/);
+
+  const unknownKind = resolveInconsistency(ledger, 'i1', { kind: 'ignore', note: 'x' });
+  assert.equal(unknownKind.ok, false);
+  assert.match(unknownKind.error, /prefer, rewrite, dismiss/);
+
+  const noNote = resolveInconsistency(ledger, 'i1', { kind: 'dismiss' });
+  assert.equal(noNote.ok, false);
+  assert.match(noNote.error, /note/);
+
+  const ok = resolveInconsistency(ledger, 'i1', { kind: 'rewrite', note: 'both are half right' }, { now: NOW });
+  assert.equal(ok.ok, true);
+  const settled = ok.ledger.inconsistencies[0];
+  assert.equal(settled.status, 'resolved');
+  assert.deepEqual(settled.resolution, { kind: 'rewrite', path: null, note: 'both are half right' });
+  assert.equal(settled.resolvedAt, NOW.toISOString());
+});
+
+test('prefer names the authoritative document, which must be a side of a cited pair', () => {
+  const ledger = inconsistent();
+
+  const noPath = resolveInconsistency(ledger, 'i1', { kind: 'prefer', note: 'x' });
+  assert.equal(noPath.ok, false);
+  assert.match(noPath.error, /path/);
+
+  const wrongSide = resolveInconsistency(ledger, 'i1', { kind: 'prefer', path: 'c.md', note: 'x' });
+  assert.equal(wrongSide.ok, false);
+  assert.match(wrongSide.error, /c\.md/);
+
+  const ok = resolveInconsistency(ledger, 'i1', { kind: 'prefer', path: 'b.md', note: 'b matches the deploy config' });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.ledger.inconsistencies[0].resolution.path, 'b.md');
+});
+
+test('a resolution is never overwritten — a changed mind is a new inconsistency', () => {
+  let ledger = inconsistent();
+  ledger = resolveInconsistency(ledger, 'i1', { kind: 'dismiss', note: 'not really different' }).ledger;
+  const again = resolveInconsistency(ledger, 'i1', { kind: 'rewrite', note: 'on reflection' });
+  assert.equal(again.ok, false);
+  assert.match(again.error, /already resolved/);
+});
+
 // --- through the real CLI ----------------------------------------------------------
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -426,4 +521,67 @@ test('detect refuses the whole batch on one bad pair, touching nothing', async (
   assert.notEqual(result.code, 0);
   assert.match(result.stderr, /evidenceB/);
   assert.deepEqual(readLedger(repo), before);
+});
+
+/** Two pairs recorded through the CLI, plus one open inconsistency citing p1. */
+async function withInconsistency() {
+  const s = await withPairedDocs();
+  const file = detectFile(s.repo, {
+    pairs: [
+      { docA: 'README.md', docB: 'docs/design.md', relation: 'contradicts', justification: 'x', evidenceA: 'a', evidenceB: 'b' },
+    ],
+    inconsistencies: [{ text: 'JSON support or TTL — which was the reason?', because: ['p1'], options: ['json', 'ttl'] }],
+  });
+  const r = await s.dev(['reorg', 'detect', `@${file}`]);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /1 inconsistenc(y|ies) recorded/);
+  assert.match(r.stdout, /i1/);
+  return s;
+}
+
+test('detect takes pairs and inconsistencies together, pairs first so the ids can be cited', async () => {
+  const { repo } = await withInconsistency();
+  const ledger = readLedger(repo);
+  assert.equal(ledger.inconsistencies.length, 1);
+  assert.deepEqual(ledger.inconsistencies[0].because, ['p1']);
+});
+
+test('resolve settles one inconsistency from the command line, prefer:<path> naming the winner', async () => {
+  const { repo, dev } = await withInconsistency();
+
+  const bad = await dev(['reorg', 'resolve', 'i1', 'prefer:docs/setup.md', 'nope']);
+  assert.notEqual(bad.code, 0);
+  assert.match(bad.stderr, /docs\/setup\.md/);
+  assert.equal(readLedger(repo).inconsistencies[0].status, 'open');
+
+  const ok = await dev(['reorg', 'resolve', 'i1', 'prefer:docs/design.md', 'the design doc is the one the team maintains']);
+  assert.equal(ok.code, 0, ok.stderr);
+  assert.match(ok.stdout, /i1 resolved/);
+  const settled = readLedger(repo).inconsistencies[0];
+  assert.equal(settled.status, 'resolved');
+  assert.deepEqual(settled.resolution, {
+    kind: 'prefer',
+    path: 'docs/design.md',
+    note: 'the design doc is the one the team maintains',
+  });
+});
+
+test('resolve takes a batch file, and one bad entry writes nothing', async () => {
+  const { repo, dev } = await withInconsistency();
+  const before = readLedger(repo);
+
+  const file = join(repo, 'resolutions.json');
+  writeFileSync(file, JSON.stringify([
+    { id: 'i1', kind: 'dismiss', note: 'same thing said twice' },
+    { id: 'i2', kind: 'dismiss', note: 'no such inconsistency' },
+  ]));
+  const bad = await dev(['reorg', 'resolve', `@${file}`]);
+  assert.notEqual(bad.code, 0);
+  assert.match(bad.stderr, /i2/);
+  assert.deepEqual(readLedger(repo), before);
+
+  writeFileSync(file, JSON.stringify([{ id: 'i1', kind: 'dismiss', note: 'same thing said twice' }]));
+  const ok = await dev(['reorg', 'resolve', `@${file}`]);
+  assert.equal(ok.code, 0, ok.stderr);
+  assert.equal(readLedger(repo).inconsistencies[0].status, 'resolved');
 });
