@@ -376,8 +376,9 @@ headings of them, become it, and how:
 
 A `merge` verdict names its target, a `prefer` resolution names which side survives a
 contradiction, a `rewrite` resolution is exactly the `rewrite` operation with both sides as sources.
-Archived and deleted documents cannot be sources; the tool refuses them, and lists them in the plan
-instead. Every entry carries a `justification`, the same standing as everything else recorded here.
+A source's `headings` are matched verbatim against what §2 recorded — `## Storage`, marker
+included, not `Storage`. Archived and deleted documents cannot be sources; the tool refuses them,
+and lists them in the plan instead. Every entry carries a `justification`, the same standing as everything else recorded here.
 
 ```json
 [
@@ -407,8 +408,9 @@ node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" reorg rewrite --dry-r
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" reorg rewrite
 ```
 
-One file per target under `_dev-workflow/artifacts/reorg/docs-reorganized/`, assembled from the
-real source text — a whole document, or the heading ranges named — plus `migration-report.md`
+If `map` needed `--ignore-inconsistencies`, `rewrite` needs it too: it checks the ledger again, so an
+inconsistency raised since the plan was made still blocks the tree. One file per target under
+`_dev-workflow/artifacts/reorg/docs-reorganized/`, assembled from the real source text — a whole document, or the heading ranges named — plus `migration-report.md`
 saying what was written from what, what was not mapped, and what is listed as archive or delete.
 **Listed, never deleted:** this tool removes nothing, ever. A file in the staged tree that somebody
 edited by hand is refused on the next run rather than overwritten, and says so; `--force` is the

@@ -103,3 +103,35 @@ test('an unterminated quote is refused, not read as a value', () => {
   assert.equal(r.ok, false);
   assert.match(r.error, /line 3.*quote/);
 });
+
+test('ids that differ only by case collide as file stems and are refused', () => {
+  const r = parseArchitecture(
+    JSON.stringify({ sections: [{ id: 'Architecture', title: 'A', description: 'd' }, { id: 'architecture', title: 'B', description: 'd' }] }),
+    { format: 'json' },
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.error, /architecture.*already used/i);
+});
+
+test('list items must share one indentation, and fields one child indentation', () => {
+  const nestedDash = `sections:\n  - id: a\n    title: A\n    description: d\n      - id: b\n        title: B\n        description: d\n`;
+  const r1 = parseArchitecture(nestedDash, { format: 'yaml' });
+  assert.equal(r1.ok, false);
+  assert.match(r1.error, /line 5/);
+
+  const unevenFields = `sections:\n  - id: a\n    title: A\n      description: d\n`;
+  const r2 = parseArchitecture(unevenFields, { format: 'yaml' });
+  assert.equal(r2.ok, false);
+  assert.match(r2.error, /line 4/);
+
+  const shallowerDash = `sections:\n    - id: a\n      title: A\n      description: d\n  - id: b\n    title: B\n    description: d\n`;
+  const r3 = parseArchitecture(shallowerDash, { format: 'yaml' });
+  assert.equal(r3.ok, false);
+  assert.match(r3.error, /line 5/);
+});
+
+test('an apostrophe inside a plain scalar is not a quote, so a trailing comment is still stripped', () => {
+  const r = parseArchitecture(`sections:\n  - id: a\n    title: A\n    description: Don't change this # note\n`, { format: 'yaml' });
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.sections[0].description, "Don't change this");
+});

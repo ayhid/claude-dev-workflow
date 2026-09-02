@@ -10,7 +10,7 @@
  *   dev.mjs reorg resolve @file  batch of {id, kind, path?, note}
  *   dev.mjs reorg map --architecture <file> @file [--ignore-inconsistencies]
  *                                the mapping onto the target set; writes migration-plan.md
- *   dev.mjs reorg rewrite [--dry-run] [--force] [--ignore-inconsistencies]
+ *   dev.mjs reorg rewrite [--dry-run] [--force] [--ignore-inconsistencies] [--repo PATH]
  *                                assemble docs-reorganized/ and migration-report.md
  *
  * Phase 3 writes under `_dev-workflow/artifacts/reorg/` — beside the ledger's
@@ -76,7 +76,7 @@ const USAGE = `usage: dev.mjs reorg <verb>
   resolve <@file>    batch of {id, kind, path?, note}, as JSON
   map --architecture <file> <@file> [--ignore-inconsistencies]
                      record the mapping onto the target set and write migration-plan.md
-  rewrite [--dry-run] [--force] [--ignore-inconsistencies]
+  rewrite [--dry-run] [--force] [--ignore-inconsistencies] [--repo PATH]
                      assemble the staged tree under docs-reorganized/ and write migration-report.md`;
 
 const ledgerPath = (root) => join(root, ARTIFACT_DIR, LEDGER);
@@ -281,11 +281,13 @@ export async function run(argv) {
   }
 
   if (verb === 'rewrite') {
-    const opts = { dryRun: false, force: false, ignore: false };
-    for (const arg of rest) {
+    const opts = { dryRun: false, force: false, ignore: false, repo: '' };
+    for (let i = 0; i < rest.length; i++) {
+      const arg = rest[i];
       if (arg === '--dry-run') opts.dryRun = true;
       else if (arg === '--force') opts.force = true;
       else if (arg === '--ignore-inconsistencies') opts.ignore = true;
+      else if (arg === '--repo') opts.repo = rest[++i] ?? '';
       else throw new UserError(`unknown argument '${arg}'\n\n${USAGE}`);
     }
 
@@ -298,9 +300,10 @@ export async function run(argv) {
     const gate = mappingGate(ledger, { ignoreInconsistencies: opts.ignore });
     if (!gate.ok) throw new UserError(gate.error);
 
-    // Sources are read from the same checkout `ingest scan` inventoried.
+    // Sources are read from the checkout `ingest scan` inventoried — the
+    // same `--repo` selection, since the ledger does not record which one.
     const vcs = makeVcs({ run: sh });
-    const dir = await vcs.mainCheckout(resolveRepo(config, root, '').dir);
+    const dir = await vcs.mainCheckout(resolveRepo(config, root, opts.repo).dir);
     const sourceText = (path) => readFileSync(resolve(dir, path), 'utf8');
 
     const sections = new Map((ledger.architecture ?? []).map((s) => [s.id, s]));
@@ -328,6 +331,17 @@ export async function run(argv) {
       }
       const before = existsSync(abs) ? readFileSync(abs, 'utf8') : null;
 
+      // Already what we would write: nothing to lose, whatever the ledger
+      // remembers — so the hash is (re)recorded rather than the file refused.
+      if (before === text) {
+        if (rewritten[file] !== sha256(text)) {
+          rewritten[file] = sha256(text);
+          wrote = true;
+        }
+        L.push(`${label('unchanged')}${rel}`);
+        written.push({ file, status: 'unchanged' });
+        continue;
+      }
       // A file we wrote and somebody edited since is not ours to overwrite
       // — the same rule `docs render` keeps. `--force` is the user saying
       // the edit is theirs to lose.
@@ -335,11 +349,6 @@ export async function run(argv) {
         L.push(`${label('refused')}${rel}   (edited by hand since it was written, or never written by this tool)`);
         written.push({ file, status: 'refused — edited by hand' });
         refused++;
-        continue;
-      }
-      if (before === text) {
-        L.push(`${label('unchanged')}${rel}`);
-        written.push({ file, status: 'unchanged' });
         continue;
       }
       const status = before === null ? 'created' : 'rewritten';
