@@ -45,6 +45,9 @@ import { UserError } from './common.mjs';
  */
 export const UPGRADE_ARGS = ['-y', 'claude-dev-workflow@latest', '--update'];
 
+/** The binary a `brew install` or `npm install -g` puts on PATH. */
+export const GLOBAL_BIN = 'claude-dev-workflow';
+
 /**
  * Render the report. Pure, and stable byte-for-byte for the same inputs — the
  * output is read by a skill as often as by a person.
@@ -104,7 +107,7 @@ export function render(state) {
  * Safe despite rewriting its own source mid-run: ESM reads a module at import
  * time, so this file is already fully in memory before npx is spawned.
  */
-async function upgrade(root, { run = sh, hasBin = has, vcs } = {}) {
+export async function upgrade(root, { run = sh, hasBin = has, vcs, latest = null } = {}) {
   const git = vcs ?? makeVcs({ run });
 
   // Consumers commit `_dev-workflow/` and `.claude/skills/dev-*`. An upgrade
@@ -122,16 +125,22 @@ async function upgrade(root, { run = sh, hasBin = has, vcs } = {}) {
     }
   }
 
-  if (!(await hasBin('npx'))) {
-    return `npx is not on PATH. Run this where it is:\n  ${UPGRADE_COMMAND} --dir ${root}`;
+  // A binary installed once — brew, npm -g — is preferred, but only when it
+  // is already the latest version: it installs *its own* payload, so a global
+  // binary that is behind would "upgrade" the project to something stale. With
+  // no latest to compare against, `npx …@latest` is the one spelling that
+  // provably resolves the newest, so it wins.
+  const spawn = await chooseUpgrade({ run, hasBin, latest });
+  if (!spawn) {
+    return `neither ${GLOBAL_BIN} nor npx is on PATH. Run this where one is:\n  ${UPGRADE_COMMAND} --dir ${root}`;
   }
 
   const before = readManifest(root)?.installation?.version ?? null;
-  const r = await run('npx', [...UPGRADE_ARGS, '--dir', root], { timeout: 300_000 });
+  const r = await run(spawn.bin, [...spawn.args, '--dir', root], { timeout: 300_000 });
 
   // Never swallow stderr from a write: the useful message is always underneath.
   if (!r.ok) {
-    throw new UserError(`${UPGRADE_COMMAND} failed (exit ${r.code}):\n${r.stderr || r.stdout || '(no output)'}`);
+    throw new UserError(`${[spawn.bin, ...spawn.args].join(' ')} failed (exit ${r.code}):\n${r.stderr || r.stdout || '(no output)'}`);
   }
 
   const after = readManifest(root)?.installation?.version ?? null;
@@ -144,6 +153,21 @@ async function upgrade(root, { run = sh, hasBin = has, vcs } = {}) {
     lines.push(`${PAYLOAD_DIR}/ and .claude/skills/dev-* have changed. Review the diff and commit it.`);
   }
   return lines.join('\n');
+}
+
+/**
+ * Which installer to spawn: the global binary when it is on PATH and reports
+ * `latest`, otherwise `npx …@latest`, otherwise nothing.
+ *
+ * @returns {Promise<{bin: string, args: string[]} | null>}
+ */
+export async function chooseUpgrade({ run, hasBin, latest }) {
+  if (latest && (await hasBin(GLOBAL_BIN))) {
+    const v = await run(GLOBAL_BIN, ['version'], { timeout: 10_000 });
+    if (v.ok && v.stdout.trim() === latest) return { bin: GLOBAL_BIN, args: ['update'] };
+  }
+  if (await hasBin('npx')) return { bin: 'npx', args: UPGRADE_ARGS };
+  return null;
 }
 
 export async function run(args = []) {
@@ -178,7 +202,7 @@ export async function run(args = []) {
 
   if (wants('--upgrade')) {
     if (!manifest) throw new UserError(`no install found under ${root} — run \`${UPGRADE_COMMAND}\` there first`);
-    process.stdout.write(`\n${await upgrade(root)}\n`);
+    process.stdout.write(`\n${await upgrade(root, { latest })}\n`);
   }
 
   // Always zero on a healthy report. "An update exists" is information, not a

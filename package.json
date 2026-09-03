@@ -4,7 +4,8 @@
   "description": "Per-project installer for the ticket-driven dev workflow — /dev-task, /dev-bug, /dev-done as Claude Code skills, against YouTrack or GitHub Issues.",
   "type": "module",
   "bin": {
-    "claude-dev-workflow": "./bin/install.mjs"
+    "claude-dev-workflow": "./bin/install.mjs",
+    "dw": "./bin/install.mjs"
   },
   "scripts": {
     "lint": "bash tests/lint.sh",

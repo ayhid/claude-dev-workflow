@@ -10,7 +10,9 @@ Produces one file, `.dev-workflow.json` at the repo root. Everything `/dev-task`
 `/dev-done` need that is project-specific lives there; nothing under `_dev-workflow/` is edited per
 project.
 
-`npx claude-dev-workflow@latest` runs a CLI wizard that covers **both trackers** deterministically:
+`dw init` — `dw` is `claude-dev-workflow`, the binary from `brew install claude-dev-workflow` or
+`npm install -g claude-dev-workflow`; or `npx claude-dev-workflow@latest` with nothing installed —
+runs a CLI wizard that covers **both trackers** deterministically:
 it asks which one the project uses first, then reads YouTrack's real state names off the API, or a
 GitHub repository's real labels off `gh`. If the user would rather click through prompts than talk,
 point them at it and stop.
@@ -356,7 +358,8 @@ non-zero exit or an error here is a real problem, not a bad connection.
 If it reports an update available, **tell the user and stop there**:
 
 - Give them the command it printed — `npx claude-dev-workflow@latest --update`, or
-  `dev.mjs version --upgrade`.
+  `node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" version --upgrade`, or `dw update`
+  where the binary is installed.
 - Say that it rewrites `_dev-workflow/` and `.claude/skills/dev-*`, both of which are committed, so
   it produces a diff they need to review and commit.
 - **Never run `--upgrade` unasked**, and never while a ticket is in progress or the tree is dirty.

@@ -52,13 +52,19 @@ Node ≥ 22, and the project you want to set up. `jq` is needed by the commit ho
 [GitHub CLI](https://cli.github.com) by `dev.mjs sync` and by every GitHub Issues project. The
 1Password CLI (`op`) is optional.
 
-One command for either tracker. The first question is which one you use, and that answer decides
-every question after it:
+Install the tool once, then initialise it in any project. One command for either tracker: the
+first question is which one you use, and that answer decides every question after it.
 
 ```bash
+brew tap ayhid/claude-dev-workflow https://github.com/ayhid/claude-dev-workflow
+brew trust --formula ayhid/claude-dev-workflow/claude-dev-workflow   # Homebrew ≥ 6: trust this one formula
+brew install claude-dev-workflow           # or: npm install -g claude-dev-workflow
+
 cd your-project
-npx claude-dev-workflow@latest
+dw init                                    # dw is claude-dev-workflow, for short
 ```
+
+Or run it without installing anything: `npx claude-dev-workflow@latest`, in the project.
 
 **GitHub Issues** needs no token — `gh` carries the authentication. The wizard proposes the
 repository from your `origin` remote, checks that `gh` can write to it, and maps each rung of your
@@ -146,7 +152,23 @@ These are deliberate, and worth preserving in any fork.
 
 ## Install
 
-`npx claude-dev-workflow@latest` runs an interactive wizard
+Three routes to the same installer. It lands the workflow **in the project** every time — the
+runtime under `_dev-workflow/`, the skills under `.claude/skills/dev-*`, the hooks in
+`.claude/settings.json` — which is what the project commits and what its hooks run from. A global
+binary only puts it there.
+
+| Route | Install once | Then, in each project |
+|---|---|---|
+| Homebrew | `brew tap ayhid/claude-dev-workflow https://github.com/ayhid/claude-dev-workflow`, `brew trust --formula ayhid/claude-dev-workflow/claude-dev-workflow`, `brew install claude-dev-workflow` | `dw init` |
+| npm | `npm install -g claude-dev-workflow` | `dw init` |
+| nothing | — | `npx claude-dev-workflow@latest` |
+
+The formula lives in this repository, so `brew upgrade` follows every release; `brew trust` is
+Homebrew 6's one-time question for anything outside homebrew-core — scoped to this one formula, not the whole tap. Both installs put two names on
+PATH, `claude-dev-workflow` and `dw`, for one binary; `dw help` lists the subcommands: `init`,
+`update`, `update --reconfigure`, `version`.
+
+`claude-dev-workflow init` runs an interactive wizard
 ([`@clack/prompts`](https://github.com/bombshell-dev/clack)) that:
 
 1. asks **which issue tracker the project uses**, first, because that answer decides every question
@@ -168,10 +190,13 @@ repository does not have yet are printed as the `gh label create` commands to ru
 is a visible, permanent change to a repository, and not the installer's to make.
 
 ```bash
-npx claude-dev-workflow@latest --dir ../other-project   # target somewhere else
-npx claude-dev-workflow@latest --print                  # show the config, write nothing
-npx claude-dev-workflow@latest --force                  # overwrite files you have edited
+claude-dev-workflow init --dir ../other-project   # target somewhere else
+claude-dev-workflow init --print                  # show the config, write nothing
+claude-dev-workflow init --force                  # overwrite files you have edited
 ```
+
+Every line here also reads as `npx claude-dev-workflow@latest <the same flags>`: the subcommands
+and the flags are two spellings of one path, and neither is going away.
 
 `npx github:ayhid/claude-dev-workflow` installs from `main`, one release ahead of npm and slower,
 because npm builds the repo's dev toolchain first. Prefer the registry unless you want unreleased
@@ -220,11 +245,21 @@ your-project/
 Updating has two modes. Both refresh the files; they differ in what happens to your config.
 
 ```bash
-npx claude-dev-workflow@latest --update                 # express: refresh the files, keep your config
-npx claude-dev-workflow@latest --update --reconfigure   # change config: refresh, then the wizard
-npx claude-dev-workflow@latest --update --print         # show what would change, write nothing
-npx claude-dev-workflow@latest --update --force         # and overwrite files you have edited
+dw update                 # express: refresh the files, keep your config
+dw update --reconfigure   # change config: refresh, then the wizard
+dw update --print         # show what would change, write nothing
+dw update --force         # and overwrite files you have edited
 ```
+
+`update` installs the version the binary carries and says so — `Project v1.18.2 → v1.19.0` — and
+it refuses to move a project *backwards* when the binary is older than the project's copy, naming
+the upgrade command for the binary instead. `--force` downgrades anyway.
+
+With no global install, each is `npx claude-dev-workflow@latest --update …` — and that is also the
+spelling `dev.mjs version` prints, since it works on every machine. A global binary updates a
+project to *its own* version, so keep it current (`brew upgrade claude-dev-workflow` or
+`npm update -g claude-dev-workflow`); `dev.mjs version --upgrade` only uses the global binary when
+it already reports the latest release, and falls back to `npx …@latest` otherwise.
 
 **Express** — `--update` — skips the wizard: it touches `_dev-workflow/`, `.claude/skills/dev-*`
 and the hook entry in `.claude/settings.json`, and leaves every value you have answered exactly as
