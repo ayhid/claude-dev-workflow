@@ -1,3 +1,10 @@
+## [1.18.3](https://github.com/ayhid/claude-dev-workflow/compare/v1.18.2...v1.18.3) (2026-09-03)
+
+
+### Bug Fixes
+
+* **version:** cover .claude/agents in the upgrade dirty-tree refusal ([#95](https://github.com/ayhid/claude-dev-workflow/issues/95)) ([22ad2de](https://github.com/ayhid/claude-dev-workflow/commit/22ad2dea2e6e3227fa235f0421b754f77a4a9df1)), closes [#92](https://github.com/ayhid/claude-dev-workflow/issues/92)
+
 ## [1.18.2](https://github.com/ayhid/claude-dev-workflow/compare/v1.18.1...v1.18.2) (2026-08-30)
 
 
