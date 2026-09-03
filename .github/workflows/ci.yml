@@ -49,6 +49,10 @@ jobs:
           # Where test:coverage writes it — the repo root, not the coverage/
           # directory Qlty's setup page assumes.
           files: lcov.info
+          # The action downloads the Qlty CLI at run time and hands it the
+          # token, so pinning the action alone freezes nothing that touches the
+          # secret. This is the release the first successful upload ran on.
+          cli-version: '0.643.0'
           # A coverage upload is reporting, not a gate. Qlty being down, rate
           # limiting, or the token being absent must not fail a green build.
           # This is the action's default; spelled out so the intent survives a
