@@ -138,8 +138,8 @@ every other command is unaffected.
 - **`mode`** — `worktree` (default) checks each ticket out in its own directory under
   `worktreeDir`, so starting a ticket never disturbs work in progress and `/dev-bug` can file
   against the running tree. `branch` switches this checkout in place and refuses when it is dirty.
-  Add `.worktrees/` to your `.gitignore`: the installer writes only `_dev-workflow/` and
-  `.claude/skills/dev-*`, and will not touch that file for you.
+  Add `.worktrees/` to your `.gitignore`: the installer writes only `_dev-workflow/`,
+  `.claude/skills/dev-*` and `.claude/agents/dev-*.md`, and will not touch that file for you.
 
 ## `commit` — the convention the hook enforces
 
@@ -296,7 +296,8 @@ along with the worktree, taking the close it had just written with it. One proje
 > [!IMPORTANT]
 > **Add it to your `.gitignore`.** Every developer appends to it, so a shared copy conflicts on
 > every merge. The workflow says this once, the first time it creates the file, rather than editing
-> your `.gitignore` — it writes only to `_dev-workflow/` and `.claude/skills/dev-*`.
+> your `.gitignore` — it writes only to `_dev-workflow/`, `.claude/skills/dev-*` and
+> `.claude/agents/dev-*.md`.
 
 Nothing may fail because of it. A log that cannot be written, or one a killed process left
 half-written, produces a line on stderr and the ticket still moves: an instrument that breaks what
@@ -339,7 +340,8 @@ written back.
 > **Add it to your `.gitignore`.** You commit `_dev-workflow/`, and a file that rewrites itself
 > daily would leave that directory permanently dirty — which destroys the drift signal
 > `git diff _dev-workflow/` is there to give you. The workflow cannot add the line itself: it writes
-> only to `_dev-workflow/` and `.claude/skills/dev-*`, and your `.gitignore` is neither.
+> only to `_dev-workflow/`, `.claude/skills/dev-*` and `.claude/agents/dev-*.md`, and your
+> `.gitignore` is none of them.
 >
 > ```gitignore
 > _dev-workflow/_config/updatecheck.json

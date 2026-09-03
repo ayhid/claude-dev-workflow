@@ -28,11 +28,19 @@ that is `gtimeout`, from coreutils — so a bash wrapper could not keep the 3s p
 installed copy in someone else's Python or Rust repo. A *third* Node hook needs this argument made
 again from scratch, not cited.
 
-## Distribution: one path
+## Distribution: three routes, one installer
 
-`npx claude-dev-workflow@latest` copies `lib/`, `scripts/` and `hooks/` into the project's
-`_dev-workflow/`, the skills into `.claude/skills/dev-*`, and merges the commit hook into
-`.claude/settings.json`. Nothing is installed globally; there is no plugin manifest.
+The binary may be global; the payload never is. `brew install claude-dev-workflow` (the formula
+lives in `Formula/`, tapped by URL, and the release job points it at each published version),
+`npm install -g claude-dev-workflow`, and `npx claude-dev-workflow@latest` with nothing
+installed all run the same `bin/install.mjs`; `dw` is the short name for the global binary, and
+`init` / `update` / `version` are subcommands the older `--update` flags still spell. In the
+project it copies `lib/`, `scripts/` and `hooks/` into `_dev-workflow/`, the skills into
+`.claude/skills/dev-*`, the subagent definitions into `.claude/agents/dev-*.md`, and merges the
+four hooks into `.claude/settings.json`. That copy is what the project commits and runs from;
+there is no plugin manifest. A global binary updates a project to *its own* version, so
+`dev.mjs version --upgrade` uses it only when it already reports the latest release and falls
+back to `npx …@latest` otherwise, and `update` refuses to move a project backwards unless forced.
 `npx github:ayhid/claude-dev-workflow` is the same install straight off `main`, one release ahead.
 
 **Always write `@latest`, everywhere — docs, help text, printed hints.** npx keys its cache on the

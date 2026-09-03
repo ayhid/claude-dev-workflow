@@ -2,7 +2,8 @@
  * Installing the workflow into a project.
  *
  * The shape: a payload directory the installer owns (`_dev-workflow/`), an adapter
- * layer it generates (`.claude/skills/dev-*`), and a manifest recording what was
+ * layer it generates (`.claude/skills/dev-*`, plus one subagent definition per
+ * file under `.claude/agents/dev-*.md`), and a manifest recording what was
  * written and with what content hash.
  *
  * The manifest is the whole point. A vendored copy inside someone's repo goes
@@ -11,7 +12,7 @@
  * "unchanged since we wrote it" (safe to overwrite) from "someone edited this"
  * (report it, leave it alone unless forced).
  *
- * **We write only inside our own two roots.** A project is shared ground: other
+ * **We write only inside our own three roots.** A project is shared ground: other
  * tools install their own payloads and their own skills alongside ours, and a
  * `.claude/` directory in particular is common property. `isOwnedPath` is the
  * hard boundary — every write and, more importantly, every *delete* is filtered
