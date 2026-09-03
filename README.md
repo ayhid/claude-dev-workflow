@@ -13,8 +13,8 @@
 ![The install wizard verifying a token, listing the projects it can see, reading that project's real State values, and writing .dev-workflow.json](https://raw.githubusercontent.com/ayhid/claude-dev-workflow/main/.github/assets/wizard.gif)
 
 Ticket-driven development against your issue tracker, [YouTrack](https://www.jetbrains.com/youtrack/)
-or [GitHub Issues](docs/configuration.md#github-issues), as ten Claude Code skills. It installs **per
-project**: nothing is registered globally, so the skills exist only in repos that use a tracker.
+or [GitHub Issues](docs/configuration.md#github-issues), as eleven Claude Code skills. It installs **per
+project**: no skill is registered globally, so they exist only in repos that use a tracker.
 
 | Skill         | What it does |
 | ------------- | ------------ |
@@ -84,7 +84,7 @@ names your instance may not have.
 To amend an existing config later, or to talk it through rather than click, run `/dev-init` in
 Claude Code instead.
 
-Either way you now have the ten skills. Start work:
+Either way you now have the eleven skills. Start work:
 
 ```
 /dev-task ABC-42
@@ -148,14 +148,14 @@ These are deliberate, and worth preserving in any fork.
 | `dev.mjs abandon` refuses while the branch has uncommitted changes or commits the base has not seen, and names each one. `--force` is the only thing that discards them. | The check runs before the first write, so a refusal really does leave everything as it was found. |
 | Nothing bypasses git hooks. No `--no-verify`, no `HUSKY=0`. | `lib/vcs.mjs` refuses to build the argv, so it holds for code added later too. |
 | Nothing force-resolves a merge conflict. `-X theirs` and `checkout --theirs` discard one side silently. | A rebase conflict aborts, leaves the branch untouched, and says which commits clashed. |
-| Nothing writes outside `_dev-workflow/` and `.claude/skills/dev-*`. That includes your `.gitignore`. | `isOwnedPath` in the installer; worktree mode prints the line to add rather than adding it. |
+| Nothing writes outside `_dev-workflow/`, `.claude/skills/dev-*` and `.claude/agents/dev-*.md`. That includes your `.gitignore`. | `isOwnedPath` in the installer; worktree mode prints the line to add rather than adding it. |
 
 ## Install
 
 Three routes to the same installer. It lands the workflow **in the project** every time — the
-runtime under `_dev-workflow/`, the skills under `.claude/skills/dev-*`, the hooks in
-`.claude/settings.json` — which is what the project commits and what its hooks run from. A global
-binary only puts it there.
+runtime under `_dev-workflow/`, the skills under `.claude/skills/dev-*`, the subagents under
+`.claude/agents/dev-*.md`, the hooks in `.claude/settings.json` — which is what the project
+commits and what its hooks run from. A global binary only puts it there.
 
 | Route | Install once | Then, in each project |
 |---|---|---|
@@ -231,7 +231,9 @@ your-project/
   .claude/
     skills/dev-task, dev-tdd, dev-bug, dev-done, dev-init, dev-standup,
            dev-ingest-docs, dev-docs-init, dev-adr, dev-review, dev-lint-rules
-    settings.json                 # the commit hook, merged in alongside your own
+    agents/dev-reader.md          # the subagents the skills dispatch, one file each
+           dev-review-blind.md, dev-review-edge.md, dev-review-audit.md
+    settings.json                 # the four hooks, merged in alongside your own
 ```
 
 > [!IMPORTANT]
@@ -261,9 +263,9 @@ project to *its own* version, so keep it current (`brew upgrade claude-dev-workf
 `npm update -g claude-dev-workflow`); `dev.mjs version --upgrade` only uses the global binary when
 it already reports the latest release, and falls back to `npx …@latest` otherwise.
 
-**Express** — `--update` — skips the wizard: it touches `_dev-workflow/`, `.claude/skills/dev-*`
-and the hook entry in `.claude/settings.json`, and leaves every value you have answered exactly as
-it is. It asks one kind of question and no other: a **setting this version has that your config
+**Express** — `--update` — skips the wizard: it touches `_dev-workflow/`, `.claude/skills/dev-*`,
+`.claude/agents/dev-*.md` and the hook entries in `.claude/settings.json`, and leaves every value
+you have answered exactly as it is. It asks one kind of question and no other: a **setting this version has that your config
 does not**. That one was never answered, so it is asked — labelled as new, on its own, with a
 default — and appended. Nothing already in `.dev-workflow.json` is rewritten, reordered or removed,
 so a config that has every setting comes out byte-identical.

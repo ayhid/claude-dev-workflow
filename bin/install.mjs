@@ -108,7 +108,8 @@ ${c.cyan('@latest')}, since npx caches by the literal spec string and a bare
 ${c.cyan('npx claude-dev-workflow')} keeps re-running whatever version it cached first.
 
 Either way it installs into the project itself: the runtime under ${c.cyan(PAYLOAD_DIR + '/')},
-the skills under ${c.cyan('.claude/skills/dev-*')}, and the hooks into ${c.cyan('.claude/settings.json')}.
+the skills under ${c.cyan('.claude/skills/dev-*')}, the subagents under ${c.cyan('.claude/agents/dev-*.md')},
+and the hooks into ${c.cyan('.claude/settings.json')}.
 That copy is what a project commits; the global binary only puts it there.
 
   ${c.cyan('init')}                    the wizard: which tracker, which states, which branch pattern
@@ -1202,7 +1203,7 @@ if (flag('--update')) {
     await p.confirm({
       message: existingManifest
         ? `${verb} the workflow files in this project (currently ${existingManifest.installation?.version ?? 'unknown'})?`
-        : `Install the workflow into ${c.cyan(PAYLOAD_DIR + '/')} and ${c.cyan('.claude/skills/')}?`,
+        : `Install the workflow into ${c.cyan(PAYLOAD_DIR + '/')}, ${c.cyan('.claude/skills/')} and ${c.cyan('.claude/agents/')}?`,
       initialValue: true,
     }),
   );

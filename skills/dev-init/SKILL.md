@@ -312,7 +312,8 @@ Field notes:
   issue whose type is not in the map is an error naming the key to add, not a guess.
 - `branch.mode: "worktree"` checks each ticket out under `worktreeDir` and leaves this checkout
   alone; `"branch"` switches in place and refuses when the tree is dirty. Add `.worktrees/` to
-  `.gitignore` yourself — the workflow writes only `_dev-workflow/` and `.claude/skills/dev-*`.
+  `.gitignore` yourself — the workflow writes only `_dev-workflow/`, `.claude/skills/dev-*` and
+  `.claude/agents/dev-*.md`.
 - `delivery.mode: "direct"` rebases onto `branch.base`, fast-forwards it and pushes, instead of
   opening a pull request. `repos[].delivery` overrides it per repo, so a monorepo can push a library
   straight to `main` while its app still goes through review.
@@ -360,8 +361,8 @@ If it reports an update available, **tell the user and stop there**:
 - Give them the command it printed — `npx claude-dev-workflow@latest --update`, or
   `node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" version --upgrade`, or `dw update`
   where the binary is installed.
-- Say that it rewrites `_dev-workflow/` and `.claude/skills/dev-*`, both of which are committed, so
-  it produces a diff they need to review and commit.
+- Say that it rewrites `_dev-workflow/`, `.claude/skills/dev-*` and `.claude/agents/dev-*.md`, all
+  of which are committed, so it produces a diff they need to review and commit.
 - **Never run `--upgrade` unasked**, and never while a ticket is in progress or the tree is dirty.
   `--upgrade` refuses on uncommitted changes in those directories anyway; do not work around it.
 
