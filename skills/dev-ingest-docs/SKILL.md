@@ -91,31 +91,35 @@ node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest next --all
 `--all` returns every pending document in one call, not just the next one — the whole batch, ready
 to hand to several readers at once instead of reading them here one at a time.
 
-**a. Dispatch — one subagent per document, three at a time.** Work through the pending list in
-batches of **at most three**. Three is deliberately conservative: enough that the fan-out is worth
-doing, small enough that a sixty-document corpus does not open sixty subagents on the first breath.
-Within a batch, dispatch one **fresh subagent per document** — never more than one document to a
-subagent. That is not caution for its own sake: an unattended pass confabulates in proportion to how
-much context it is reasoning over, not in proportion to how much work it is asked to do
+**a. Dispatch — the `dev-reader` agent, one document each, three at a time.** Work through the
+pending list in batches of **at most three**. Three is deliberately conservative: enough that the
+fan-out is worth doing, small enough that a sixty-document corpus does not open sixty subagents on
+the first breath. Within a batch, dispatch one **fresh `dev-reader` subagent per document** —
+`subagent_type: dev-reader`, never more than one document to an agent. That is not caution for its
+own sake: an unattended pass confabulates in proportion to how much context it is reasoning over,
+not in proportion to how much work it is asked to do
 (`docs/decisions/0002-retire-the-ci-posted-adversarial-reviewer.md`), and one document is the
 smallest unit this job has.
 
-Each subagent gets nothing but the document assigned to it and the claim rules above ("The rule
-that makes it worth doing"). Its job, in its own isolated context:
+`dev-reader` ships with the payload (`.claude/agents/dev-reader.md`) and carries the claim rules
+above, the verification rule and the output shape as its own system prompt — pinned to the cheapest
+model, since its job is find-and-report with a checkable output and `ingest record` refuses a bad
+one. So the dispatch message is **the document's path, and nothing else**: no rules to restate, no
+ledger, no other document. In its own isolated context it will:
 
 1. Read the whole document.
 2. Extract its claims — `text`, `kind`, `anchor`, `source`, `topic` — exactly as those rules say.
-3. **Verify before it returns.** For every `observable` claim, open the anchor itself and confirm
-   it says what the document says. This does not move to the coordinating session — a subagent that
-   reports an anchor unchecked has skipped the one thing that makes a claim worth recording.
-4. Note the document's **enrichment** too, since it is already read: a `summary` (3-5 sentences),
-   5-10 `keywords`, and `headings` — the `#`/`##`/`###` lines, verbatim. One pass, not two; §3 uses
-   this to classify relevance without re-reading every document.
-5. Return **only** a JSON object in its final message, nothing else around it — **no `questions`
-   field**: a question needs a claim id, ids are assigned by `ingest record` at the moment it runs,
-   and a subagent never sees the ledger to learn one, so it can never write a valid `because`. If
-   two of a document's own claims conflict, name that in `conflicts` by **position** in this same
-   `claims` array instead:
+3. **Verify before it returns.** For every `observable` claim it opens the anchor itself and
+   confirms it says what the document says. This does not move to the coordinating session — a
+   reader that reports an anchor unchecked has skipped the one thing that makes a claim worth
+   recording.
+4. Note the document's **enrichment** in the same pass: a `summary`, `keywords`, and `headings` —
+   the `#`/`##`/`###` lines, verbatim. One pass, not two; §3 uses this to classify relevance
+   without re-reading every document.
+5. Return **only** a JSON object in its final message — **no `questions` field**: a question needs
+   a claim id, ids are assigned by `ingest record` at the moment it runs, and a reader never sees
+   the ledger to learn one, so it can never write a valid `because`. If two of a document's own
+   claims conflict, it names that in `conflicts` by **position** in its own `claims` array:
 
 ```json
 {
@@ -127,21 +131,21 @@ that makes it worth doing"). Its job, in its own isolated context:
 }
 ```
 
-A subagent never runs `dev.mjs` itself, and never writes a file. That is what keeps the ledger
-safe: `ingest record` writes the whole ledger back to disk unlocked, so two writers landing at once
-could silently overwrite each other. One writer avoids the race outright — and that writer is you.
+A reader never runs `dev.mjs` itself, and never writes a file. That is what keeps the ledger safe:
+`ingest record` writes the whole ledger back to disk unlocked, so two writers landing at once could
+silently overwrite each other. One writer avoids the race outright — and that writer is you.
 
 If no subagent tool is available, fall back to reading the documents one at a time in this
-session — `ingest next`, without `--all`, still gives you the single next document exactly as
-before.
+session, applying the same rules yourself — `ingest next`, without `--all`, still gives you the
+single next document exactly as before.
 
-**A question can only cite a claim that is already in the ledger, and a subagent cannot see the
+**A question can only cite a claim that is already in the ledger, and a reader cannot see the
 ledger.** Its isolated context is one document, nothing else — it has no way to know another
 document's claim ids, or even that another document said something conflicting. That is what
-`conflicts` is *for*: a subagent flags only what it can actually see, a contradiction inside its
-own document, by position. Spotting a contradiction *between* documents is the coordinator's job,
-not a subagent's — by the time you have recorded two documents' claims you have both their real
-ids, which is exactly what a subagent dispatched to either one alone never has.
+`conflicts` is *for*: a reader flags only what it can actually see, a contradiction inside its own
+document, by position. Spotting a contradiction *between* documents is the coordinator's job, not a
+reader's — by the time you have recorded two documents' claims you have both their real ids, which
+is exactly what a reader dispatched to either one alone never has.
 
 **b. Collect — one result at a time, never batched.** For each subagent's result, **in order, one
 Bash call at a time — do not issue these as parallel tool calls**, and mark it read only once every

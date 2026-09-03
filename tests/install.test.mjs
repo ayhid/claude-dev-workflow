@@ -368,6 +368,25 @@ test('isOwnedPath accepts only our payload and our namespaced skills', () => {
   assert.equal(isOwnedPath(PAYLOAD_DIR), false, 'the root itself is not a file');
 });
 
+test('isOwnedPath accepts exactly our namespaced agent files, the third root (#91)', () => {
+  assert.equal(isOwnedPath(join('.claude', 'agents', 'dev-reader.md')), true);
+  assert.equal(isOwnedPath(join('.claude', 'agents', 'other.md')), false, "someone else's agent");
+  assert.equal(isOwnedPath(join('.claude', 'agents', 'dev-x', 'nested.md')), false, 'an agent is one file, not a directory');
+  assert.equal(isOwnedPath(join('.claude', 'agents', 'dev-')), false, 'the prefix alone names nothing');
+  assert.equal(isOwnedPath(join('.claude', 'agents', 'dev-reader.txt')), false, 'Claude Code reads .md only');
+  assert.equal(isOwnedPath(join('.claude', 'agents')), false, 'the directory is shared ground');
+});
+
+test('planFiles maps agents/<name>.md onto .claude/agents/<name>.md, and nothing else moves', () => {
+  const files = planFiles(SOURCE_ROOT);
+  assert.equal(files.get(join('.claude', 'agents', 'dev-reader.md')), join(SOURCE_ROOT, 'agents', 'dev-reader.md'));
+  assert.equal(files.get(join('.claude', 'agents', 'dev-reviewer.md')), join(SOURCE_ROOT, 'agents', 'dev-reviewer.md'));
+  for (const planned of files.keys()) {
+    assert.ok(isOwnedPath(planned), `${planned} is planned but not owned`);
+    if (planned.startsWith(join('.claude', 'agents'))) assert.match(planned, /^\.claude\/agents\/dev-[^/]+\.md$/);
+  }
+});
+
 test('a co-installed tool in the same project is left completely untouched', () => {
   const dir = scratch();
 
