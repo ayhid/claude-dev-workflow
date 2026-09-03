@@ -13,6 +13,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # The Qlty action reads github.token by default; without a block here it
+    # would inherit the repository default, which may be broader than a
+    # checkout needs. Coverage authenticates with its own token, so id-token
+    # (OIDC) is not required.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -35,7 +41,9 @@ jobs:
       - run: npm run test:hook
 
       - name: Upload coverage to Qlty
-        uses: qltysh/qlty-action/coverage@v2
+        # Pinned to the commit v2 pointed at when added: a moved tag would run
+        # unreviewed code with QLTY_COVERAGE_TOKEN in scope.
+        uses: qltysh/qlty-action/coverage@08a0a862c159eae9b9003081da6663d96efef637 # v2
         with:
           token: ${{ secrets.QLTY_COVERAGE_TOKEN }}
           # Where test:coverage writes it — the repo root, not the coverage/
