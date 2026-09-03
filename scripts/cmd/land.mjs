@@ -24,16 +24,16 @@ import { deliveryBase, deliveryFor } from '../../lib/config.mjs';
 import { parseCriteria } from '../../lib/metrics.mjs';
 import { sh } from '../../lib/sh.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
-import { context, locateWork, resolveRepo, UserError } from './common.mjs';
+import { context, locateWork, resolveRepo, takeValue, UserError } from './common.mjs';
 
-function parseArgs(args) {
+export function parseArgs(args) {
   const opts = { apply: false };
   const rest = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--apply') opts.apply = true;
-    else if (a === '--criteria') opts.criteria = args[++i];
-    else if (a === '--repo') opts.repo = args[++i];
+    else if (a === '--criteria') opts.criteria = takeValue(args, ++i, a);
+    else if (a === '--repo') opts.repo = takeValue(args, ++i, a);
     else if (a.startsWith('-')) throw new UserError(`unknown flag ${a}`);
     else rest.push(a);
   }

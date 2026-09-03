@@ -33,7 +33,7 @@ import { issueIdFromBranch } from '../../lib/branch.mjs';
 import { sh } from '../../lib/sh.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
 import { normalizeFindings, renderReport, verifyEvidence } from '../../lib/review.mjs';
-import { context, UserError } from './common.mjs';
+import { context, takeValue, UserError } from './common.mjs';
 
 /** Past this, a model's review quality collapses and it starts inventing findings. */
 export const LINE_CEILING = 800;
@@ -45,35 +45,15 @@ const USAGE =
   'usage: dev.mjs review [--base REF] [--out DIR] [--no-intent]\n' +
   '                  dev.mjs review --render FINDINGS.json [--payloads DIR]';
 
-/**
- * The value after a flag, or an error naming the flag that is missing one.
- *
- * `args[++i] ?? ''` is the trap this exists to close: an absent value became an
- * empty string, and an empty string is indistinguishable from the flag never
- * having been passed. `--render` with no path therefore ran the payload build
- * against the whole branch, and `--payloads` with no directory rendered a report
- * whose quotes had never been checked. Both reported success.
- *
- * A following `--flag` is rejected too, because that is the same mistake with the
- * value eaten by the next option rather than by the end of the line.
- */
-function value(args, i, flag) {
-  const v = args[i];
-  if (v === undefined || v.startsWith('--')) {
-    throw new UserError(`${flag} needs a value — ${USAGE}`);
-  }
-  return v;
-}
-
 function parseArgs(args) {
   const opts = { base: '', out: '', intent: true, render: '', payloads: '' };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if (a === '--base') opts.base = value(args, ++i, a);
-    else if (a === '--out') opts.out = value(args, ++i, a);
+    if (a === '--base') opts.base = takeValue(args, ++i, a);
+    else if (a === '--out') opts.out = takeValue(args, ++i, a);
     else if (a === '--no-intent') opts.intent = false;
-    else if (a === '--render') opts.render = value(args, ++i, a);
-    else if (a === '--payloads') opts.payloads = value(args, ++i, a);
+    else if (a === '--render') opts.render = takeValue(args, ++i, a);
+    else if (a === '--payloads') opts.payloads = takeValue(args, ++i, a);
     else throw new UserError(`unknown argument '${a}' — ${USAGE}`);
   }
   return opts;

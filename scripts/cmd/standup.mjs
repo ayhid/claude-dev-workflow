@@ -29,18 +29,18 @@ import { describeStandup, inFlight, mergedSince } from '../../lib/standup.mjs';
 import { PR_UNKNOWN } from '../../lib/status.mjs';
 import { cutoffFrom, extractIssueIds, parseSince } from '../../lib/sync.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
-import { context, emitUpdateBanner, resolveRepo, UserError } from './common.mjs';
+import { context, emitUpdateBanner, resolveRepo, takeValue, UserError } from './common.mjs';
 import { repoDirs, scanRepos } from './status.mjs';
 
 const USAGE = 'usage: dev.mjs standup [--since 1d] [--stale 7d] [--repo PATH]';
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const opts = { since: '1d', stale: '7d', repo: '' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--since') opts.since = argv[++i] ?? '';
-    else if (a === '--stale') opts.stale = argv[++i] ?? '';
-    else if (a === '--repo') opts.repo = argv[++i] ?? '';
+    if (a === '--since') opts.since = takeValue(argv, ++i, a);
+    else if (a === '--stale') opts.stale = takeValue(argv, ++i, a);
+    else if (a === '--repo') opts.repo = takeValue(argv, ++i, a);
     else throw new UserError(`unknown argument '${a}'\n\n${USAGE}`);
   }
   return opts;
