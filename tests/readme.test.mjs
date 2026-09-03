@@ -39,12 +39,15 @@ test('the "What lands in the project" tree lists every skill and every agent shi
   assert.ok(start > -1, 'README has a "What lands in the project" section');
   const fence = README.indexOf('```', start);
   const tree = README.slice(fence, README.indexOf('```', fence + 3));
+  // Whole names, not substrings: `dev-review` is a prefix of `dev-review-blind.md`,
+  // so a substring match would keep passing after the skill itself was dropped.
+  const names = new Set(tree.match(/dev-[a-z-]+(?:\.md)?/g) ?? []);
 
   for (const skill of skills) {
-    assert.ok(tree.includes(skill), `tree omits skill ${skill}`);
+    assert.ok(names.has(skill), `tree omits skill ${skill}`);
   }
   for (const agent of agents) {
-    assert.ok(tree.includes(agent), `tree omits agent ${agent}`);
+    assert.ok(names.has(agent), `tree omits agent ${agent}`);
   }
   assert.ok(/agents\//.test(tree), 'tree names the .claude/agents/ root');
 });

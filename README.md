@@ -148,7 +148,7 @@ These are deliberate, and worth preserving in any fork.
 | `dev.mjs abandon` refuses while the branch has uncommitted changes or commits the base has not seen, and names each one. `--force` is the only thing that discards them. | The check runs before the first write, so a refusal really does leave everything as it was found. |
 | Nothing bypasses git hooks. No `--no-verify`, no `HUSKY=0`. | `lib/vcs.mjs` refuses to build the argv, so it holds for code added later too. |
 | Nothing force-resolves a merge conflict. `-X theirs` and `checkout --theirs` discard one side silently. | A rebase conflict aborts, leaves the branch untouched, and says which commits clashed. |
-| Nothing writes outside `_dev-workflow/`, `.claude/skills/dev-*` and `.claude/agents/dev-*.md`. That includes your `.gitignore`. | `isOwnedPath` in the installer; worktree mode prints the line to add rather than adding it. |
+| The installer writes nothing outside `_dev-workflow/`, `.claude/skills/dev-*` and `.claude/agents/dev-*.md`, and merges rather than rewrites the one shared file, `.claude/settings.json`. That includes your `.gitignore`. | `isOwnedPath` in the installer; worktree mode prints the line to add rather than adding it. |
 
 ## Install
 
