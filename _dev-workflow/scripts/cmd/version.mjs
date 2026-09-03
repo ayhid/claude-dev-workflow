@@ -110,15 +110,17 @@ export function render(state) {
 export async function upgrade(root, { run = sh, hasBin = has, vcs, latest = null } = {}) {
   const git = vcs ?? makeVcs({ run });
 
-  // Consumers commit `_dev-workflow/` and `.claude/skills/dev-*`. An upgrade
-  // produces a diff they have to review, so it must not land on top of edits
-  // already sitting in those directories.
-  const owned = [PAYLOAD_DIR, join('.claude', 'skills')].filter((p) => existsSync(join(root, p)));
+  // Consumers commit `_dev-workflow/`, `.claude/skills/dev-*` and
+  // `.claude/agents/dev-*.md`. An upgrade produces a diff they have to review,
+  // so it must not land on top of edits already sitting in those directories.
+  const owned = [PAYLOAD_DIR, join('.claude', 'skills'), join('.claude', 'agents')].filter((p) =>
+    existsSync(join(root, p)),
+  );
   if (owned.length) {
     const state = await git.isClean(root, { paths: owned });
     if (state.ok && !state.clean) {
       throw new UserError(
-        `refusing to upgrade: ${owned.join(' and ')} have uncommitted changes.\n` +
+        `refusing to upgrade: ${new Intl.ListFormat('en').format(owned)} have uncommitted changes.\n` +
           `${state.dirty.map((l) => `  ${l}`).join('\n')}\n` +
           'Commit or stash them first — an upgrade rewrites these files.',
       );
@@ -150,7 +152,8 @@ export async function upgrade(root, { run = sh, hasBin = has, vcs, latest = null
     lines.push(`Still on ${after} — nothing changed.`);
   } else {
     lines.push(`Now on ${after ?? 'unknown'}${before ? ` (was ${before})` : ''}.`);
-    lines.push(`${PAYLOAD_DIR}/ and .claude/skills/dev-* have changed. Review the diff and commit it.`);
+    const rewritten = new Intl.ListFormat('en').format([`${PAYLOAD_DIR}/`, '.claude/skills/dev-*', '.claude/agents/dev-*.md']);
+    lines.push(`${rewritten} have changed. Review the diff and commit it.`);
   }
   return lines.join('\n');
 }
