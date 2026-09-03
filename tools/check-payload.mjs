@@ -37,7 +37,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'n
 import { join, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { MANIFEST_PATH, PAYLOAD_DIR, SKILLS_DIR, isOwnedPath, planFiles, readManifest } from '../bin/lib/payload.mjs';
+import { AGENTS_DIR, MANIFEST_PATH, PAYLOAD_DIR, SKILLS_DIR, isOwnedPath, planFiles, readManifest } from '../bin/lib/payload.mjs';
 
 /**
  * Unplanned paths that are nonetheless legitimate.
@@ -55,6 +55,12 @@ const UNPLANNED_BUT_OURS = [join(PAYLOAD_DIR, '_config'), join(PAYLOAD_DIR, 'art
 
 /** Every file under `dir`, relative to `base`. */
 function walk(dir, base, out = []) {
+  // A root can be one file since agents joined the plan (#91): `.claude/agents/
+  // dev-reader.md` is a root of its own, and there is nothing under it to walk.
+  if (statSync(dir).isFile()) {
+    out.push(relative(base, dir));
+    return out;
+  }
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) walk(full, base, out);
@@ -130,6 +136,19 @@ function installedRoots(planned, projectDir) {
     }
   }
 
+  // Agents are the same case one level flatter: a root *per file*. Delete
+  // `agents/dev-old.md` from the source and nothing plans its installed copy,
+  // so the directory is asked, and `isOwnedPath` again filters ours from a
+  // neighbour's.
+  const absAgents = join(projectDir, AGENTS_DIR);
+  if (existsSync(absAgents) && statSync(absAgents).isDirectory()) {
+    for (const entry of readdirSync(absAgents, { withFileTypes: true })) {
+      if (!entry.isFile()) continue;
+      const candidate = join(AGENTS_DIR, entry.name);
+      if (isOwnedPath(candidate)) roots.add(candidate);
+    }
+  }
+
   return [...roots].sort();
 }
 
@@ -171,18 +190,24 @@ export function checkPayload({ sourceRoot, projectDir = sourceRoot }) {
   // installer's delete pass would remove on the next run. Left alone it is a
   // file that ships to nobody and runs here, which is the same class of lie as
   // a stale one.
-  const orphan = [];
+  // A derived root can be wider than what we own — `.claude/agents` is the
+  // parent of a planned agent file, and a neighbour's agent sits beside ours —
+  // so every walked file is asked `isOwnedPath` again, the same filter the
+  // installer's delete pass applies. A set, because a file can be reached from
+  // two roots (its own, and its parent) and is one orphan, not two.
+  const orphan = new Set();
   for (const root of installedRoots(planned, projectDir)) {
     const abs = join(projectDir, root);
     if (!existsSync(abs)) continue;
     for (const rel of walk(abs, projectDir)) {
       if (planned.has(rel)) continue;
+      if (!isOwnedPath(rel)) continue;
       if (UNPLANNED_BUT_OURS.some((p) => rel === p || rel.startsWith(`${p}${sep}`))) continue;
-      orphan.push(rel);
+      orphan.add(rel);
     }
   }
 
-  return { stale: stale.sort(), missing: missing.sort(), orphan: orphan.sort() };
+  return { stale: stale.sort(), missing: missing.sort(), orphan: [...orphan].sort() };
 }
 
 /**

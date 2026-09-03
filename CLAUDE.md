@@ -195,6 +195,22 @@ The consequence for design: when a skill tells the model to go and work somethin
 a command could hand it over instead. That is the same question `lib/vcs.mjs` and the metrics
 wrapper answer with a choke point — done once, in code, rather than re-derived per session.
 
+4. **What no command can do, a subagent does — on the model its task class earns.** A document, a
+   diff with its surrounding source, a repository probe: material that enters the main session is
+   re-read on every turn after, at the main model's price. A subagent starts from its own small
+   context and returns one compact message, so the material never lands here. Definitions ship
+   under `agents/` (installed to `.claude/agents/dev-*.md`, ADR 0003) and pin the model by **what
+   a wrong answer costs**: *find and report* — extract, verify, probe, with an output the tool can
+   refuse — on the cheapest model (`dev-reader`); *judge bounded material* — a lens over a diff, a
+   pair of documents — on the middle model (`dev-review-blind`, `-edge`, `-audit`: one agent per
+   lens, so each carries its lens and its file entitlement as a fixed prefix); *decide with the
+   user* — criteria,
+   arbitration, options, plans — never delegated. Two rules keep it cheap: each dispatch pays its
+   own prompt-cache write, so delegate large or repeated reads only, never a one-liner; and a
+   definition keeps its rules first and its per-dispatch input last, so repeated dispatches of one
+   agent share a cached prefix. The main session stays on one model and one effort, since
+   switching either invalidates its own cache.
+
 ## Instrumentation
 
 `lib/metrics.mjs` decides the format; the append is one wrapper around `setState` in
@@ -225,12 +241,13 @@ places for the seventh to be forgotten.
 
 ## Layout
 
-- `lib/`, `scripts/`, `hooks/`, `skills/` — **copied into user projects.** Adding a file here
-  ships it; `bin/lib/payload.mjs` picks these up wholesale, so nothing repo-specific may live in
-  them.
+- `lib/`, `scripts/`, `hooks/`, `skills/`, `agents/` — **copied into user projects.** Adding a file
+  here ships it; `bin/lib/payload.mjs` picks these up wholesale, so nothing repo-specific may live
+  in them.
 - `bin/` — the installer. Runs from the npx checkout only, never from a user's project.
 - `docs/` — user-facing reference, listed in `package.json` `files` so it ships in the tarball.
-  Never copied into a project: `planFiles` reads `lib/`, `scripts/`, `hooks/` and `skills/` only.
+  Never copied into a project: `planFiles` reads `lib/`, `scripts/`, `hooks/`, `skills/` and
+  `agents/` only.
   `README.md` links into it, so a heading rename there breaks a link here.
 - `CONTRIBUTING.md` — how to verify a write path, for outside contributors. Repo-local; this file
   stays the architecture document.
@@ -238,7 +255,8 @@ places for the seventh to be forgotten.
   repo-local development only. Never referenced at runtime, never copied into a project. The
   `devDependencies` they pull in are the *only* dependencies this repo may grow; `lib/` and
   `scripts/` stay on `node:` builtins, and `tests/version.test.mjs` fails if they do not.
-- `_dev-workflow/`, `.claude/skills/dev-*`, `.dev-workflow.json` — **installer output, not source.**
+- `_dev-workflow/`, `.claude/skills/dev-*`, `.claude/agents/dev-*.md`, `.dev-workflow.json` —
+  **installer output, not source.**
   See "This repo is one of its own consumers" below. `.claude/` otherwise holds repo-local
   development config: `settings.json`, its hooks, and the `release` / `workflow-audit` skills.
 - Enforcement belongs in `hooks/`; repeatable procedure belongs in a skill; only always-true
@@ -250,10 +268,11 @@ user has installed, and `task` / `bug` / `done` are far too generic to claim.
 ## What we own in a user's project, and nothing else
 
 A project is shared ground — other skill-based tools install their own payload directories and
-their own skills alongside ours. We write to exactly two roots:
+their own skills alongside ours. We write to exactly three roots:
 
 - `_dev-workflow/**`
 - `.claude/skills/dev-*/**`
+- `.claude/agents/dev-*.md` — one file per subagent definition, never a directory (ADR 0003)
 
 `isOwnedPath` in `bin/lib/payload.mjs` is that boundary, and **every write and every delete goes
 through it** — including the removal pass, so a hand-edited or corrupted manifest still cannot

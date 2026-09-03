@@ -6,3 +6,4 @@
 | --- | --- | --- | --- |
 | [0001](0001-a-pretooluse-hook-enforces-adr-immutability.md) | A PreToolUse hook enforces ADR immutability | accepted | 2026-08-28 |
 | [0002](0002-retire-the-ci-posted-adversarial-reviewer.md) | Retire the CI-posted adversarial reviewer; keep the lenses local | accepted | 2026-08-30 |
+| [0003](0003-ship-subagent-definitions-as-a-third.md) | Ship subagent definitions as a third owned root, with a model per task class | accepted | 2026-09-03 |

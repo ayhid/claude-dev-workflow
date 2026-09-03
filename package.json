@@ -28,6 +28,7 @@
     "bin",
     "lib",
     "skills",
+    "agents",
     "scripts",
     "hooks",
     "examples",

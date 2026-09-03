@@ -55,37 +55,34 @@ be able to see this session at all.
   review 2,000 lines does not review them more shallowly, it starts inventing findings, and a
   fabricated finding costs more of the user's trust than a missed one.
 
-## 2. Run the lenses
+## 2. Run the lenses — three agents, one per lens, in parallel
 
-### blind — in a fresh subagent, always
+**No lens runs in this session.** The blind lens cannot: its entire premise is that the reviewer
+has not been told what the change is for, and you have just read the ticket, or written the code —
+you cannot un-know it, and a lens that is blind in name only produces confirmation dressed as
+review. The other two *could* run here, and did, at the price of the whole diff and the full
+surrounding source entering this session's context and being paid for again on every turn after.
+So all three go out, each to its own fresh subagent, dispatched together so they run at once:
 
-**This lens cannot run in this session.** Its entire premise is that the reviewer has not been told
-what the change is for; you have just read the ticket, or written the code. You cannot un-know it,
-and a lens that is blind in name only produces confirmation dressed as review.
+| Agent | `subagent_type` | Reads from the payload dir | Why exactly that |
+|---|---|---|---|
+| blind | `dev-review-blind` | `change.diff` | No ticket, no PR description, no summary of what you were trying to do, no file paths beyond what the patch itself carries. Blind means blind. |
+| edge | `dev-review-edge` | `change.diff`, `context.txt` | An edge case is only real if the surrounding code fails to handle it, and the patch alone does not show the guard three lines above the hunk. |
+| audit | `dev-review-audit` | `change.diff`, `context.txt`, `intent.md` | `intent.md` is the ticket, fetched by the payload command from the tracker; the audit checks the change against it. |
 
-So dispatch it to a **fresh subagent** whose whole context is the lens plus the diff:
+Each agent ships with the payload (`.claude/agents/dev-review-<lens>.md`), pinned to the middle
+model — a lens is judgement over bounded material that a person then reads — and carries its own
+entitlement: which files it may open, and that it reads its lens from
+`.claude/skills/dev-review/lenses/<lens>.md` first, so the lens text has one source. The dispatch
+message is therefore **the payload directory's path, and nothing else** — not the lens, not the
+ticket, not a word about the change.
 
-- system/instructions: the contents of `lenses/blind.md`, verbatim
-- input: the contents of `change.diff`, and **nothing else** — no ticket, no PR description, no
-  summary of what you were trying to do, no file paths beyond what the patch itself carries
+If `intent.md` reports that no issue ID was in the branch name, the audit agent reports that as
+**its first finding** rather than stopping: work with no recorded why is the most expensive thing
+that lens looks for.
 
-If no subagent tool is available, **say the blind lens was skipped and why**. Do not run it here
-and call it blind.
-
-### edge — in this session
-
-Read `lenses/edge.md` and apply it to `change.diff` plus `context.txt`. The full source matters
-here: an edge case is only real if the surrounding code fails to handle it, and the patch alone
-does not show the guard three lines above the hunk.
-
-### audit — in this session
-
-Read `lenses/audit.md` and apply it to all three payloads. `intent.md` is the ticket, fetched by
-the payload command from the tracker.
-
-If `intent.md` reports that no issue ID was in the branch name, that is **pass 1's first finding**,
-not a reason to skip the lens: work with no recorded why is the most expensive thing this lens
-looks for.
+If no subagent tool is available, run edge and audit here, reading their lens files and payloads
+yourself, and **say the blind lens was skipped and why**. Do not run it here and call it blind.
 
 ## 3. Report
 

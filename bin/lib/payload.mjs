@@ -63,6 +63,14 @@ export { MANIFEST_PATH, PAYLOAD_DIR, detectDrift, isGeneratedPath, readManifest 
  * spelling of this path there would be the drift this module exists to prevent.
  */
 export const SKILLS_DIR = join('.claude', 'skills');
+
+/**
+ * Where a project's subagent definitions live — the third root (#91, ADR 0003).
+ * One Markdown file per agent, `dev-<name>.md`, the same prefix the skills
+ * claim: Claude Code reads agents from here, and a skill dispatches one by the
+ * name in its frontmatter.
+ */
+export const AGENTS_DIR = join('.claude', 'agents');
 const SETTINGS_PATH = join('.claude', 'settings.json');
 
 /** Directories copied verbatim from the distribution into `_dev-workflow/`. */
@@ -106,6 +114,9 @@ export const SHIPPED_HOOKS = [
 /** The skill-name prefix we claim. Anything else in .claude/skills/ is someone else's. */
 export const SKILL_PREFIX = 'dev-';
 
+/** The same prefix, on agent files. One namespace for everything of ours a project can see. */
+export const AGENT_PREFIX = SKILL_PREFIX;
+
 /**
  * May the installer write to, or delete, this project-relative path?
  *
@@ -130,6 +141,12 @@ export function isOwnedPath(rel) {
 
   if (parts[0] === '.claude' && parts[1] === 'skills') {
     return parts.length > 3 && parts[2].startsWith(SKILL_PREFIX);
+  }
+
+  // An agent is exactly one file, `.claude/agents/dev-<name>.md`: not a
+  // directory, not any other extension, not the bare prefix.
+  if (parts[0] === '.claude' && parts[1] === 'agents') {
+    return parts.length === 3 && /^dev-[^/]+\.md$/.test(parts[2]) && parts[2] !== `${AGENT_PREFIX}.md`;
   }
 
   return false;
@@ -184,6 +201,16 @@ export function planFiles(sourceRoot) {
       for (const rel of walk(from)) {
         files.set(join(SKILLS_DIR, entry.name, rel), join(from, rel));
       }
+    }
+  }
+
+  // Agents are the other adapter layer: one file each, out of `agents/` and
+  // into the directory Claude Code reads subagent definitions from.
+  const agentsSrc = join(sourceRoot, 'agents');
+  if (existsSync(agentsSrc)) {
+    for (const entry of readdirSync(agentsSrc, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+      files.set(join(AGENTS_DIR, entry.name), join(agentsSrc, entry.name));
     }
   }
 
@@ -256,7 +283,7 @@ export function installPayload({ sourceRoot, projectDir, version, force = false,
   for (const rel of planned.keys()) {
     if (!isOwnedPath(rel)) {
       throw new Error(
-        `refusing to install: ${rel} is outside ${PAYLOAD_DIR}/ and .claude/skills/${SKILL_PREFIX}*`,
+        `refusing to install: ${rel} is outside ${PAYLOAD_DIR}/, .claude/skills/${SKILL_PREFIX}* and .claude/agents/${AGENT_PREFIX}*.md`,
       );
     }
   }
