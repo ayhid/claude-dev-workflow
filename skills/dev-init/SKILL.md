@@ -358,7 +358,8 @@ non-zero exit or an error here is a real problem, not a bad connection.
 If it reports an update available, **tell the user and stop there**:
 
 - Give them the command it printed — `npx claude-dev-workflow@latest --update`, or
-  `dev.mjs version --upgrade`, or `dw update` where the binary is installed.
+  `node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" version --upgrade`, or `dw update`
+  where the binary is installed.
 - Say that it rewrites `_dev-workflow/` and `.claude/skills/dev-*`, both of which are committed, so
   it produces a diff they need to review and commit.
 - **Never run `--upgrade` unasked**, and never while a ticket is in progress or the tree is dirty.

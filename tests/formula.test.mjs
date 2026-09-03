@@ -7,10 +7,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { bumpFormula, fetchTarballSha256, formulaVersion, tarballUrl } from '../tools/bump-formula.mjs';
 
-const ROOT = new URL('..', import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const FORMULA = readFileSync(join(ROOT, 'Formula', 'claude-dev-workflow.rb'), 'utf8');
 const SHA = 'a'.repeat(64);
 

@@ -29,8 +29,10 @@ export function parseCommand(argv) {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (VALUE_FLAGS.includes(arg)) {
+      // A value is whatever follows, unless it is one of our own flags: a
+      // directory called `-workspace` is a legitimate target.
       const value = argv[i + 1];
-      if (!value || value.startsWith('-')) return error(`${arg} needs a value`);
+      if (value === undefined || VALUE_FLAGS.includes(value) || BOOL_FLAGS.includes(value)) return error(`${arg} needs a value`);
       flags[arg.slice(2)] = value;
       i++;
       continue;

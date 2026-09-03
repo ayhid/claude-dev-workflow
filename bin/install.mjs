@@ -99,6 +99,7 @@ ${c.bold('claude-dev-workflow')} — set up the ticket workflow for a project   
 Install the tool once, then initialise it in any project:
 
   ${c.cyan('brew tap ayhid/claude-dev-workflow https://github.com/ayhid/claude-dev-workflow')}
+  ${c.cyan('brew trust --formula ayhid/claude-dev-workflow/claude-dev-workflow')}
   ${c.cyan('brew install claude-dev-workflow')}         or   ${c.cyan('npm install -g claude-dev-workflow')}
   ${c.cyan('cd your-project && dw init')}
 

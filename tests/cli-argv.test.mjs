@@ -52,3 +52,8 @@ test('a --dir with no value is an error, not the cwd', () => {
   assert.equal(r.command, 'error');
   assert.match(r.error, /--dir/);
 });
+
+test('a dash-prefixed directory name is a value, not a flag', () => {
+  assert.equal(parseCommand(['update', '--dir', '-workspace']).flags.dir, '-workspace');
+  assert.equal(parseCommand(['--dir', '--print']).command, 'error', 'one of our own flags is never a directory');
+});

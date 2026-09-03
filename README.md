@@ -57,7 +57,7 @@ first question is which one you use, and that answer decides every question afte
 
 ```bash
 brew tap ayhid/claude-dev-workflow https://github.com/ayhid/claude-dev-workflow
-brew trust ayhid/claude-dev-workflow       # Homebrew ≥ 6 asks this once for a third-party tap
+brew trust --formula ayhid/claude-dev-workflow/claude-dev-workflow   # Homebrew ≥ 6: trust this one formula
 brew install claude-dev-workflow           # or: npm install -g claude-dev-workflow
 
 cd your-project
@@ -159,12 +159,12 @@ binary only puts it there.
 
 | Route | Install once | Then, in each project |
 |---|---|---|
-| Homebrew | `brew tap ayhid/claude-dev-workflow https://github.com/ayhid/claude-dev-workflow`, `brew trust ayhid/claude-dev-workflow`, `brew install claude-dev-workflow` | `dw init` |
+| Homebrew | `brew tap ayhid/claude-dev-workflow https://github.com/ayhid/claude-dev-workflow`, `brew trust --formula ayhid/claude-dev-workflow/claude-dev-workflow`, `brew install claude-dev-workflow` | `dw init` |
 | npm | `npm install -g claude-dev-workflow` | `dw init` |
 | nothing | — | `npx claude-dev-workflow@latest` |
 
 The formula lives in this repository, so `brew upgrade` follows every release; `brew trust` is
-Homebrew 6's one-time question for any tap outside homebrew-core. Both installs put two names on
+Homebrew 6's one-time question for anything outside homebrew-core — scoped to this one formula, not the whole tap. Both installs put two names on
 PATH, `claude-dev-workflow` and `dw`, for one binary; `dw help` lists the subcommands: `init`,
 `update`, `update --reconfigure`, `version`.
 
