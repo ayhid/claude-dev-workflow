@@ -25,18 +25,18 @@ import { loadConfig } from '../../lib/config.mjs';
 import { detectLinters, languagesOf, renderRules, statedSources } from '../../lib/rules.mjs';
 import { sh } from '../../lib/sh.mjs';
 import { ARTIFACT_DIR } from './ingest.mjs';
-import { resolveRepo, UserError } from './common.mjs';
+import { resolveRepo, takeValue, UserError } from './common.mjs';
 
 const LEDGER = 'ledger.json';
 
 const USAGE = 'usage: dev.mjs rules [--repo PATH] [--json]';
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const opts = { json: false, repo: '' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--json') opts.json = true;
-    else if (a === '--repo') opts.repo = argv[++i] ?? '';
+    else if (a === '--repo') opts.repo = takeValue(argv, ++i, a);
     else if (a === '--help' || a === '-h') opts.help = true;
     else throw new UserError(`unknown argument '${a}'\n\n${USAGE}`);
   }

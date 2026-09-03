@@ -30,17 +30,17 @@ import { rankOf } from '../../lib/config.mjs';
 import { sh } from '../../lib/sh.mjs';
 import { UNKNOWN } from '../../lib/sync.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
-import { context, locateWork, preview, resolveRepo, UserError } from './common.mjs';
+import { context, locateWork, preview, resolveRepo, takeValue, UserError } from './common.mjs';
 
 const USAGE = 'usage: dev.mjs resume [ISSUE-ID] [--repo PATH] [--print]';
 
-function parseArgs(args) {
+export function parseArgs(args) {
   const opts = { print: false };
   const rest = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--print' || a === '--dry-run') opts.print = true;
-    else if (a === '--repo') opts.repo = args[++i];
+    else if (a === '--repo') opts.repo = takeValue(args, ++i, a);
     else if (a.startsWith('-')) throw new UserError(`unknown flag ${a}\n\n${USAGE}`);
     else rest.push(a);
   }

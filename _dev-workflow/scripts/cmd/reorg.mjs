@@ -50,7 +50,7 @@ import {
   shortlistPairs,
 } from '../../lib/reorg.mjs';
 import { ARTIFACT_DIR } from './ingest.mjs';
-import { context, readArg, resolveRepo, UserError } from './common.mjs';
+import { context, readArg, resolveRepo, takeValue, UserError } from './common.mjs';
 
 const LEDGER = 'ledger.json';
 
@@ -138,6 +138,19 @@ function requireLedger(root) {
   const ledger = loadLedger(root);
   if (!ledger) throw new UserError('no survey has been started here — run: dev.mjs ingest scan');
   return ledger;
+}
+
+export function parseRewriteArgs(rest) {
+  const opts = { dryRun: false, force: false, ignore: false, repo: '' };
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i];
+    if (arg === '--dry-run') opts.dryRun = true;
+    else if (arg === '--force') opts.force = true;
+    else if (arg === '--ignore-inconsistencies') opts.ignore = true;
+    else if (arg === '--repo') opts.repo = takeValue(rest, ++i, arg);
+    else throw new UserError(`unknown argument '${arg}'\n\n${USAGE}`);
+  }
+  return opts;
 }
 
 export async function run(argv) {
@@ -281,15 +294,7 @@ export async function run(argv) {
   }
 
   if (verb === 'rewrite') {
-    const opts = { dryRun: false, force: false, ignore: false, repo: '' };
-    for (let i = 0; i < rest.length; i++) {
-      const arg = rest[i];
-      if (arg === '--dry-run') opts.dryRun = true;
-      else if (arg === '--force') opts.force = true;
-      else if (arg === '--ignore-inconsistencies') opts.ignore = true;
-      else if (arg === '--repo') opts.repo = rest[++i] ?? '';
-      else throw new UserError(`unknown argument '${arg}'\n\n${USAGE}`);
-    }
+    const opts = parseRewriteArgs(rest);
 
     const ledger = requireLedger(root);
     if (!ledger.mapping?.length) {

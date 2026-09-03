@@ -20,14 +20,14 @@ import { PR_UNKNOWN, describeBoard, describeCheckout } from '../../lib/status.mj
 import { issueIdFromBranch } from '../../lib/branch.mjs';
 import { sh, shJson, has } from '../../lib/sh.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
-import { context, emitUpdateBanner, resolveRepo, UserError } from './common.mjs';
+import { context, emitUpdateBanner, resolveRepo, takeValue, UserError } from './common.mjs';
 
-function parseArgs(args) {
+export function parseArgs(args) {
   const opts = { all: false, repo: '' };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--all') opts.all = true;
-    else if (a === '--repo') opts.repo = args[++i] ?? '';
+    else if (a === '--repo') opts.repo = takeValue(args, ++i, a);
     else throw new UserError(`unknown argument '${a}' — usage: dev.mjs status [--all] [--repo PATH]`);
   }
   return opts;
