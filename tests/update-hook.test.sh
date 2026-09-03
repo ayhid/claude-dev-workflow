@@ -98,7 +98,8 @@ run_case 'a registry that refuses the connection says nothing' --silent "$CFG_OK
 dir="$TMP/never-writes"; build_project "$dir" "$CFG_OK" 1.0.0 "$BEHIND_CACHE"
 before=$(cat "$dir/_dev-workflow/_config/manifest.json")
 printf '{"source":"startup"}' | CLAUDE_PROJECT_DIR="$dir" "$NODE_BIN" "$dir/_dev-workflow/hooks/session-updatecheck.mjs" >/dev/null 2>&1
-if [ "$(cat "$dir/_dev-workflow/_config/manifest.json")" = "$before" ] && [ "$(ls "$dir/_dev-workflow" | sort | tr '\n' ' ')" = "_config hooks lib " ]; then
+entries=$(cd "$dir/_dev-workflow" && printf '%s ' *)
+if [ "$(cat "$dir/_dev-workflow/_config/manifest.json")" = "$before" ] && [ "$entries" = "_config hooks lib " ]; then
   pass=$((pass + 1)); printf '  ok   it reports and never updates: the install is untouched\n'
 else
   fail=$((fail + 1)); printf '  FAIL it reports and never updates: something under _dev-workflow/ changed\n'
@@ -119,21 +120,48 @@ SERVER_PID=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$SERVER_OUT" ] && break; sleep 0.2; done
 PORT=$(cat "$SERVER_OUT" 2>/dev/null || echo 1)
 
+now_ms() { "$NODE_BIN" -p 'Date.now()'; }
+
 dir="$TMP/timeout"; build_project "$dir" "$CFG_OK" 1.0.0 --none
-started=$SECONDS
+started=$(now_ms)
 out=$(printf '{"source":"startup"}' \
   | CLAUDE_PROJECT_DIR="$dir" DEV_WORKFLOW_REGISTRY_URL="http://127.0.0.1:$PORT/dist-tags" \
     "$NODE_BIN" "$dir/_dev-workflow/hooks/session-updatecheck.mjs" 2>/dev/null)
 code=$?
-elapsed=$((SECONDS - started))
+elapsed=$(( $(now_ms) - started ))
 problem=''
 [ "$code" = 0 ] || problem="exited $code"
 [ -z "$out" ] || problem="${problem:+$problem; }printed something for a registry that never answered: $out"
-[ "$elapsed" -le 6 ] || problem="${problem:+$problem; }took ${elapsed}s, the timeout did not fire"
+# The budget is 3000ms. The margin is one node boot and a fetch abort, not a
+# second budget: anything past 4500ms is the ceiling not firing.
+[ "$elapsed" -le 4500 ] || problem="${problem:+$problem; }took ${elapsed}ms against a 3000ms budget"
 if [ -z "$problem" ]; then
-  pass=$((pass + 1)); printf '  ok   a registry that hangs is abandoned, silently (%ss)\n' "$elapsed"
+  pass=$((pass + 1)); printf '  ok   a registry that hangs is abandoned, silently (%sms)\n' "$elapsed"
 else
   fail=$((fail + 1)); printf '  FAIL a registry that hangs is abandoned, silently\n       %s\n' "$problem"
+fi
+
+# --- stdin that never closes ----------------------------------------------------
+#
+# A host that writes the event and keeps the pipe open must not hold the hook:
+# a synchronous read of fd 0 would block the event loop, and a blocked loop is
+# a budget timer that never fires.
+dir="$TMP/stdin-open"; build_project "$dir" "$CFG_OK" 1.0.0 "$BEHIND_CACHE"
+started=$(now_ms)
+# A process substitution, not a pipe: a pipeline inside $( ) would be waited
+# on as a whole, sleep included, and measure the writer instead of the hook.
+out=$(CLAUDE_PROJECT_DIR="$dir" "$NODE_BIN" "$dir/_dev-workflow/hooks/session-updatecheck.mjs" \
+  2>/dev/null < <(printf '{"source":"startup"}'; sleep 8))
+code=$?
+elapsed=$(( $(now_ms) - started ))
+problem=''
+[ "$code" = 0 ] || problem="exited $code"
+case "$out" in *"$BANNER"*) ;; *) problem="${problem:+$problem; }no banner: $out" ;; esac
+[ "$elapsed" -le 4500 ] || problem="${problem:+$problem; }took ${elapsed}ms with stdin held open"
+if [ -z "$problem" ]; then
+  pass=$((pass + 1)); printf '  ok   stdin held open does not hold the hook (%sms)\n' "$elapsed"
+else
+  fail=$((fail + 1)); printf '  FAIL stdin held open does not hold the hook\n       %s\n' "$problem"
 fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

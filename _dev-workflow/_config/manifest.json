@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.18.2",
     "installDate": "2026-08-31T20:48:47.144Z",
-    "lastUpdated": "2026-09-03T07:47:00.869Z"
+    "lastUpdated": "2026-09-03T07:47:09.368Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -33,7 +33,7 @@
     },
     {
       "path": "_dev-workflow/hooks/session-updatecheck.mjs",
-      "sha256": "0a5b2a2526343a0ebc1772539cb547d3e258965ddf4eb488236d9dc0339cc557"
+      "sha256": "092c5851b8e11a2ed3ba5463b0132331b7e81e5b8b2d7fd53fd2ed482c39ddf2"
     },
     {
       "path": "_dev-workflow/lib/adr.mjs",

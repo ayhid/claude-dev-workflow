@@ -386,7 +386,7 @@ config carrying both never has to be read for precedence.
 | Hook | Fires | Cost |
 |---|---|---|
 | `sessionStart` | once, when a session opens | a `standup` run, bounded at 3s, plus its output in the session's context |
-| `updateCheck` | once, when a session opens | a cache read; one registry lookup a day at most, bounded at 3s; one line of output only when a newer version exists |
+| `updateCheck` | once, when a session opens | a cache read; a registry lookup only when the cache is older than a day, bounded at 3s (a lookup that fails is retried on the next session, still bounded); one line of output only when a newer version exists |
 | `commitTicket` | every Bash tool call | ~3ms for anything that is not a `git commit -m` |
 | `adrImmutable` | every `Edit`/`Write` | one filename check, and a file read only for ADR-shaped paths |
 

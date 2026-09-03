@@ -38,7 +38,6 @@
  * silence reads the same as "up to date", which is the honest reading of
  * "could not find out".
  */
-import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { loadConfig } from '../lib/config.mjs';
@@ -54,19 +53,51 @@ const BUDGET_MS = 3000;
  */
 const GREETED = new Set(['startup', 'resume', 'clear']);
 
-function sourceFromStdin() {
-  try {
-    const raw = readFileSync(0, 'utf8');
-    if (!raw.trim()) return 'startup';
-    const parsed = JSON.parse(raw);
-    return typeof parsed?.source === 'string' ? parsed.source : 'startup';
-  } catch {
-    return 'startup';
-  }
+/**
+ * The hook payload's `source`, read without blocking. A synchronous read of
+ * fd 0 would hold the event loop while stdin stays open, and a held loop is a
+ * budget timer that cannot fire — so stdin is read asynchronously and given
+ * a slice of the budget; nothing readable by then means `startup`.
+ */
+function sourceFromStdin(timeoutMs) {
+  return new Promise((done) => {
+    let raw = '';
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      try {
+        const parsed = JSON.parse(raw);
+        done(typeof parsed?.source === 'string' ? parsed.source : 'startup');
+      } catch {
+        done('startup');
+      }
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    timer.unref();
+    try {
+      process.stdin.setEncoding('utf8');
+      process.stdin.on('data', (chunk) => {
+        raw += chunk;
+        // A complete JSON object is the whole payload; do not wait for a
+        // close that a host may never send.
+        try {
+          JSON.parse(raw);
+          finish();
+        } catch {
+          /* not complete yet */
+        }
+      });
+      process.stdin.on('end', finish);
+      process.stdin.on('error', finish);
+    } catch {
+      finish();
+    }
+  });
 }
 
 async function main() {
-  if (!GREETED.has(sourceFromStdin())) return;
+  if (!GREETED.has(await sourceFromStdin(500))) return;
 
   const projectDir = resolve(process.env.CLAUDE_PROJECT_DIR || process.cwd());
 
@@ -94,11 +125,18 @@ async function main() {
 }
 
 // The ceiling on everything, and no exit code but zero. `unref` so a fast run
-// is not held open by its own timer.
+// is not held open by its own timer. The normal path does not force an exit:
+// a `process.exit` right after a stdout write can truncate the one line this
+// hook prints, so the loop is left to drain — stdin is released below, the
+// fetch is bounded by its own AbortSignal, and only a run past the ceiling is
+// cut short.
 setTimeout(() => process.exit(0), BUDGET_MS).unref();
 
 main()
   .catch(() => {
     /* a notice is never worth a broken session */
   })
-  .finally(() => process.exit(0));
+  .finally(() => {
+    process.stdin.destroy();
+    process.exitCode = 0;
+  });
