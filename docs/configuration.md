@@ -360,12 +360,13 @@ DEV_WORKFLOW_NO_BANNER=1 node _dev-workflow/scripts/dev.mjs config
 
 ## `hooks` — turning a shipped hook off
 
-Three hooks are installed and on by default. One key each turns one off.
+Four hooks are installed and on by default. One key each turns one off.
 
 ```jsonc
 {
   "hooks": {
     "sessionStart": true,   // false: no standup when a session opens
+    "updateCheck": true,    // false: no "an update is available" line when a session opens
     "commitTicket": true,   // false: commit messages are not checked
     "adrImmutable": true    // false: accepted decision records are editable
   }
@@ -385,6 +386,7 @@ config carrying both never has to be read for precedence.
 | Hook | Fires | Cost |
 |---|---|---|
 | `sessionStart` | once, when a session opens | a `standup` run, bounded at 3s, plus its output in the session's context |
+| `updateCheck` | once, when a session opens | a cache read; a registry lookup only when the cache is older than a day, bounded at 3s (a lookup that fails is retried on the next session, still bounded); one line of output only when a newer version exists |
 | `commitTicket` | every Bash tool call | ~3ms for anything that is not a `git commit -m` |
 | `adrImmutable` | every `Edit`/`Write` | one filename check, and a file read only for ADR-shaped paths |
 
@@ -393,6 +395,11 @@ the terminal, so it is spending tokens on every session, not just screen space. 
 you did not have to ask for — what merged, what is checked out, what stopped moving, what is still
 open on the tracker, and the one thing waiting on you — and it is on by default because a report
 nobody switches on reports nothing.
+
+`updateCheck` is the cheap one, and it **never updates**: it prints the line every session the
+project is behind — `An update is available: 1.6.2 → 1.6.3 — npx claude-dev-workflow@latest --update`
+— and the update itself is `dev.mjs version --upgrade`, or that command, when you choose to run it.
+Turning the standup off leaves it on; the two are separate keys on purpose.
 If a project's report is long enough that the trade stops paying, turn it off here and run
 `/dev-standup` when you want it.
 
@@ -596,7 +603,7 @@ Useful for one-off runs against another instance, and for CI. There is no GitHub
     "types": ["feat", "fix", "docs", "refactor", "test", "chore"],
     "enforce": true
   },
-  "hooks": { "sessionStart": true, "commitTicket": true, "adrImmutable": true },
+  "hooks": { "sessionStart": true, "updateCheck": true, "commitTicket": true, "adrImmutable": true },
   "tdd": { "enabled": true },
   "priorities": ["Show-stopper", "Critical", "Major", "Normal", "Minor"],
   "defaultPriority": "Normal",

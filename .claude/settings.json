@@ -43,6 +43,14 @@
             "command": "node \"$CLAUDE_PROJECT_DIR/_dev-workflow/hooks/session-standup.mjs\""
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/_dev-workflow/hooks/session-updatecheck.mjs\""
+          }
+        ]
       }
     ]
   }

@@ -82,9 +82,12 @@ const writeTextFile = (path, text) => writeFileSync(path, text);
  * @param {typeof fetch} [fetchImpl]
  * @returns {Promise<string|null>}
  */
-export async function latestVersion(fetchImpl = fetch) {
+export async function latestVersion(fetchImpl = fetch, { env = process.env } = {}) {
   try {
-    const res = await fetchImpl(REGISTRY_URL, {
+    // The override exists for tests that need a registry that hangs or
+    // refuses, on a local socket, without touching the network. Nothing else
+    // should set it.
+    const res = await fetchImpl(env.DEV_WORKFLOW_REGISTRY_URL || REGISTRY_URL, {
       headers: { accept: 'application/json' },
       signal: AbortSignal.timeout(NETWORK_TIMEOUT_MS),
     });
@@ -203,6 +206,7 @@ export async function checkForUpdate({
   env = process.env,
   readFile = readTextFile,
   writeFile = writeTextFile,
+  announceOnce = true,
 } = {}) {
   // No manifest means no install that could be behind one. Checked before
   // anything else so the common "this project has no payload" case costs nothing.
@@ -235,7 +239,7 @@ export async function checkForUpdate({
     // answer. Suppressed outright by DEV_WORKFLOW_NO_NETWORK, which then leaves
     // nothing to report rather than reporting something stale.
     if (env.DEV_WORKFLOW_NO_NETWORK) return null;
-    latest = await latestVersion(fetchImpl);
+    latest = await latestVersion(fetchImpl, { env });
     if (!latest) return null;
     announced = null;
     checkedAt = now;
@@ -251,15 +255,17 @@ export async function checkForUpdate({
   }
 
   // Once per cache window, not once per command: a single /dev-task runs three
-  // of these.
-  if (announced === latest) return null;
+  // of these. A session greeting is the other case (#87): it says so every
+  // session the project is behind, and passes `announceOnce: false` — still
+  // recording the announcement below, so the commands that follow stay quiet.
+  if (announceOnce && announced === latest) return null;
 
   // The write is what records the announcement, so a cache that cannot be
   // written is a banner that cannot be printed — the alternative is a line that
   // reprints on every command forever, which is worse than not being told.
   // `checkedAt` is carried over rather than refreshed: saying the line does not
   // extend the window.
-  if (!writeCache(root, { latest, checkedAt, announced: latest }, { writeFile })) return null;
+  if (announced !== latest && !writeCache(root, { latest, checkedAt, announced: latest }, { writeFile })) return null;
 
   return text;
 }
