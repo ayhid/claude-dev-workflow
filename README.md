@@ -6,7 +6,7 @@
 
 [![npm](https://img.shields.io/npm/v/claude-dev-workflow?style=flat-square)](https://www.npmjs.com/package/claude-dev-workflow)
 [![ci](https://img.shields.io/github/actions/workflow/status/ayhid/claude-dev-workflow/ci.yml?branch=main&style=flat-square&label=ci)](https://github.com/ayhid/claude-dev-workflow/actions/workflows/ci.yml)
-[![codecov](https://img.shields.io/codecov/c/github/ayhid/claude-dev-workflow?style=flat-square)](https://codecov.io/github/ayhid/claude-dev-workflow)
+[![coverage](https://qlty.sh/gh/ayhid/projects/claude-dev-workflow/coverage.svg)](https://qlty.sh/gh/ayhid/projects/claude-dev-workflow)
 [![node](https://img.shields.io/node/v/claude-dev-workflow?style=flat-square)](https://nodejs.org)
 [![license](https://img.shields.io/npm/l/claude-dev-workflow?style=flat-square)](LICENSE)
 

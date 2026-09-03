@@ -13,6 +13,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # The Qlty action reads github.token by default; without a block here it
+    # would inherit the repository default, which may be broader than a
+    # checkout needs. Coverage authenticates with its own token, so id-token
+    # (OIDC) is not required.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -34,14 +40,24 @@ jobs:
       - run: npm run test:coverage
       - run: npm run test:hook
 
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5
+      - name: Upload coverage to Qlty
+        # Pinned to the commit v2 pointed at when added: a moved tag would run
+        # unreviewed code with QLTY_COVERAGE_TOKEN in scope.
+        uses: qltysh/qlty-action/coverage@08a0a862c159eae9b9003081da6663d96efef637 # v2
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          token: ${{ secrets.QLTY_COVERAGE_TOKEN }}
+          # Where test:coverage writes it — the repo root, not the coverage/
+          # directory Qlty's setup page assumes.
           files: lcov.info
-          # A coverage upload is reporting, not a gate. Codecov being down, rate
+          # The action downloads the Qlty CLI at run time and hands it the
+          # token, so pinning the action alone freezes nothing that touches the
+          # secret. This is the release the first successful upload ran on.
+          cli-version: '0.643.0'
+          # A coverage upload is reporting, not a gate. Qlty being down, rate
           # limiting, or the token being absent must not fail a green build.
-          fail_ci_if_error: false
+          # This is the action's default; spelled out so the intent survives a
+          # default change upstream.
+          skip-errors: true
 
   # A unit test can assert the installer's plan; only a real install proves the
   # copied tree actually runs. The payload has no dependencies, so this needs
