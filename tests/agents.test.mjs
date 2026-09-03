@@ -9,7 +9,7 @@
  * on, silently, which is the cost the definitions exist to avoid.
  */
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
@@ -31,7 +31,7 @@ test('parseAgent reads frontmatter and body, and refuses a file without either',
 
 test('every shipped agent is namespaced, names itself, pins a model and allowlists its tools', () => {
   const files = agentFiles();
-  assert.ok(files.length >= 2, 'at least dev-reader and dev-reviewer');
+  assert.ok(files.length >= 4, 'dev-reader and the three review lenses');
   for (const file of files) {
     assert.ok(file.startsWith(AGENT_PREFIX), `${file} must carry the ${AGENT_PREFIX} prefix`);
     const parsed = parseAgent(readFileSync(join(AGENTS, file), 'utf8'));
@@ -55,22 +55,40 @@ test('the rules come first and the per-dispatch input last, so the prefix caches
   }
 });
 
-test('the models match the task class: a reader is cheap, a reviewer judges', () => {
+const REVIEW_LENSES = ['blind', 'edge', 'audit'];
+
+test('the models match the task class: a reader is cheap, a review lens judges', () => {
   const model = (name) => parseAgent(readFileSync(join(AGENTS, `${name}.md`), 'utf8')).agent.model;
   assert.equal(model('dev-reader'), 'haiku');
-  assert.equal(model('dev-reviewer'), 'sonnet');
+  for (const lens of REVIEW_LENSES) assert.equal(model(`dev-review-${lens}`), 'sonnet', lens);
 });
 
-test('every agent a skill dispatches by name ships', () => {
-  const shipped = new Set(agentFiles().map((f) => f.replace(/\.md$/, '')));
-  const skills = join(ROOT, 'skills');
-  const named = new Map();
-  for (const skill of readdirSync(skills)) {
-    const text = readFileSync(join(skills, skill, 'SKILL.md'), 'utf8');
-    for (const m of text.matchAll(/`(dev-[a-z-]+)`\s+(?:agent|subagent)/g)) named.set(m[1], skill);
-    for (const m of text.matchAll(/subagent_type:\s*`?(dev-[a-z-]+)`?/g)) named.set(m[1], skill);
+test('each review lens is its own agent: it names its lens file, which ships, and may only Read', () => {
+  for (const lens of REVIEW_LENSES) {
+    const { agent } = parseAgent(readFileSync(join(AGENTS, `dev-review-${lens}.md`), 'utf8'));
+    const lensPath = `.claude/skills/dev-review/lenses/${lens}.md`;
+    assert.ok(agent.body.includes(lensPath), `dev-review-${lens} reads its lens from ${lensPath}`);
+    assert.ok(existsSync(join(ROOT, 'skills', 'dev-review', 'lenses', `${lens}.md`)), `${lens}.md ships with the skill`);
+    assert.deepEqual(agent.tools, ['Read'], `dev-review-${lens} reads payload files and nothing more`);
+    assert.match(agent.body, new RegExp(`"lens": "${lens}"`), 'reports which lens it is');
   }
-  for (const [name, skill] of named) assert.ok(shipped.has(name), `${skill} dispatches ${name}, which does not ship`);
+  // What each lens may open is the whole design: blind sees only the diff.
+  const body = (lens) => parseAgent(readFileSync(join(AGENTS, `dev-review-${lens}.md`), 'utf8')).agent.body;
+  assert.doesNotMatch(body('blind').split('## Input')[1], /intent\.md|context\.txt/);
+  assert.doesNotMatch(body('edge').split('## Input')[1], /intent\.md/);
+  assert.match(body('audit').split('## Input')[1], /intent\.md/);
+});
+
+test('every dev-* name a skill mentions is a skill or an agent that ships', () => {
+  const shippedAgents = new Set(agentFiles().map((f) => f.replace(/\.md$/, '')));
+  const skills = join(ROOT, 'skills');
+  const shippedSkills = new Set(readdirSync(skills));
+  const named = new Map();
+  for (const skill of shippedSkills) {
+    const text = readFileSync(join(skills, skill, 'SKILL.md'), 'utf8');
+    for (const m of text.matchAll(/`(dev-[a-z][a-z-]*)`/g)) if (!shippedSkills.has(m[1])) named.set(m[1], skill);
+  }
+  for (const [name, skill] of named) assert.ok(shippedAgents.has(name), `${skill} names ${name}, which is neither a skill nor a shipped agent`);
   assert.equal(named.get('dev-reader'), 'dev-ingest-docs');
-  assert.equal(named.get('dev-reviewer'), 'dev-review');
+  for (const lens of REVIEW_LENSES) assert.equal(named.get(`dev-review-${lens}`), 'dev-review');
 });

@@ -101,7 +101,7 @@ test('a fresh install writes the payload, the skills and the manifest', () => {
 
   // The third root (#91): the agent definitions land where Claude Code reads them.
   assert.ok(existsSync(join(dir, '.claude', 'agents', 'dev-reader.md')));
-  assert.ok(existsSync(join(dir, '.claude', 'agents', 'dev-reviewer.md')));
+  assert.ok(existsSync(join(dir, '.claude', 'agents', 'dev-review-blind.md')));
   assert.ok(manifest.files.some((f) => f.path === join('.claude', 'agents', 'dev-reader.md')));
 });
 
@@ -403,7 +403,7 @@ test('isOwnedPath accepts exactly our namespaced agent files, the third root (#9
 test('planFiles maps agents/<name>.md onto .claude/agents/<name>.md, and nothing else moves', () => {
   const files = planFiles(SOURCE_ROOT);
   assert.equal(files.get(join('.claude', 'agents', 'dev-reader.md')), join(SOURCE_ROOT, 'agents', 'dev-reader.md'));
-  assert.equal(files.get(join('.claude', 'agents', 'dev-reviewer.md')), join(SOURCE_ROOT, 'agents', 'dev-reviewer.md'));
+  assert.equal(files.get(join('.claude', 'agents', 'dev-review-blind.md')), join(SOURCE_ROOT, 'agents', 'dev-review-blind.md'));
   for (const planned of files.keys()) {
     assert.ok(isOwnedPath(planned), `${planned} is planned but not owned`);
     if (planned.startsWith(join('.claude', 'agents'))) assert.match(planned, /^\.claude\/agents\/dev-[^/]+\.md$/);

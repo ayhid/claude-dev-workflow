@@ -202,7 +202,9 @@ wrapper answer with a choke point — done once, in code, rather than re-derived
    under `agents/` (installed to `.claude/agents/dev-*.md`, ADR 0003) and pin the model by **what
    a wrong answer costs**: *find and report* — extract, verify, probe, with an output the tool can
    refuse — on the cheapest model (`dev-reader`); *judge bounded material* — a lens over a diff, a
-   pair of documents — on the middle model (`dev-reviewer`); *decide with the user* — criteria,
+   pair of documents — on the middle model (`dev-review-blind`, `-edge`, `-audit`: one agent per
+   lens, so each carries its lens and its file entitlement as a fixed prefix); *decide with the
+   user* — criteria,
    arbitration, options, plans — never delegated. Two rules keep it cheap: each dispatch pays its
    own prompt-cache write, so delegate large or repeated reads only, never a one-liner; and a
    definition keeps its rules first and its per-dispatch input last, so repeated dispatches of one
