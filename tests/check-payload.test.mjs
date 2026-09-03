@@ -48,6 +48,9 @@ function fixture() {
   put(root, 'skills/dev-thing/SKILL.md', '# dev-thing\n');
   put(root, '.claude/skills/dev-thing/SKILL.md', '# dev-thing\n');
 
+  put(root, 'agents/dev-thing.md', '---\nname: dev-thing\n---\n# dev-thing\n');
+  put(root, '.claude/agents/dev-thing.md', '---\nname: dev-thing\n---\n# dev-thing\n');
+
   return root;
 }
 
@@ -251,6 +254,13 @@ test('AC6: the installer\'s own config directory is not an orphan', () => {
   put(root, '_dev-workflow/artifacts/documentation/ledger.json', '{}\n');
 
   assert.deepEqual(checkPayload({ sourceRoot: root }).orphan, []);
+});
+
+test('an installed agent the source no longer ships is an orphan; another tool\'s agent is not (#91)', () => {
+  const root = fixture();
+  put(root, '.claude/agents/dev-old.md', '---\nname: dev-old\n---\n# gone from the source\n');
+  put(root, '.claude/agents/other-tool.md', '---\nname: other-tool\n---\n# not ours\n');
+  assert.deepEqual(checkPayload({ sourceRoot: root }).orphan, [join('.claude', 'agents', 'dev-old.md')]);
 });
 
 test('AC6: a file belonging to another tool is not an orphan', () => {

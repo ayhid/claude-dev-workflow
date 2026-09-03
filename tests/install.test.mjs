@@ -98,6 +98,29 @@ test('a fresh install writes the payload, the skills and the manifest', () => {
   ]);
   assert.ok(manifest.files.length > 10);
   assert.ok(manifest.files.every((f) => /^[0-9a-f]{64}$/.test(f.sha256)));
+
+  // The third root (#91): the agent definitions land where Claude Code reads them.
+  assert.ok(existsSync(join(dir, '.claude', 'agents', 'dev-reader.md')));
+  assert.ok(existsSync(join(dir, '.claude', 'agents', 'dev-reviewer.md')));
+  assert.ok(manifest.files.some((f) => f.path === join('.claude', 'agents', 'dev-reader.md')));
+});
+
+test('an agent dropped from the distribution is removed on update, and a foreign agent is not (#91)', () => {
+  const dir = scratch();
+  install(dir);
+
+  const dropped = join('.claude', 'agents', 'dev-old.md');
+  writeFileSync(join(dir, dropped), '---\nname: dev-old\n---\n# old\n');
+  const manifest = readManifest(dir);
+  manifest.files.push({ path: dropped, sha256: createHash('sha256').update(readFileSync(join(dir, dropped))).digest('hex') });
+  writeFileSync(join(dir, MANIFEST_PATH), JSON.stringify(manifest, null, 2));
+  writeFileSync(join(dir, '.claude', 'agents', 'other-tool.md'), '---\nname: other-tool\n---\n# theirs\n');
+
+  const result = install(dir);
+  assert.ok(result.removed.includes(dropped));
+  assert.ok(!existsSync(join(dir, dropped)));
+  assert.ok(existsSync(join(dir, '.claude', 'agents', 'other-tool.md')), 'shared ground');
+  assert.ok(existsSync(join(dir, '.claude', 'agents', 'dev-reader.md')));
 });
 
 test('install works in a project with no package.json at all', () => {
