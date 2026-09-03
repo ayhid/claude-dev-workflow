@@ -22,6 +22,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { MANIFEST_PATH } from '../lib/manifest.mjs';
+import { UserError } from '../scripts/cmd/common.mjs';
 import {
   CACHE_PATH,
   TTL_MS,
@@ -585,6 +586,54 @@ test('upgrade falls back to npx@latest when the global binary is behind, or abse
   const unknown = fakeRunner({ globalVersion: '2.0.0' });
   await upgrade(root, { run: unknown.run, hasBin: async () => true, vcs: cleanVcs, latest: null });
   assert.deepEqual(unknown.calls.at(-1), ['npx', ...UPGRADE_ARGS, '--dir', root], 'with no latest to compare against, npx@latest is the only spelling that provably resolves it');
+});
+
+// --- #95: the dirty-tree refusal must cover .claude/agents/ too -----------------------
+
+/** A vcs whose isClean reports dirty only for a path in `dirtyPaths`, clean otherwise. */
+function vcsDirtyAt(...dirtyPaths) {
+  return {
+    isClean: async (_root, { paths }) => {
+      const hit = paths.filter((p) => dirtyPaths.includes(p));
+      if (hit.length) return { ok: true, clean: false, dirty: hit.map((p) => `M ${p}/example.md`) };
+      return { ok: true, clean: true, dirty: [] };
+    },
+  };
+}
+
+test('upgrade refuses when only .claude/agents/ has uncommitted changes', async () => {
+  const root = installedRoot('1.0.0');
+  mkdirSync(join(root, '.claude', 'agents'), { recursive: true });
+  const { run } = fakeRunner({ globalVersion: '1.0.0' });
+
+  await assert.rejects(
+    () => upgrade(root, { run, hasBin: async () => false, vcs: vcsDirtyAt(join('.claude', 'agents')), latest: null }),
+    (err) => {
+      assert.ok(err instanceof UserError, `expected a UserError, got ${err}`);
+      assert.match(err.message, /refusing to upgrade/);
+      assert.match(err.message, /\.claude[/\\]agents/, 'the refusal must name the dirty root');
+      return true;
+    },
+  );
+});
+
+test('the post-upgrade message names all three owned roots', async () => {
+  const root = installedRoot('1.0.0');
+  const run = async (bin, args) => {
+    if (bin === 'npx') {
+      writeFileSync(
+        join(root, '_dev-workflow', '_config', 'manifest.json'),
+        JSON.stringify({ installation: { version: '1.1.0' }, payloadDir: '_dev-workflow', files: [] }),
+      );
+      return { ok: true, code: 0, stdout: 'installed', stderr: '' };
+    }
+    return { ok: true, code: 0, stdout: '', stderr: '' };
+  };
+
+  const message = await upgrade(root, { run, hasBin: async (b) => b === 'npx', vcs: cleanVcs, latest: null });
+  assert.match(message, /_dev-workflow/);
+  assert.match(message, /\.claude[/\\]skills/);
+  assert.match(message, /\.claude[/\\]agents/, 'the post-upgrade message must name the agents root too');
 });
 
 // --- #87: a session greeting says it every session, a command says it once a day ------

@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.18.2",
     "installDate": "2026-08-31T20:48:47.144Z",
-    "lastUpdated": "2026-09-03T09:01:43.771Z"
+    "lastUpdated": "2026-09-03T17:15:56.856Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -213,7 +213,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/version.mjs",
-      "sha256": "33f21745aff440d0c97fd3f46167c20cafedf9234800b27e55586df86be5a9db"
+      "sha256": "85fa82ce216be95f2469ae8c77e80cba3a8d452d60c83e6af0abb924837b77ae"
     },
     {
       "path": "_dev-workflow/scripts/dev.mjs",
