@@ -1,3 +1,10 @@
+## [1.18.4](https://github.com/ayhid/claude-dev-workflow/compare/v1.18.3...v1.18.4) (2026-09-04)
+
+
+### Bug Fixes
+
+* **cli:** --repo and other value flags refuse a missing or swallowed value ([#66](https://github.com/ayhid/claude-dev-workflow/issues/66)) ([5844bc6](https://github.com/ayhid/claude-dev-workflow/commit/5844bc696b6661fa565940f65d7f3efe12377c18))
+
 ## [1.18.3](https://github.com/ayhid/claude-dev-workflow/compare/v1.18.2...v1.18.3) (2026-09-03)
 
 
