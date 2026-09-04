@@ -35,18 +35,26 @@ import { resolveRung } from '../../lib/config.mjs';
 import { canonicalId } from '../../lib/issueid.mjs';
 import { sh } from '../../lib/sh.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
-import { context, locateWork, preview, readArg, resolveRepo, UserError } from './common.mjs';
+import {
+  context,
+  locateWork,
+  preview,
+  readArg,
+  resolveRepo,
+  takeValue,
+  UserError,
+} from './common.mjs';
 
 const USAGE =
   'usage: dev.mjs abandon <ISSUE-ID> <REASON|@FILE> [--force] [--repo PATH]';
 
-function parseArgs(args) {
+export function parseArgs(args) {
   const opts = { force: false };
   const rest = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--force') opts.force = true;
-    else if (a === '--repo') opts.repo = args[++i];
+    else if (a === '--repo') opts.repo = takeValue(args, ++i, a);
     else if (a.startsWith('-')) throw new UserError(`unknown flag ${a}\n\n${USAGE}`);
     else rest.push(a);
   }

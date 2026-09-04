@@ -21,17 +21,17 @@ import { resolveBranchType } from '../../lib/config.mjs';
 import { canonicalId } from '../../lib/issueid.mjs';
 import { sh } from '../../lib/sh.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
-import { context, resolveRepo, UserError } from './common.mjs';
+import { context, resolveRepo, takeValue, UserError } from './common.mjs';
 
-function parseArgs(args) {
+export function parseArgs(args) {
   const opts = { print: false };
   const rest = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--print' || a === '--dry-run') opts.print = true;
-    else if (a === '--type') opts.type = args[++i];
-    else if (a === '--mode') opts.mode = args[++i];
-    else if (a === '--repo') opts.repo = args[++i];
+    else if (a === '--type') opts.type = takeValue(args, ++i, a);
+    else if (a === '--mode') opts.mode = takeValue(args, ++i, a);
+    else if (a === '--repo') opts.repo = takeValue(args, ++i, a);
     else if (a.startsWith('-')) throw new UserError(`unknown flag ${a}`);
     else rest.push(a);
   }

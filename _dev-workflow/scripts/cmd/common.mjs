@@ -25,6 +25,28 @@ import { makeVcs } from '../../lib/vcs.mjs';
 export class UserError extends Error {}
 
 /**
+ * The value after a flag, or an error naming the flag that is missing one.
+ *
+ * `args[++i] ?? ''` is the trap this closes: an absent value became an empty
+ * string, indistinguishable from the flag never having been passed —
+ * `dev.mjs standup --repo` ran against the default repo instead of failing.
+ * A following flag is rejected too, because that is the same mistake with the
+ * value eaten by the next option rather than by the end of the line —
+ * `dev.mjs land --repo --apply` consumed `--apply` as the repo path and the
+ * flag that makes the write real silently disappeared (#66).
+ *
+ * One implementation for every command that takes a value flag, so a
+ * newly-added flag cannot reintroduce the hole by hand-rolling its own check.
+ */
+export function takeValue(args, i, flag) {
+  const v = args[i];
+  if (v === undefined || v.startsWith('-')) {
+    throw new UserError(`${flag} needs a value`);
+  }
+  return v;
+}
+
+/**
  * Load the config and build the provider for it.
  *
  * This is the seam. It used to hard-require a YouTrack URL and then a resolved

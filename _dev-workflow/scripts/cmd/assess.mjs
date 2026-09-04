@@ -22,16 +22,16 @@ import { AGENT_FILES, classifyPath } from '../../lib/ingest.mjs';
 import { sh } from '../../lib/sh.mjs';
 import { assessStage, describeStage } from '../../lib/stage.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
-import { context, resolveRepo, UserError } from './common.mjs';
+import { context, resolveRepo, takeValue, UserError } from './common.mjs';
 
 const USAGE = 'usage: dev.mjs assess [--repo PATH] [--json]';
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const opts = { json: false, repo: '' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--json') opts.json = true;
-    else if (a === '--repo') opts.repo = argv[++i] ?? '';
+    else if (a === '--repo') opts.repo = takeValue(argv, ++i, a);
     else throw new UserError(`unknown argument '${a}'\n\n${USAGE}`);
   }
   return opts;

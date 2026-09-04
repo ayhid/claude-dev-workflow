@@ -50,7 +50,14 @@ import {
 } from '../../lib/ingest.mjs';
 import { sh } from '../../lib/sh.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
-import { context, readArg, refuseMissingAnchors, resolveRepo, UserError } from './common.mjs';
+import {
+  context,
+  readArg,
+  refuseMissingAnchors,
+  resolveRepo,
+  takeValue,
+  UserError,
+} from './common.mjs';
 
 /** Everything this command writes lives here, and nothing of ours lives outside it. */
 export const ARTIFACT_DIR = join('_dev-workflow', 'artifacts', 'documentation');
@@ -260,6 +267,16 @@ export async function run(argv) {
   throw new UserError(`unknown verb "${verb}"\n\n${USAGE}`);
 }
 
+export function parseScanArgs(rest) {
+  const opts = { repo: '' };
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i];
+    if (a === '--repo') opts.repo = takeValue(rest, ++i, a);
+    else throw new UserError(`unknown argument '${a}'\n\n${USAGE}`);
+  }
+  return opts;
+}
+
 /**
  * Inventory the project's documents.
  *
@@ -268,12 +285,8 @@ export async function run(argv) {
  * pending with its claims marked stale rather than deleted — somebody may have
  * arbitrated one of them.
  */
-async function scan({ config, root, rest }) {
-  const opts = { repo: '' };
-  for (let i = 0; i < rest.length; i++) {
-    if (rest[i] === '--repo') opts.repo = rest[++i] ?? '';
-    else throw new UserError(`unknown argument '${rest[i]}'\n\n${USAGE}`);
-  }
+export async function scan({ config, root, rest }) {
+  const opts = parseScanArgs(rest);
 
   const vcs = makeVcs({ run: sh });
   const configured = resolveRepo(config, root, opts.repo);

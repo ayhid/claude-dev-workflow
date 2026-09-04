@@ -1,8 +1,8 @@
 {
   "installation": {
-    "version": "1.18.2",
+    "version": "1.18.3",
     "installDate": "2026-08-31T20:48:47.144Z",
-    "lastUpdated": "2026-09-03T17:15:56.856Z"
+    "lastUpdated": "2026-09-03T21:23:36.804Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -133,7 +133,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/abandon.mjs",
-      "sha256": "5a28a924d66b31e2bc03306bea60059c8ff50a630d5873a10f912825cf0711f9"
+      "sha256": "b965ad72bc673788fca1b517ba509097a35fd9d58d6e19bb3f27a5e6a228d7ba"
     },
     {
       "path": "_dev-workflow/scripts/cmd/adr.mjs",
@@ -141,11 +141,11 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/assess.mjs",
-      "sha256": "50910f0d36777364679015f7ee0b0af0cda77840a218dcb7ea060f8d2011fe33"
+      "sha256": "5bd564d04415fce99462a3c74865bc02d5170c6badd0cd9b350ce76cb8924f63"
     },
     {
       "path": "_dev-workflow/scripts/cmd/common.mjs",
-      "sha256": "cc6e2dfa06155920e2dde7d7ac5e2cfe01081ffd954ff9522f98efd9f9cdb60d"
+      "sha256": "7e67536819409ad09fd44fbf38379ff1d50af551bd59cbd8e5a3f25b2dbe244f"
     },
     {
       "path": "_dev-workflow/scripts/cmd/config.mjs",
@@ -165,11 +165,11 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/ingest.mjs",
-      "sha256": "2f9916c1293eb694156a3407cca27dc0a25ff92585af0a8fc9f47d720bc40b10"
+      "sha256": "137889058311048c722cfb0554e852e12e36d18178200ee049f2ef1b72b67400"
     },
     {
       "path": "_dev-workflow/scripts/cmd/land.mjs",
-      "sha256": "553601e2f340a6561ec108b1c2dcbf3c758918f381e016af66f3746c5f6b88a0"
+      "sha256": "8d6316d5eff2d576e8fd65a30ae0c2548199690117744ed21d1e94422f04a0eb"
     },
     {
       "path": "_dev-workflow/scripts/cmd/note.mjs",
@@ -177,35 +177,35 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/reorg.mjs",
-      "sha256": "2284f86c4310b478eddd89aba2235af9dc18ef743d2ac2de6ce102eb27c9e070"
+      "sha256": "2fe5ed28c12fd8fc648a84d8852259a9c9e3c7b252fe80a02153cc0207ac0316"
     },
     {
       "path": "_dev-workflow/scripts/cmd/resume.mjs",
-      "sha256": "d871e82bae7a82a142485dbdbca446780ca304a98ec409c5d7319fc7ac3263f3"
+      "sha256": "d9b0d532a9edb75c56af45ff5c6e3ac8fbdb0458535a76e5fffd4c440f1d4151"
     },
     {
       "path": "_dev-workflow/scripts/cmd/review.mjs",
-      "sha256": "958641583da98520800a2925ab0dc992a237a564d7900b3c84495e6267f1a0a4"
+      "sha256": "6506953d202f3257f274524789004de16d3f14e74b31bc985e6ee714c4106a82"
     },
     {
       "path": "_dev-workflow/scripts/cmd/rules.mjs",
-      "sha256": "b8e2f8ccb86f836a85098c41701cb373495e5748b62e3e565f46ef0557dbbc51"
+      "sha256": "5e686ff4de2267f08c6191c40fcf24ad4f98dfb6bdbfe832dd127265015d58ed"
     },
     {
       "path": "_dev-workflow/scripts/cmd/standup.mjs",
-      "sha256": "9ad4ba78d4d9126f478915ebc4b6b3717c4a7b023d1956e6cfc53b10a6bc5244"
+      "sha256": "db093c7dec29f927a9c9192acd26ddecb1bb5f2e81dcefc3f2eec4e01654c8e2"
     },
     {
       "path": "_dev-workflow/scripts/cmd/start.mjs",
-      "sha256": "9f9d4c92401ff1bc1b0c2430d9b0af4267fc9c830c00f1e35793d0fbb3cee0db"
+      "sha256": "2cb309f13c12f6ad10e2c5bbb241ba13f9e571a141c808fcbea1f6af24372420"
     },
     {
       "path": "_dev-workflow/scripts/cmd/status.mjs",
-      "sha256": "c438e6d09836a5a3ebf03717c11e225e76de3c843c2299328d9521283a1565ad"
+      "sha256": "f15cca4780e10d9c42a6426f4cad6fa0b522e805e7646290999efcfd1abe6556"
     },
     {
       "path": "_dev-workflow/scripts/cmd/sync.mjs",
-      "sha256": "550b5e9ffa587875793777b0cbd56031c62fdb6b3babd9172fd890c7de2032b0"
+      "sha256": "1b5bc8ba6c2c60fad897fc08da40130b80c501454d649ae5dea4830c21b24fb7"
     },
     {
       "path": "_dev-workflow/scripts/cmd/update.mjs",

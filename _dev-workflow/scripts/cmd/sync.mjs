@@ -58,17 +58,17 @@ import {
   strongestEvidence,
   UNKNOWN,
 } from '../../lib/sync.mjs';
-import { context, UserError } from './common.mjs';
+import { context, takeValue, UserError } from './common.mjs';
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const opts = { apply: false, deep: false, since: '30d', repo: '', limit: 100 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--apply') opts.apply = true;
     else if (a === '--deep') opts.deep = true;
-    else if (a === '--since') opts.since = argv[++i];
-    else if (a === '--repo') opts.repo = argv[++i];
-    else if (a === '--limit') opts.limit = Number(argv[++i]);
+    else if (a === '--since') opts.since = takeValue(argv, ++i, a);
+    else if (a === '--repo') opts.repo = takeValue(argv, ++i, a);
+    else if (a === '--limit') opts.limit = Number(takeValue(argv, ++i, a));
     else throw new UserError(`unknown argument: ${a}`);
   }
   if (!Number.isFinite(opts.limit) || opts.limit <= 0) throw new UserError('--limit takes a number');

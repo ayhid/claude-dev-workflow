@@ -11,10 +11,30 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { preview, resolveRepo, UserError, withMetrics } from '../scripts/cmd/common.mjs';
+import { preview, resolveRepo, takeValue, UserError, withMetrics } from '../scripts/cmd/common.mjs';
 
 const single = { repos: [{ path: '.' }] };
 const many = { repos: [{ path: 'api' }, { path: 'web' }] };
+
+test('takeValue returns the argument at the given index', () => {
+  assert.equal(takeValue(['--repo', 'web'], 1, '--repo'), 'web');
+});
+
+test('takeValue refuses a missing value, naming the flag', () => {
+  assert.throws(() => takeValue(['--repo'], 1, '--repo'), (err) => {
+    assert.ok(err instanceof UserError);
+    assert.match(err.message, /--repo/);
+    return true;
+  });
+});
+
+test('takeValue refuses a value eaten by the next flag rather than by the end of the line', () => {
+  // `land --repo --apply` is the case from #66: without this, --apply is
+  // swallowed as the repo path and the flag that makes the write real
+  // silently disappears.
+  assert.throws(() => takeValue(['--repo', '--apply'], 1, '--repo'), /--repo/);
+  assert.throws(() => takeValue(['--repo', '-x'], 1, '--repo'), /--repo/);
+});
 
 test('an unspecified repo resolves to the only one, however it is spelled', () => {
   // `''` is what arrives from a command whose --repo flag defaults to the empty
