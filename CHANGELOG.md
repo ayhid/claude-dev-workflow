@@ -1,3 +1,10 @@
+## [1.18.5](https://github.com/ayhid/claude-dev-workflow/compare/v1.18.4...v1.18.5) (2026-09-06)
+
+
+### Bug Fixes
+
+* **deps:** bump the bundled npm devDependency to clear 5 audit advisories ([#63](https://github.com/ayhid/claude-dev-workflow/issues/63)) ([b461596](https://github.com/ayhid/claude-dev-workflow/commit/b4615964ce3bd67391a88c49253022ce2fdf160e))
+
 ## [1.18.4](https://github.com/ayhid/claude-dev-workflow/compare/v1.18.3...v1.18.4) (2026-09-04)
 
 
