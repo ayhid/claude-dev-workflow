@@ -63,13 +63,17 @@ node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" docs
 
 Show the result, then name the one next command rather than running it:
 
+Judge only the **writable** documents — every row whose `STATE` column is not `pointer`. A
+`pointer` row (`decisions`) names a mechanism, `dev.mjs adr new`, rather than a file `docs init`
+writes, so it can never read `current` and must never be asked to.
+
 - **Brownfield** → point at `/dev-ingest-docs`, regardless of what the skeleton shows: ingest is
   what fills it in for an existing project, not `docs init`.
-- **Greenfield**, with any document `missing` or `stub` → point at `/dev-docs-init`. A stub means
-  `docs init` scaffolded the file but nothing has been recorded against it yet, which is the same
-  "not started" state as missing, from here.
-- **Greenfield**, every document `current` → say so, and suggest nothing. A populated skeleton is
-  not a problem `/dev-init` needs to solve.
+- **Greenfield**, with any writable document `missing` or `stub` → point at `/dev-docs-init`. A
+  stub means `docs init` scaffolded the file but nothing has been recorded against it yet, which
+  is the same "not started" state as missing, from here.
+- **Greenfield**, every writable document `current` → say so, and suggest nothing. A populated
+  skeleton is not a problem `/dev-init` needs to solve.
 - A `drifted` document is a separate, ongoing concern (`dev.mjs docs check` is what watches for
   it) — do not fold it into this one-time "have you started" check.
 
