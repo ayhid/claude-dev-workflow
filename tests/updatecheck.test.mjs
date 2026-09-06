@@ -636,6 +636,39 @@ test('the post-upgrade message names all three owned roots', async () => {
   assert.match(message, /\.claude[/\\]agents/, 'the post-upgrade message must name the agents root too');
 });
 
+test('upgrade refuses when a root directory is deleted but git still knows about files in it', async () => {
+  // #98: if all files under `.claude/agents/` are deleted without being committed,
+  // the directory disappears and `existsSync` filters it out of the check. git still
+  // knows about the files though, so the refusal must fire.
+  const root = installedRoot('1.0.0');
+  const agentsRoot = join('.claude', 'agents');
+  mkdirSync(join(root, agentsRoot), { recursive: true });
+
+  const { run } = fakeRunner({ globalVersion: '1.0.0' });
+
+  // Simulate git.isClean() reporting dirty files in .claude/agents/ even though
+  // the directory no longer exists on disk.
+  const vcsReportingDeletedFiles = {
+    isClean: async (_root, { paths }) => {
+      // The check asks about all three owned roots. Only .claude/agents/ reports dirty.
+      if (paths.includes(agentsRoot)) {
+        return { ok: true, clean: false, dirty: ['D  .claude/agents/dev-example.md'] };
+      }
+      return { ok: true, clean: true, dirty: [] };
+    },
+  };
+
+  await assert.rejects(
+    () => upgrade(root, { run, hasBin: async () => false, vcs: vcsReportingDeletedFiles, latest: null }),
+    (err) => {
+      assert.ok(err instanceof UserError, `expected a UserError, got ${err}`);
+      assert.match(err.message, /refusing to upgrade/);
+      assert.match(err.message, /\.claude[/\\]agents/);
+      return true;
+    },
+  );
+});
+
 // --- #87: a session greeting says it every session, a command says it once a day ------
 
 test('announceOnce:false returns the banner even when this latest was already announced', async () => {
