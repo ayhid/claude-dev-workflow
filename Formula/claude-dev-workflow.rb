@@ -14,8 +14,8 @@
 class ClaudeDevWorkflow < Formula
   desc "Ticket-driven dev workflow for Claude Code, against YouTrack or GitHub Issues"
   homepage "https://github.com/ayhid/claude-dev-workflow"
-  url "https://registry.npmjs.org/claude-dev-workflow/-/claude-dev-workflow-1.18.5.tgz"
-  sha256 "03de7338cd23be5cc16621285861d8c9d09783cd551080a5c468595eec3cba0a"
+  url "https://registry.npmjs.org/claude-dev-workflow/-/claude-dev-workflow-1.19.0.tgz"
+  sha256 "aa26a872d84c6932522e0a90c1efcf2673c6127ddf75953c89eae716952fc752"
   license "MIT"
 
   depends_on "node"
