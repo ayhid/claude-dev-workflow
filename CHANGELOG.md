@@ -1,3 +1,10 @@
+# [1.19.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.18.5...v1.19.0) (2026-09-06)
+
+
+### Features
+
+* **dev-init:** report the documentation-skeleton status after settling stage ([#74](https://github.com/ayhid/claude-dev-workflow/issues/74)) ([b76ff53](https://github.com/ayhid/claude-dev-workflow/commit/b76ff5323cd701f2c05f1cba5eac6b677ba66bcf)), closes [95/#94](https://github.com/ayhid/claude-dev-workflow/issues/94) [#75](https://github.com/ayhid/claude-dev-workflow/issues/75)
+
 ## [1.18.5](https://github.com/ayhid/claude-dev-workflow/compare/v1.18.4...v1.18.5) (2026-09-06)
 
 
