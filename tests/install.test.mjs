@@ -757,3 +757,62 @@ test('update refuses to downgrade a project below what a newer binary installed,
   assert.equal(forced.code, 0, forced.out);
   assert.notEqual(JSON.parse(readFileSync(manifestPath, 'utf8')).installation.version, '99.0.0');
 });
+
+// --- init on a project that already has the workflow (#101) -------------------
+//
+// `init` used to ask "Reconfigure it?" there, with the wizard behind yes and
+// nothing behind no; express existed only under `update`. Now it triages: with
+// nothing missing the recommendation is express, with keys missing it is to
+// keep the config and append them, and with no TTY the recommendation is what
+// happens. The prompt itself cannot be driven from a test, so these cover the
+// no-TTY path and `tests/reinstall.test.mjs` covers the decision.
+
+test('init on a complete config with no TTY takes the recommended path: express (#101)', async () => {
+  const dir = scratch();
+  const before = completeConfig();
+  writeFileSync(join(dir, '.dev-workflow.json'), before);
+
+  const real = await runInstaller(['init', '--dir', dir]);
+  assert.equal(real.signal, null, `init blocked on a prompt with no TTY: ${real.out}`);
+  assert.equal(real.code, 0, real.out);
+
+  assert.ok(existsSync(join(dir, MANIFEST_PATH)), 'the files were installed');
+  assert.ok(existsSync(join(dir, '.claude', 'skills', 'dev-task', 'SKILL.md')));
+  assert.equal(readFileSync(join(dir, '.dev-workflow.json'), 'utf8'), before, 'express leaves the config byte-identical');
+  assert.match(real.out, /Config: retained/);
+});
+
+test('init on a config predating a setting keeps it and appends the defaults, and says so (#101)', async () => {
+  const dir = scratch();
+  const config = JSON.parse(completeConfig());
+  delete config.language;
+  delete config.commit.noTicketEscape;
+  writeFileSync(join(dir, '.dev-workflow.json'), JSON.stringify(config, null, 2) + '\n');
+
+  const real = await runInstaller(['init', '--dir', dir]);
+  assert.equal(real.signal, null, `init blocked on a prompt with no TTY: ${real.out}`);
+  assert.equal(real.code, 0, real.out);
+
+  const written = readJson(join(dir, '.dev-workflow.json'));
+  assert.equal(written.language, 'English');
+  assert.equal(written.commit.noTicketEscape, 'chore(no-ticket)');
+  assert.deepEqual(written.states, config.states, 'every answer already there survives');
+  assert.match(real.out, /language = English/);
+  assert.match(real.out, /Config: 2 settings added/);
+});
+
+test('the closing line says what happened to the files and the config on update too (#101)', async () => {
+  const dir = scratch();
+  writeFileSync(join(dir, '.dev-workflow.json'), completeConfig());
+
+  const first = await runInstaller(['--update', '--dir', dir]);
+  assert.equal(first.code, 0, first.out);
+  assert.match(first.out, /Files updated: \d+ written\. Config: retained\./);
+
+  const config = JSON.parse(completeConfig());
+  delete config.language;
+  writeFileSync(join(dir, '.dev-workflow.json'), JSON.stringify(config, null, 2) + '\n');
+  const second = await runInstaller(['--update', '--dir', dir]);
+  assert.equal(second.code, 0, second.out);
+  assert.match(second.out, /Config: 1 setting added\./);
+});

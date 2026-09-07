@@ -58,6 +58,7 @@ import { baseBranch, commitIdPosition, describeRepo, findRepos } from './lib/det
 import { createLabelCommand, ghAuthStatus, ghLabels, ghRepoView, ghVersion } from './lib/gh.mjs';
 import { compareVersions } from '../lib/manifest.mjs';
 import { COMMANDS, parseCommand } from './lib/argv.mjs';
+import { classifyProject } from './lib/reinstall.mjs';
 import { PAYLOAD_DIR, installPayload, readManifest } from './lib/payload.mjs';
 import { buildConfig, pickDefaultPriority, proposeProvider } from './lib/wizard-config.mjs';
 
@@ -182,7 +183,7 @@ const RECONFIGURE_COMMAND = `${UPDATE_COMMAND} --reconfigure`;
  * cannot drift in what they tell the user — the whole point of `--update` is
  * that it is the same install, minus the questions.
  *
- * @returns {boolean} whether the install completed
+ * @returns {object|null} what `installPayload` reported, or null when it failed
  */
 function installIntoProject({ force = false, dryRun = false } = {}) {
   const existing = readManifest(targetDir);
@@ -225,13 +226,41 @@ function installIntoProject({ force = false, dryRun = false } = {}) {
 
     p.log.info(`${PAYLOAD_DIR}/ is installer-managed. Commit it, and update with:`);
     p.log.message(c.cyan(UPDATE_COMMAND));
-    return true;
+    return result;
   } catch (err) {
     s.stop(c.yellow('Could not install the workflow files.'));
     p.log.warn((err.message || '').trim().slice(0, 400));
-    return false;
+    return null;
   }
 }
+
+/**
+ * The one line every run ends on: what happened to the files, and to the config.
+ *
+ * Both modes print it, from the same function, because "N file(s) written"
+ * followed by "Up to date." never said what had become of `.dev-workflow.json`
+ * — the one file a user re-running the installer is worried about.
+ *
+ * @param {{written: string[], skipped: string[], removed: string[]}|null} files
+ *   what `installPayload` reported, or null when the files were not installed
+ * @param {string} config  'retained' | 'N settings added' | 'written' | 'replaced' | 'unchanged'
+ */
+function closingLine(files, config) {
+  if (!files) return `Files: not installed. Config: ${config}.`;
+  const parts = [`${files.written.length} written`];
+  if (files.skipped.length) parts.push(`${files.skipped.length} kept`);
+  if (files.removed.length) parts.push(`${files.removed.length} removed`);
+  return `Files updated: ${parts.join(', ')}. Config: ${config}.`;
+}
+
+/** The config half of the closing line, for the express path. */
+const settingsAdded = (n) => (n === 0 ? 'retained' : `${n} setting${n === 1 ? '' : 's'} added`);
+
+/** An existing config, said in the terms of whichever tracker it is for. */
+const describeConfig = (config) =>
+  config.provider === 'github'
+    ? `${config.github?.issuesRepo ?? config.github?.repo ?? '?'} on GitHub Issues`
+    : `${config.project ?? '?'} on ${config.baseUrl ?? '?'}`;
 
 /** One registry entry, rendered as the prompt it describes. */
 async function askConfigKey(entry, fallback) {
@@ -273,22 +302,24 @@ async function askConfigKey(entry, fallback) {
  * It only ever **adds**. A key already in the file is never rewritten, reordered
  * or removed, and a config that has them all is left untouched byte for byte —
  * nothing is written at all in that case.
+ *
+ * @returns {Promise<number>} how many settings were added — zero when nothing was
  */
 async function addNewConfigKeys({ dryRun = false } = {}) {
   // No config is not an old config: a project with none has answered nothing,
   // and inventing one behind `--update` is the wizard's job, or /dev-init's.
-  if (!existsSync(configPath)) return;
+  if (!existsSync(configPath)) return 0;
 
   let config;
   try {
     config = JSON.parse(readFileSync(configPath, 'utf8'));
   } catch {
     p.log.warn(`${c.yellow('.dev-workflow.json is not valid JSON')} — leaving it exactly as it is.`);
-    return;
+    return 0;
   }
 
   const missing = missingConfigKeys(config);
-  if (!missing.length) return;
+  if (!missing.length) return 0;
 
   const interactive = Boolean(process.stdin.isTTY) && !dryRun;
   const added = [];
@@ -305,7 +336,7 @@ async function addNewConfigKeys({ dryRun = false } = {}) {
   if (dryRun) {
     p.note(added.join('\n'), `${added.length} new setting(s) this version adds`);
     p.log.info('Dry run — the config was not written.');
-    return;
+    return added.length;
   }
 
   writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
@@ -314,6 +345,89 @@ async function addNewConfigKeys({ dryRun = false } = {}) {
     interactive
       ? 'Added to .dev-workflow.json'
       : c.yellow('Added to .dev-workflow.json — defaults, with no TTY to ask on'),
+  );
+  return added.length;
+}
+
+/**
+ * Refresh the files to this binary's version, and never move a project
+ * backwards by accident: a global binary older than the project's copy is the
+ * binary that needs updating, not the project. Exits when nothing was written.
+ *
+ * @returns {object} what `installPayload` reported
+ */
+function refreshFiles() {
+  const installedVersion = readManifest(targetDir)?.installation?.version ?? null;
+  if (installedVersion) {
+    const cmp = compareVersions(installedVersion, VERSION);
+    if (cmp === 0) p.log.info(`Project is at ${c.cyan(`v${VERSION}`)}, the version this binary installs.`);
+    else if (cmp === -1) p.log.info(`Project ${c.cyan(`v${installedVersion} → v${VERSION}`)}.`);
+    else if (cmp === 1 && !flag('--force')) {
+      p.log.error(
+        `The project is at ${c.cyan(`v${installedVersion}`)} and this binary would install ${c.cyan(`v${VERSION}`)} — a downgrade.\n` +
+          `Update the binary first: ${c.cyan('brew upgrade claude-dev-workflow')} or ${c.cyan('npm update -g claude-dev-workflow')},\n` +
+          `or ${c.cyan('npx claude-dev-workflow@latest --update')} for the latest release. Pass ${c.cyan('--force')} to downgrade anyway.`,
+      );
+      p.outro(c.yellow('Nothing was updated.'));
+      process.exit(1);
+    } else if (cmp === 1) p.log.warn(`Downgrading the project ${c.cyan(`v${installedVersion} → v${VERSION}`)} — --force given.`);
+  }
+
+  const files = installIntoProject({ force: flag('--force'), dryRun: flag('--print') });
+  if (!files) {
+    p.outro(c.yellow('Nothing was updated.'));
+    process.exit(1);
+  }
+  return files;
+}
+
+/**
+ * Express: the refresh, the settings this version adds, one closing line, and
+ * out. The only question it may ask is about a key that was never answered,
+ * and with no TTY it does not ask that one either.
+ *
+ * One function, reached from `update` and from `init`'s triage alike, for the
+ * reason `installIntoProject` is shared: two express paths could drift.
+ */
+async function runExpress() {
+  const dryRun = flag('--print');
+  const files = refreshFiles();
+  const added = await addNewConfigKeys({ dryRun });
+  if (!dryRun) p.log.info(closingLine(files, settingsAdded(added)));
+  p.outro(
+    dryRun
+      ? `${c.green('Planned only.')} ${c.dim(`v${VERSION} would be installed in ${targetDir}`)}`
+      : `${c.green('Up to date.')} ${c.dim(`v${VERSION} in ${targetDir}`)}`,
+  );
+  process.exit(0);
+}
+
+/**
+ * What `init` asks on a project that already has the workflow, rendered from
+ * the triage in `reinstall.mjs`. The recommendation is the first option and the
+ * default: express when nothing is missing, keep-and-add when settings are.
+ */
+async function askReinstall(triage) {
+  const n = triage.missing.length;
+  const first =
+    triage.kind === 'express'
+      ? { value: 'express', label: 'Express (recommended)', hint: 'refresh the files, keep every setting exactly as it is' }
+      : {
+          value: 'keep',
+          label: `Keep the config and add ${n} new setting${n === 1 ? '' : 's'} (recommended)`,
+          hint: triage.missing.map((e) => e.key).join(', '),
+        };
+  return bail(
+    await p.select({
+      message: 'This project already has the workflow. What do you want to do?',
+      initialValue: first.value,
+      options: [
+        first,
+        { value: 'change', label: 'Change config', hint: 'the wizard, with the current values as its defaults' },
+        { value: 'replace', label: 'Replace the config', hint: 'the wizard from scratch; files you edited stay protected unless --force' },
+        { value: 'cancel', label: 'Cancel', hint: 'nothing is written' },
+      ],
+    }),
   );
 }
 
@@ -351,78 +465,58 @@ if (!existsSync(targetDir)) {
 // /dev-init wants.
 const reconfigure = flag('--reconfigure');
 
+/** What `--update --reconfigure` refreshed before the questions; null on `init`. */
+let refreshed = null;
+
 if (flag('--update')) {
-  // A binary installed once carries one version, and `update` installs *that*
-  // — so say what the project is on and what it is getting, and never move it
-  // backwards by accident: a global binary older than the project's copy is
-  // the binary that needs updating, not the project.
-  const installedVersion = readManifest(targetDir)?.installation?.version ?? null;
-  if (installedVersion) {
-    const cmp = compareVersions(installedVersion, VERSION);
-    if (cmp === 0) p.log.info(`Project is at ${c.cyan(`v${VERSION}`)}, the version this binary installs.`);
-    else if (cmp === -1) p.log.info(`Project ${c.cyan(`v${installedVersion} → v${VERSION}`)}.`);
-    else if (cmp === 1 && !flag('--force')) {
-      p.log.error(
-        `The project is at ${c.cyan(`v${installedVersion}`)} and this binary would install ${c.cyan(`v${VERSION}`)} — a downgrade.\n` +
-          `Update the binary first: ${c.cyan('brew upgrade claude-dev-workflow')} or ${c.cyan('npm update -g claude-dev-workflow')},\n` +
-          `or ${c.cyan('npx claude-dev-workflow@latest --update')} for the latest release. Pass ${c.cyan('--force')} to downgrade anyway.`,
-      );
-      p.outro(c.yellow('Nothing was updated.'));
-      process.exit(1);
-    } else if (cmp === 1) p.log.warn(`Downgrading the project ${c.cyan(`v${installedVersion} → v${VERSION}`)} — --force given.`);
-  }
-
-  const ok = installIntoProject({ force: flag('--force'), dryRun: flag('--print') });
-  if (!ok) {
-    p.outro(c.yellow('Nothing was updated.'));
-    process.exit(1);
-  }
-
-  if (!reconfigure) {
-    // Express. The only question it may ask is about a key that was never
-    // answered, and with no TTY it does not ask that one either.
-    await addNewConfigKeys({ dryRun: flag('--print') });
-    p.outro(
-      flag('--print')
-        ? `${c.green('Planned only.')} ${c.dim(`v${VERSION} would be installed in ${targetDir}`)}`
-        : `${c.green('Up to date.')} ${c.dim(`v${VERSION} in ${targetDir}`)}`,
-    );
-    process.exit(0);
-  }
-
+  if (!reconfigure) await runExpress();
+  refreshed = refreshFiles();
   p.log.step(`${c.bold('Change config')} — the wizard, with your current values as its defaults.`);
 }
 
-let existing = null;
-if (existsSync(configPath)) {
-  try {
-    existing = JSON.parse(readFileSync(configPath, 'utf8'));
-  } catch {
-    p.log.warn(
-      `${c.yellow('.dev-workflow.json exists but is not valid JSON')} — ${flag('--print') ? 'its values cannot be used as defaults.' : 'it will be replaced.'}`,
-    );
+// --- 0.5. a project that already has the workflow -----------------------------
+// `init` used to ask one question here — "Reconfigure it?" — with the whole
+// wizard behind yes and the exit behind no. Express was never offered on this
+// path, and "replace my config" had no spelling short of `--force`. The triage
+// in `reinstall.mjs` decides what to recommend; this renders it. With no TTY
+// the recommendation is what happens, which is what keeps a bare `init` on a
+// configured project usable from a pipe.
+//
+// Read even under `--print`, so what is printed is the config this project
+// would actually get. The question, though, is only worth asking when something
+// would be written — and `--reconfigure` and `--force` already answered it on
+// the command line.
+const triage = classifyProject({
+  manifest: readManifest(targetDir),
+  configText: existsSync(configPath) ? readFileSync(configPath, 'utf8') : null,
+});
+let existing = triage.config;
+/** Whether the wizard runs from nothing, over a config it will replace. */
+let replacing = false;
+
+if (triage.kind === 'corrupt') {
+  // Nothing in it can be kept or diffed, so express is not on offer: the
+  // wizard starts over, and says so before the first question.
+  p.log.warn(
+    `${c.yellow('.dev-workflow.json exists but is not a JSON object')} — ${flag('--print') ? 'its values cannot be used as defaults.' : 'nothing in it can be kept, so the wizard starts from scratch and replaces it.'}`,
+  );
+  replacing = true;
+} else if (triage.kind !== 'fresh' && !flag('--update') && !flag('--force') && !flag('--print')) {
+  p.log.info(`Found an existing config: ${c.cyan(describeConfig(existing))}`);
+  let choice = triage.recommended;
+  if (process.stdin.isTTY) choice = await askReinstall(triage);
+  else p.log.info(`No TTY to ask on — taking the recommended path: ${c.cyan(choice)}.`);
+
+  if (choice === 'cancel') {
+    p.outro('Left untouched.');
+    process.exit(0);
   }
-  // Read even under `--print`, so what is printed is the config this project
-  // would actually get. The confirmation, though, is only worth asking when
-  // something would be written — and `--reconfigure` already answered it on the
-  // command line.
-  if (existing && !flag('--force') && !flag('--print') && !reconfigure) {
-    // Said in the terms of whichever tracker it is for: a GitHub config has no
-    // project key and no instance URL, and printing `? on ?` at somebody is not
-    // a report that a config was found.
-    const summary =
-      existing.provider === 'github'
-        ? `${existing.github?.issuesRepo ?? existing.github?.repo ?? '?'} on GitHub Issues`
-        : `${existing.project ?? '?'} on ${existing.baseUrl ?? '?'}`;
-    p.log.info(`Found an existing config: ${c.cyan(summary)}`);
-    const go = bail(
-      await p.confirm({ message: 'Reconfigure it? Current values become the defaults.', initialValue: true }),
-    );
-    if (!go) {
-      p.outro('Left untouched.');
-      process.exit(0);
-    }
+  if (choice === 'express' || choice === 'keep') await runExpress();
+  if (choice === 'replace') {
+    existing = null;
+    replacing = true;
   }
+  // 'change' falls through: the wizard, with the current values as defaults.
 }
 
 // --- 1. which issue tracker --------------------------------------------------
@@ -1178,6 +1272,7 @@ if (flag('--print')) {
 }
 
 const write = bail(await p.confirm({ message: `Write ${c.cyan('.dev-workflow.json')}?`, initialValue: true }));
+const configOutcome = !write ? 'unchanged' : replacing ? 'replaced' : 'written';
 if (write) {
   writeFileSync(configPath, json, 'utf8');
   p.log.success(`Wrote ${configPath}`);
@@ -1193,6 +1288,7 @@ if (write) {
 // skill names are only claimed where they were actually installed.
 // `--update --reconfigure` refreshed them first, before the wizard: asking a
 // second time would be asking whether to redo what was already done.
+let files = refreshed;
 if (flag('--update')) {
   p.log.info(`The workflow files were refreshed before the questions — ${c.cyan(`v${VERSION}`)}.`);
 } else {
@@ -1208,9 +1304,11 @@ if (flag('--update')) {
     }),
   );
 
-  if (doInstall) installIntoProject({ force: flag('--force') });
+  if (doInstall) files = installIntoProject({ force: flag('--force') });
   else p.log.warn('Skipped — the skills and runtime were not installed.');
 }
+
+p.log.info(closingLine(files, configOutcome));
 
 // --- done --------------------------------------------------------------------
 const pad = ' '.repeat(Math.max(0, 'ABC-123'.length - sampleId.length));
