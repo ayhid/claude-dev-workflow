@@ -1,3 +1,10 @@
+# [1.20.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.19.0...v1.20.0) (2026-09-07)
+
+
+### Features
+
+* **install:** init triages an existing project, and a failed install undoes itself ([#102](https://github.com/ayhid/claude-dev-workflow/issues/102)) ([cbb9ad1](https://github.com/ayhid/claude-dev-workflow/commit/cbb9ad1f4f20215c0aa77b91d4ec39c79b003e87)), closes [#101](https://github.com/ayhid/claude-dev-workflow/issues/101)
+
 # [1.19.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.18.5...v1.19.0) (2026-09-06)
 
 
