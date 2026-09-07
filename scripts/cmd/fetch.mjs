@@ -54,6 +54,18 @@ export async function run(args) {
       : ['_(no comments)_']),
   );
 
+  // The work units a parent was split into (#103), so /dev-split and /dev-done
+  // see the split without a second command. A parent with none prints nothing
+  // extra, and a lookup that fails must not fail the fetch — the issue itself
+  // was read fine, and that is what was asked for.
+  const children = await provider.children(issueId);
+  if (!children.ok) {
+    process.stderr.write(`dev fetch: could not list sub-issues: ${children.error}\n`);
+  } else if (children.data.length) {
+    out.push('', `## Sub-issues (${children.data.length})`, '');
+    out.push(...children.data.map((c) => `- ${c.id} — ${c.title}`));
+  }
+
   process.stdout.write(`${out.join('\n')}\n`);
   return 0;
 }
