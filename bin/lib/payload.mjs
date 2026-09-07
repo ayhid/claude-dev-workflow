@@ -156,15 +156,74 @@ export function isOwnedPath(rel) {
 /**
  * Replace a file atomically: write a sibling temporary, then rename over it.
  *
- * Used for `.claude/settings.json`, the one file we share with the user's own
- * hooks. A same-directory rename is atomic, so an interrupted install can never
- * leave that file half-written — the alternative is a project whose every Bash
- * tool call fires a hook parsed out of truncated JSON.
+ * Every write the installer makes goes through this — the payload, the manifest,
+ * and `.claude/settings.json`, the one file we share with the user's own hooks.
+ * A same-directory rename is atomic, so an interrupted install can never leave
+ * a file half-written; for the settings file the alternative is a project whose
+ * every Bash tool call fires a hook parsed out of truncated JSON.
+ *
+ * It is the default for `installPayload`'s injected `writeFile`, which is what
+ * lets a test make the fourth write fail and check what the journal restores.
  */
 function writeAtomically(absPath, body) {
   const tmp = `${absPath}.tmp`;
-  writeFileSync(tmp, body);
-  renameSync(tmp, absPath);
+  try {
+    writeFileSync(tmp, body);
+    renameSync(tmp, absPath);
+  } catch (err) {
+    // A writer cleans up after itself: the journal restores files, it does not
+    // know which temporary a given writer leaves behind.
+    rmSync(tmp, { force: true });
+    throw err;
+  }
+}
+
+/**
+ * What an install undoes when it fails partway.
+ *
+ * The manifest is written last, which is the right order for a crash — except
+ * that the next run then compares the files a newer version half-wrote against
+ * the hashes the older manifest records, reads them as the user's edits, and
+ * protects them: the update is stuck until `--force`. So every write and every
+ * removal first records what was there, and a failure puts all of it back, in
+ * reverse, before the error reaches the caller. The old manifest was never
+ * touched, so afterwards it is true again.
+ *
+ * In memory, not a backup directory: the payload is a few dozen small files,
+ * it is meant to be committed, and git is the backup for everything else.
+ */
+function makeJournal() {
+  const entries = [];
+  const dirs = [];
+  return {
+    /** Create `dir` and its parents, remembering the first one that did not exist. */
+    mkdir(dir) {
+      const created = mkdirSync(dir, { recursive: true });
+      if (created) dirs.push(created);
+    },
+    /** Call before the first write to, or removal of, `abs`. */
+    remember(abs) {
+      const present = existsSync(abs);
+      entries.push({
+        abs,
+        previous: present ? readFileSync(abs) : null,
+        mode: present ? statSync(abs).mode : null,
+      });
+    },
+    /** Put every remembered path back as it was, then drop the directories this run created. */
+    undo() {
+      for (const { abs, previous, mode } of entries.reverse()) {
+        if (previous === null) {
+          rmSync(abs, { force: true });
+        } else {
+          writeFileSync(abs, previous);
+          chmodSync(abs, mode);
+        }
+      }
+      // Each was absent before this run, so everything under it is this run's.
+      for (const dir of dirs.reverse()) rmSync(dir, { recursive: true, force: true });
+    },
+  };
 }
 
 /** Every file under `dir`, as paths relative to `base`, sorted for a stable manifest. */
@@ -270,7 +329,14 @@ export function mergeHookIntoSettings(settings) {
  * @param {boolean} [opts.dryRun]    plan only, write nothing
  * @returns {{written: string[], skipped: string[], removed: string[], hookAdded: boolean, addedCommands: string[], isUpdate: boolean}}
  */
-export function installPayload({ sourceRoot, projectDir, version, force = false, dryRun = false }) {
+export function installPayload({
+  sourceRoot,
+  projectDir,
+  version,
+  force = false,
+  dryRun = false,
+  writeFile = writeAtomically,
+}) {
   const previous = readManifest(projectDir);
   const isUpdate = Boolean(previous);
   const drift = isUpdate ? detectDrift(projectDir, previous) : { modified: [] };
@@ -292,76 +358,99 @@ export function installPayload({ sourceRoot, projectDir, version, force = false,
   const written = [];
   const skipped = [];
   const manifestFiles = [];
+  const removed = [];
+  let hookAdded = false;
+  let addedCommands = [];
 
-  for (const [rel, src] of planned) {
-    const dest = join(projectDir, rel);
-    const content = readFileSync(src);
-    const hash = sha256(content);
+  // From the first write to the manifest, one journal. A throw anywhere in
+  // between restores everything and rethrows; a restore that itself fails is
+  // reported alongside the original error rather than in place of it.
+  const journal = makeJournal();
+  try {
+    for (const [rel, src] of planned) {
+      const dest = join(projectDir, rel);
+      const content = readFileSync(src);
+      const hash = sha256(content);
 
-    if (protectedPaths.has(rel)) {
-      skipped.push(rel);
-      // Keep the *previous* hash so the file stays flagged as modified on the
-      // next run too, rather than silently becoming the new baseline.
-      const prior = previous.files.find((f) => f.path === rel);
-      manifestFiles.push({ path: rel, sha256: prior?.sha256 ?? hash });
-      continue;
+      if (protectedPaths.has(rel)) {
+        skipped.push(rel);
+        // Keep the *previous* hash so the file stays flagged as modified on the
+        // next run too, rather than silently becoming the new baseline.
+        const prior = previous.files.find((f) => f.path === rel);
+        manifestFiles.push({ path: rel, sha256: prior?.sha256 ?? hash });
+        continue;
+      }
+
+      if (!dryRun) {
+        journal.mkdir(dirname(dest));
+        journal.remember(dest);
+        writeFile(dest, content);
+        // Carry the executable bit across: the commit hook is run as a script.
+        if (statSync(src).mode & 0o111) chmodSync(dest, 0o755);
+      }
+      written.push(rel);
+      manifestFiles.push({ path: rel, sha256: hash });
+    }
+
+    // Files this version no longer ships, that the last one did.
+    //
+    // This is the only place the installer deletes anything, so it is where a bad
+    // manifest would do real damage. Ownership is re-checked here rather than
+    // trusted from the manifest: the file on disk was read from the project, not
+    // written by us, and it may have been edited by hand.
+    for (const entry of previous?.files ?? []) {
+      if (planned.has(entry.path)) continue;
+      if (protectedPaths.has(entry.path)) continue;
+      if (!isOwnedPath(entry.path)) continue;
+      if (isGeneratedPath(entry.path)) continue;
+      const abs = join(projectDir, entry.path);
+      if (!existsSync(abs)) continue;
+      if (!dryRun) {
+        journal.remember(abs);
+        rmSync(abs, { force: true });
+      }
+      removed.push(entry.path);
+    }
+
+    // Settings merge. Written atomically because this file is shared with the
+    // user's own hooks: a torn write here breaks every Bash tool call in the
+    // project, not just ours.
+    const settingsAbs = join(projectDir, SETTINGS_PATH);
+    const merged = mergeHookIntoSettings(readJson(settingsAbs, {}));
+    hookAdded = merged.added;
+    addedCommands = merged.addedCommands;
+    if (!dryRun && hookAdded) {
+      journal.mkdir(dirname(settingsAbs));
+      journal.remember(settingsAbs);
+      writeFile(settingsAbs, `${JSON.stringify(merged.settings, null, 2)}\n`);
     }
 
     if (!dryRun) {
-      mkdirSync(dirname(dest), { recursive: true });
-      writeFileSync(dest, content);
-      // Carry the executable bit across: the commit hook is run as a script.
-      if (statSync(src).mode & 0o111) chmodSync(dest, 0o755);
+      const now = new Date().toISOString();
+      const manifest = {
+        installation: {
+          version,
+          installDate: previous?.installation?.installDate ?? now,
+          lastUpdated: now,
+        },
+        payloadDir: PAYLOAD_DIR,
+        skills: [...planned.keys()]
+          .filter((p) => p.startsWith(`${SKILLS_DIR}${sep}`) && p.endsWith("SKILL.md"))
+          .map((p) => p.split(sep)[2]),
+        files: manifestFiles.sort((a, b) => a.path.localeCompare(b.path)),
+      };
+      const manifestAbs = join(projectDir, MANIFEST_PATH);
+      journal.mkdir(dirname(manifestAbs));
+      journal.remember(manifestAbs);
+      writeFile(manifestAbs, `${JSON.stringify(manifest, null, 2)}\n`);
     }
-    written.push(rel);
-    manifestFiles.push({ path: rel, sha256: hash });
-  }
-
-  // Files this version no longer ships, that the last one did.
-  //
-  // This is the only place the installer deletes anything, so it is where a bad
-  // manifest would do real damage. Ownership is re-checked here rather than
-  // trusted from the manifest: the file on disk was read from the project, not
-  // written by us, and it may have been edited by hand.
-  const removed = [];
-  for (const entry of previous?.files ?? []) {
-    if (planned.has(entry.path)) continue;
-    if (protectedPaths.has(entry.path)) continue;
-    if (!isOwnedPath(entry.path)) continue;
-    if (isGeneratedPath(entry.path)) continue;
-    const abs = join(projectDir, entry.path);
-    if (!existsSync(abs)) continue;
-    if (!dryRun) rmSync(abs, { force: true });
-    removed.push(entry.path);
-  }
-
-  // Settings merge. Written atomically because this file is shared with the
-  // user's own hooks: a torn write here breaks every Bash tool call in the
-  // project, not just ours.
-  const settingsAbs = join(projectDir, SETTINGS_PATH);
-  const { settings, added: hookAdded, addedCommands } = mergeHookIntoSettings(readJson(settingsAbs, {}));
-  if (!dryRun && hookAdded) {
-    mkdirSync(dirname(settingsAbs), { recursive: true });
-    writeAtomically(settingsAbs, `${JSON.stringify(settings, null, 2)}\n`);
-  }
-
-  if (!dryRun) {
-    const now = new Date().toISOString();
-    const manifest = {
-      installation: {
-        version,
-        installDate: previous?.installation?.installDate ?? now,
-        lastUpdated: now,
-      },
-      payloadDir: PAYLOAD_DIR,
-      skills: [...planned.keys()]
-        .filter((p) => p.startsWith(`${SKILLS_DIR}${sep}`) && p.endsWith("SKILL.md"))
-        .map((p) => p.split(sep)[2]),
-      files: manifestFiles.sort((a, b) => a.path.localeCompare(b.path)),
-    };
-    const manifestAbs = join(projectDir, MANIFEST_PATH);
-    mkdirSync(dirname(manifestAbs), { recursive: true });
-    writeAtomically(manifestAbs, `${JSON.stringify(manifest, null, 2)}\n`);
+  } catch (err) {
+    try {
+      journal.undo();
+    } catch (undoErr) {
+      err.message += `\n(restoring the previous files also failed: ${undoErr.message})`;
+    }
+    throw err;
   }
 
   return { written, skipped, removed, hookAdded, addedCommands, isUpdate, modified: drift.modified };

@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -756,4 +756,153 @@ test('update refuses to downgrade a project below what a newer binary installed,
   const forced = await runInstaller(['update', '--force', '--dir', dir]);
   assert.equal(forced.code, 0, forced.out);
   assert.notEqual(JSON.parse(readFileSync(manifestPath, 'utf8')).installation.version, '99.0.0');
+});
+
+// --- init on a project that already has the workflow (#101) -------------------
+//
+// `init` used to ask "Reconfigure it?" there, with the wizard behind yes and
+// nothing behind no; express existed only under `update`. Now it triages: with
+// nothing missing the recommendation is express, with keys missing it is to
+// keep the config and append them, and with no TTY the recommendation is what
+// happens. The prompt itself cannot be driven from a test, so these cover the
+// no-TTY path and `tests/reinstall.test.mjs` covers the decision.
+
+test('init on a complete config with no TTY takes the recommended path: express (#101)', async () => {
+  const dir = scratch();
+  const before = completeConfig();
+  writeFileSync(join(dir, '.dev-workflow.json'), before);
+
+  const real = await runInstaller(['init', '--dir', dir]);
+  assert.equal(real.signal, null, `init blocked on a prompt with no TTY: ${real.out}`);
+  assert.equal(real.code, 0, real.out);
+
+  assert.ok(existsSync(join(dir, MANIFEST_PATH)), 'the files were installed');
+  assert.ok(existsSync(join(dir, '.claude', 'skills', 'dev-task', 'SKILL.md')));
+  assert.equal(readFileSync(join(dir, '.dev-workflow.json'), 'utf8'), before, 'express leaves the config byte-identical');
+  assert.match(real.out, /Config: retained/);
+});
+
+test('init on a config predating a setting keeps it and appends the defaults, and says so (#101)', async () => {
+  const dir = scratch();
+  const config = JSON.parse(completeConfig());
+  delete config.language;
+  delete config.commit.noTicketEscape;
+  writeFileSync(join(dir, '.dev-workflow.json'), JSON.stringify(config, null, 2) + '\n');
+
+  const real = await runInstaller(['init', '--dir', dir]);
+  assert.equal(real.signal, null, `init blocked on a prompt with no TTY: ${real.out}`);
+  assert.equal(real.code, 0, real.out);
+
+  const written = readJson(join(dir, '.dev-workflow.json'));
+  assert.equal(written.language, 'English');
+  assert.equal(written.commit.noTicketEscape, 'chore(no-ticket)');
+  assert.deepEqual(written.states, config.states, 'every answer already there survives');
+  assert.match(real.out, /language = English/);
+  assert.match(real.out, /Config: 2 settings added/);
+});
+
+test('the closing line says what happened to the files and the config on update too (#101)', async () => {
+  const dir = scratch();
+  writeFileSync(join(dir, '.dev-workflow.json'), completeConfig());
+
+  const first = await runInstaller(['--update', '--dir', dir]);
+  assert.equal(first.code, 0, first.out);
+  assert.match(first.out, /Files updated: \d+ written\. Config: retained\./);
+
+  const config = JSON.parse(completeConfig());
+  delete config.language;
+  writeFileSync(join(dir, '.dev-workflow.json'), JSON.stringify(config, null, 2) + '\n');
+  const second = await runInstaller(['--update', '--dir', dir]);
+  assert.equal(second.code, 0, second.out);
+  assert.match(second.out, /Config: 1 setting added\./);
+});
+
+// --- a write that fails midway (#101) ------------------------------------------
+//
+// The manifest is written last, which is right for a crash — except that the
+// next run then compares the files a newer version half-wrote against the hash
+// the older manifest records, reads them as user edits, and protects them: the
+// update is stuck until `--force`. So a failed install undoes itself, from an
+// in-memory journal, and the old manifest stays true. No backup directory: the
+// payload is committed, and git is the backup.
+
+/** Every file under `dir`, relative path → content, so two trees can be compared whole. */
+const snapshot = (dir, base = dir, out = {}) => {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) snapshot(full, base, out);
+    else out[full.slice(base.length + 1)] = readFileSync(full, 'utf8');
+  }
+  return out;
+};
+
+/** A next version of the distribution: one file changed, one added, one dropped. */
+const nextVersion = () => {
+  const src = scratch();
+  for (const d of [...PAYLOAD_SOURCES, 'skills', 'agents']) cpSync(join(SOURCE_ROOT, d), join(src, d), { recursive: true });
+  writeFileSync(join(src, 'scripts', 'dev.mjs'), '// v2\n');
+  writeFileSync(join(src, 'lib', 'brand-new.mjs'), 'export const x = 1;\n');
+  rmSync(join(src, 'lib', 'metrics.mjs'));
+  return src;
+};
+
+test('a write that fails on the manifest restores every file written and every file removed (#101)', () => {
+  const dir = scratch();
+  install(dir);
+  const before = snapshot(dir);
+
+  // Every payload write and removal has happened by the time the manifest is
+  // written, so failing there exercises the whole journal.
+  const failOnManifest = (abs, content) => {
+    if (abs.endsWith(MANIFEST_PATH)) throw new Error('EACCES: permission denied');
+    writeFileSync(abs, content);
+  };
+  assert.throws(
+    () => installPayload({ sourceRoot: nextVersion(), projectDir: dir, version: '10.0.0', writeFile: failOnManifest }),
+    /EACCES/,
+  );
+
+  assert.deepEqual(snapshot(dir), before, 'every file is as it was, and nothing new is left behind');
+  assert.equal(readManifest(dir).installation.version, '9.9.9');
+});
+
+test('a fresh install that fails leaves no directory behind either (#101)', () => {
+  const dir = scratch();
+  const failOnManifest = (abs, content) => {
+    if (abs.endsWith(MANIFEST_PATH)) throw new Error('EACCES: permission denied');
+    writeFileSync(abs, content);
+  };
+  assert.throws(() => install(dir, { writeFile: failOnManifest }), /EACCES/);
+  assert.deepEqual(readdirSync(dir), [], 'the project is exactly as empty as it was');
+});
+
+test('a write that fails on a payload file restores the ones before it, and the next run is an ordinary update (#101)', () => {
+  const dir = scratch();
+  install(dir);
+  const before = snapshot(dir);
+  const src = nextVersion();
+
+  let writes = 0;
+  const failLate = (abs, content) => {
+    if (++writes === planFiles(src).size - 1) throw new Error('ENOSPC: no space left on device');
+    writeFileSync(abs, content);
+  };
+  assert.throws(() => installPayload({ sourceRoot: src, projectDir: dir, version: '10.0.0', writeFile: failLate }), /ENOSPC/);
+  assert.deepEqual(snapshot(dir), before);
+
+  // Nothing reads as a user edit: the changed file is written, the dropped one removed.
+  const next = installPayload({ sourceRoot: src, projectDir: dir, version: '10.0.0' });
+  assert.deepEqual(next.skipped, []);
+  assert.ok(next.written.includes(join(PAYLOAD_DIR, 'scripts', 'dev.mjs')));
+  assert.ok(next.written.includes(join(PAYLOAD_DIR, 'lib', 'brand-new.mjs')));
+  assert.ok(next.removed.includes(join(PAYLOAD_DIR, 'lib', 'metrics.mjs')));
+  assert.equal(readFileSync(join(dir, PAYLOAD_DIR, 'scripts', 'dev.mjs'), 'utf8'), '// v2\n');
+});
+
+test('the commit hook keeps its executable bit through the default atomic write (#101)', () => {
+  const dir = scratch();
+  install(dir);
+  const hook = join(dir, PAYLOAD_DIR, 'hooks', 'check-commit-ticket.sh');
+  assert.ok(statSync(hook).mode & 0o111);
+  assert.ok(!existsSync(`${hook}.tmp`), 'no temporary is left beside a written file');
 });

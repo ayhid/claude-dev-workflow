@@ -23,7 +23,6 @@
  * 3. **The version is read back.** After an upgrade the manifest is re-read and
  *    the version *found* is reported, never the one that was asked for.
  */
-import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { loadConfig } from '../../lib/config.mjs';
@@ -113,18 +112,20 @@ export async function upgrade(root, { run = sh, hasBin = has, vcs, latest = null
   // Consumers commit `_dev-workflow/`, `.claude/skills/dev-*` and
   // `.claude/agents/dev-*.md`. An upgrade produces a diff they have to review,
   // so it must not land on top of edits already sitting in those directories.
-  const owned = [PAYLOAD_DIR, join('.claude', 'skills'), join('.claude', 'agents')].filter((p) =>
-    existsSync(join(root, p)),
-  );
-  if (owned.length) {
-    const state = await git.isClean(root, { paths: owned });
-    if (state.ok && !state.clean) {
-      throw new UserError(
-        `refusing to upgrade: ${new Intl.ListFormat('en').format(owned)} have uncommitted changes.\n` +
-          `${state.dirty.map((l) => `  ${l}`).join('\n')}\n` +
-          'Commit or stash them first — an upgrade rewrites these files.',
-      );
-    }
+  //
+  // Check all three owned roots regardless of whether they exist on disk: git can
+  // still have them tracked, and a root that is fully deleted but uncommitted should
+  // still block the upgrade. (`existsSync` alone would miss a root where all files
+  // were deleted without being committed; the directory then disappears but git
+  // still knows about the files.)
+  const owned = [PAYLOAD_DIR, join('.claude', 'skills'), join('.claude', 'agents')];
+  const state = await git.isClean(root, { paths: owned });
+  if (state.ok && !state.clean) {
+    throw new UserError(
+      `refusing to upgrade: ${new Intl.ListFormat('en').format(owned)} have uncommitted changes.\n` +
+        `${state.dirty.map((l) => `  ${l}`).join('\n')}\n` +
+        'Commit or stash them first — an upgrade rewrites these files.',
+    );
   }
 
   // A binary installed once — brew, npm -g — is preferred, but only when it

@@ -344,3 +344,26 @@ test('formatConfig reports the tdd switch in both positions', () => {
   const off = deepMerge(on, { tdd: { enabled: false } });
   assert.match(formatConfig(off, null), /tdd:\s+off/);
 });
+
+test('a key this version does not know is ignored, without a warning (#101)', () => {
+  // An express update keeps an older config under newer code, and a newer
+  // config can meet older code through a downgrade. A key nothing reads must
+  // cost nothing: no error, and no warning either, since loadConfig runs on
+  // every command and a warning there lands in the session context each time.
+  const root = scratch();
+  writeFileSync(
+    join(root, '.dev-workflow.json'),
+    JSON.stringify({ provider: 'github', github: { repo: 'acme/api' }, retiredSetting: true, states: { done: 'Done', legacyRung: 'x' } }),
+  );
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => warnings.push(args.join(' '));
+  try {
+    const { config } = loadConfig({ dir: root, env: {} });
+    assert.equal(config.retiredSetting, true, 'kept, since loadConfig layers the file over the defaults');
+    assert.equal(config.states.done, 'Done');
+  } finally {
+    console.warn = originalWarn;
+  }
+  assert.deepEqual(warnings, []);
+});
