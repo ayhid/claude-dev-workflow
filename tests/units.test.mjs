@@ -14,6 +14,7 @@ import {
   classifyUnits,
   computeWaves,
   parseDependsOn,
+  parseUnitRepo,
   parseUnitsFile,
   readyUnits,
   renderUnitBody,
@@ -40,6 +41,14 @@ test('renderUnitBody writes one Depends on: line, and none when there is nothing
   const alone = renderUnitBody({ description: '## Problem\n\nx', dependsOn: [] });
   assert.equal(alone, '## Problem\n\nx\n');
   assert.doesNotMatch(alone, /Depends on/);
+});
+
+test('renderUnitBody writes a Repo: line for a multi-repo unit, and parseUnitRepo reads it back', () => {
+  const body = renderUnitBody({ description: 'x', dependsOn: ['#43'], repo: 'web' });
+  assert.equal(body, 'x\n\nRepo: web\nDepends on: #43\n');
+  assert.equal(parseUnitRepo(body), 'web');
+  assert.equal(parseDependsOn(body, idSyntaxFor(GITHUB))[0], '#43');
+  assert.equal(parseUnitRepo('no such line'), null);
 });
 
 test('parseDependsOn round-trips GitHub and YouTrack IDs and reads only that line', () => {

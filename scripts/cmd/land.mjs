@@ -106,7 +106,14 @@ async function openPullRequest({ workDir, branch, base, issue, reviewer, remote,
   return { ok: true, url: pr.url };
 }
 
-export async function run(args) {
+/**
+ * @param {string[]} args
+ * @param {{reconcile?: boolean}} [flow]
+ *   `reconcile: false` skips the `sync --apply` that follows a `pr` delivery.
+ *   Only `build --land` passes it (#103): landing a wave is several PRs and
+ *   one reconcile, and the reconcile is the caller's to run once at the end.
+ */
+export async function run(args, { reconcile = true } = {}) {
   const { opts, rest } = parseArgs(args);
   const { config, root, provider } = await context();
   const repo = resolveRepo(config, root, opts.repo);
@@ -210,6 +217,12 @@ export async function run(args) {
       apply: opts.apply,
       L,
     });
+
+    if (opts.apply && !reconcile) {
+      L.push('then:     the caller reconciles the ticket once the wave has landed');
+      process.stdout.write(`${L.join('\n')}\n`);
+      return 0;
+    }
 
     if (opts.apply) {
       // The reconciler is the one code path that knows how an open PR maps onto
