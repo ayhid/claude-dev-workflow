@@ -61,6 +61,9 @@ test('the models match the task class: a reader is cheap, a review lens judges',
   const model = (name) => parseAgent(readFileSync(join(AGENTS, `${name}.md`), 'utf8')).agent.model;
   assert.equal(model('dev-reader'), 'haiku');
   for (const lens of REVIEW_LENSES) assert.equal(model(`dev-review-${lens}`), 'sonnet', lens);
+  // A builder writes code that ships: it earns the model the session runs on,
+  // not a cheaper one — the win is parallelism (ADR 0004).
+  assert.equal(model('dev-builder'), 'inherit');
 });
 
 test('each review lens is its own agent: it names its lens file, which ships, and may only Read', () => {
