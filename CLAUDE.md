@@ -138,6 +138,18 @@ Four rules the contract enforces, not conventions to remember:
 Rung resolution belongs to the adapter (`setState` takes `start`/`review`/`done`), not the caller.
 Leaving it to callers makes rule 2 advisory.
 
+**A parent and its children are one more question every adapter answers.** `createChild` files an
+issue and links it under another; `children` lists them back with their bodies. No capability flag,
+for the reason `listOpen` has none: both trackers can nest an issue, so a flag would only be a place
+to forget the else. The link is *read back* after the write (rule 3) — YouTrack answers 200 for a
+`subtask of` it did not apply — and a link that did not take is a warning naming the parent, never
+an error that loses the new ID. The dependency between two units is one `Depends on:` line in the
+child's body, parsed by `lib/units.mjs` through the same `extractIssueIds` the reconciler trusts;
+nothing else in a body is read. Units fork from the configured base and never from each other or
+from a parent branch — `sync` scans only the delivery base for evidence, so a branch merged into a
+feature branch would close nothing — which is why `build` works in waves and a wave ends at the PR
+boundary under `pr` delivery (ADR 0004).
+
 **State and its representation are two questions.** A backend that models the ladder on top of
 something else keeps two copies of a ticket's state, and they come apart: GitHub closes an issue
 itself at merge and the `in review` label stays. `checkRepresentation` / `repairRepresentation` are
@@ -172,7 +184,10 @@ repository and the git rules testable without a network.
 
 1. **The choke point enforces the refusals.** Every git call goes through one `git()` wrapper that
    refuses `--no-verify` and every spelling of `-X theirs` / `--theirs`. Put the check there, not at
-   call sites: a reviewer should not have to notice a hook bypass in a new call site later.
+   call sites: a reviewer should not have to notice a hook bypass in a new call site later. The
+   choke point binds this tool's own git calls and nothing else — a `dev-builder` subagent issues
+   raw `git` through Bash, and for that the only enforcement is `hooks/check-commit-ticket.sh`,
+   which refuses `--no-verify` on the commit path for the same reason.
 2. **A conflict is reported, never resolved.** A failed rebase aborts and leaves the branch exactly
    as it was found. `-X theirs` makes a conflict disappear by discarding somebody's work, and it is
    silent about which.
@@ -229,7 +244,12 @@ wrapper answer with a choke point — done once, in code, rather than re-derived
    a wrong answer costs**: *find and report* — extract, verify, probe, with an output the tool can
    refuse — on the cheapest model (`dev-reader`); *judge bounded material* — a lens over a diff, a
    pair of documents — on the middle model (`dev-review-blind`, `-edge`, `-audit`: one agent per
-   lens, so each carries its lens and its file entitlement as a fixed prefix); *decide with the
+   lens, so each carries its lens and its file entitlement as a fixed prefix); *build a bounded
+   unit* — one sub-issue of a split ticket, in a worktree of its own — on the model the session
+   runs on (`dev-builder`, `model: inherit`, ADR 0004): its output is code that ships, its
+   mechanical check (the tests) is partial and its human check (review) is late, so a wrong answer
+   costs a review cycle plus a rework across a wave, and the win the class exists for is
+   parallelism rather than a cheaper model; *decide with the
    user* — criteria,
    arbitration, options, plans — never delegated. Two rules keep it cheap: each dispatch pays its
    own prompt-cache write, so delegate large or repeated reads only, never a one-liner; and a

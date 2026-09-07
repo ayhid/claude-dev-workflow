@@ -1322,6 +1322,7 @@ p.log.info(closingLine(files, configOutcome));
 const pad = ' '.repeat(Math.max(0, 'ABC-123'.length - sampleId.length));
 const nextSteps = [
   `${c.cyan(`/dev-task ${sampleId}`)}${pad}   start work on an issue`,
+  `${c.cyan('/dev-file add X')}     file a well-specified issue for later`,
   `${c.cyan('/dev-bug it broke')}   file one without losing your place`,
   `${c.cyan('/dev-done')}           verify and close out`,
   '',

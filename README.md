@@ -13,15 +13,19 @@
 ![The install wizard verifying a token, listing the projects it can see, reading that project's real State values, and writing .dev-workflow.json](https://raw.githubusercontent.com/ayhid/claude-dev-workflow/main/.github/assets/wizard.gif)
 
 Ticket-driven development against your issue tracker, [YouTrack](https://www.jetbrains.com/youtrack/)
-or [GitHub Issues](docs/configuration.md#github-issues), as eleven Claude Code skills. It installs **per
+or [GitHub Issues](docs/configuration.md#github-issues), as fifteen Claude Code skills. It installs **per
 project**: no skill is registered globally, so they exist only in repos that use a tracker.
 
 | Skill         | What it does |
 | ------------- | ------------ |
 | `/dev-init`    | Probes the repo, asks what it cannot infer, verifies the credentials, writes `.dev-workflow.json`. |
-| `/dev-task` | Takes an issue ID **or a plain sentence**, files the issue first when there is none, then agrees acceptance criteria, plans, moves it to *in progress*, checks it out in a worktree, and implements with ticket-referencing commits. |
-| `/dev-tdd` | The red/green/refactor loop `/dev-task` hands off to at implementation: one agreed criterion at a time, a test confirmed to fail for the intended reason before any production code, then a refactor while green. On by default, `tdd.enabled: false` to switch it off. |
-| `/dev-bug`     | Investigates the likely code path, checks for duplicates, drafts the issue in the project's language, files it on approval. **Never fixes.** |
+| `/dev-task` | The front door. Takes an issue ID **or a plain sentence** and routes to the step the work is at: `/dev-file` when there is no issue, `/dev-plan` when there is no plan, `/dev-split` when the plan has independent parts, `/dev-build` to build. |
+| `/dev-file` | Turns a sentence into a filed issue of any configured type: orients in the code, asks for what is missing in rounds you can stop after any of, checks for duplicates, drafts in the project's language with falsifiable acceptance criteria, files on approval. **Ends at the ID; starts nothing.** |
+| `/dev-plan` | Agrees what done means and how to get there: restates the criteria against a stated bar, picks the repo, proposes the approach with its independent parts named, and posts the plan **on the ticket**, where the next session reads it back. **Edits no file, creates no branch.** |
+| `/dev-split` | Turns a plan's independent parts into work units filed as **sub-issues** of the ticket, each with its own criteria and a `Depends on:` line, in the order they can be built. **Starts nothing.** |
+| `/dev-build` | Builds it: moves the ticket, checks it out in a worktree, implements against the agreed criteria, verifies with evidence, delivers the way the project delivers. A split ticket has its ready units built **in parallel**, one builder subagent per unit in its own worktree, and landed a wave at a time. |
+| `/dev-tdd` | The red/green/refactor loop `/dev-build` hands off to at implementation: one agreed criterion at a time, a test confirmed to fail for the intended reason before any production code, then a refactor while green. On by default, `tdd.enabled: false` to switch it off. |
+| `/dev-bug`     | The front door for something broken: parses the symptom, investigates the likely code path to a suspected area, and hands it to `/dev-file` to file as the project's defect type. **Never fixes.** |
 | `/dev-done`    | Re-reads the ticket, verifies each criterion with evidence, runs the checks, then lands the work the way the project delivers: pull request, or straight onto the base branch. |
 | `/dev-review` | Three adversarial passes over the branch diff, each with a **different payload**: one blind pass that never sees the ticket, one hunting the input that breaks it, one auditing code against intent *and intent against itself*. Findings sorted into fix-the-code, fix-the-spec, out-of-scope. **Never edits, never lands.** |
 | `/dev-lint-rules` | Turns the conventions a project only *states* — in `CLAUDE.md`, `CONTRIBUTING.md`, the docs ledger — into rules its own linter can decide, each presented with the count of existing violations it would flag. What no rule can decide it reports separately, as a hook, a claim, or noise. **Writes nothing without approval of the batch.** [Why not a document →](docs/documentation.md#why-there-is-no-conventionsmd) |
@@ -84,7 +88,7 @@ names your instance may not have.
 To amend an existing config later, or to talk it through rather than click, run `/dev-init` in
 Claude Code instead.
 
-Either way you now have the eleven skills. Start work:
+Either way you now have the fifteen skills. Start work:
 
 ```
 /dev-task ABC-42
@@ -98,8 +102,13 @@ edits anything.
 
 ```mermaid
 flowchart TD
-    A["/dev-task ABC-42<br/>or a plain sentence"] --> B["agree acceptance<br/>criteria, then a plan"]
-    B --> C["dev.mjs start<br/>worktree or branch<br/>ticket → In Progress"]
+    A["/dev-task ABC-42<br/>or a plain sentence"] -. "no issue yet" .-> A1["/dev-file<br/>issue filed"]
+    A1 --> B
+    A --> B["/dev-plan<br/>criteria agreed, plan<br/>posted on the ticket"]
+    B -. "independent parts" .-> S["/dev-split<br/>units filed as sub-issues"]
+    S --> S1["/dev-build<br/>one builder per ready unit,<br/>landed a wave at a time"]
+    S1 --> E
+    B --> C["/dev-build → dev.mjs start<br/>worktree or branch<br/>ticket → In Progress"]
     C --> D["commits carrying<br/>the issue ID"]
     D --> E["/dev-done<br/>verify criteria, run checks"]
     E --> F{"delivery.mode"}
@@ -136,8 +145,9 @@ These are deliberate, and worth preserving in any fork.
 
 | Guarantee | Enforced by |
 | --- | --- |
-| `/dev-bug` files and stops. It never starts the fix, edits a file or switches branch, because the session may be mid-task on something else. | The `/dev-bug` skill contract |
-| `/dev-task` does not touch a file before the plan is approved, and does not close a ticket unasked. | The `/dev-task` skill contract |
+| `/dev-file` and `/dev-bug` file and stop. They never start the work, edit a file or switch branch, because the session may be mid-task on something else. | The `/dev-file` skill contract; `/dev-bug` hands off to it |
+| `/dev-plan` and `/dev-split` end on the tracker — a plan comment, a set of sub-issues — and touch nothing on disk. Only `/dev-build` creates a branch, and it does not touch a file before the plan is agreed or close a ticket unasked. | The `/dev-plan`, `/dev-split` and `/dev-build` skill contracts |
+| A builder subagent works only in its own worktree: no push, no fetch, no stash, no rebase, no hook bypass, and no command that moves a ticket. The coordinator lands each wave and reconciles once. | `agents/dev-builder.md`; the commit hook refuses `--no-verify`; `dev.mjs build --land` is the one writer |
 | `/dev-done` refuses to close a ticket whose acceptance criteria are unmet or whose suite fails, and reports the gap instead. | The `/dev-done` skill contract |
 | The transition log never leaves your machine, and never fails a ticket transition. | `dev.mjs` appends one JSON line locally; a log it cannot write produces a line on stderr and the ticket still moves. |
 | `/dev-standup` reports and never writes — not even the `sync --apply` it suggests. A command run first thing in the morning must be safe to run without thinking. | `dev.mjs standup` has no write path at all; every fix it names is a command for you to approve. |
@@ -229,10 +239,12 @@ your-project/
     scripts/  lib/  hooks/
     _config/manifest.json         # version + a sha256 per installed file
   .claude/
-    skills/dev-task, dev-tdd, dev-bug, dev-done, dev-init, dev-standup,
-           dev-ingest-docs, dev-docs-init, dev-adr, dev-review, dev-lint-rules
+    skills/dev-task, dev-file, dev-plan, dev-split, dev-build, dev-tdd, dev-bug,
+           dev-done, dev-init, dev-standup, dev-ingest-docs, dev-docs-init,
+           dev-adr, dev-review, dev-lint-rules
     agents/dev-reader.md          # the subagents the skills dispatch, one file each
            dev-review-blind.md, dev-review-edge.md, dev-review-audit.md
+           dev-builder.md
     settings.json                 # the four hooks, merged in alongside your own
 ```
 

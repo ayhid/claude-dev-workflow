@@ -228,7 +228,7 @@ Omit it entirely for a single-repo project.
 ]
 ```
 
-`when` is how `/dev-task` routes a ticket to a repo, `checks` is what `/dev-done` runs there, `env`
+`when` is how `/dev-plan` routes a ticket to a repo, `checks` is what `/dev-done` runs there, `env`
 is prepended to every command in that repo, and `remotes` lists everywhere branches are pushed.
 
 Commands taking `--repo` infer it from the directory they are run in, so the flag is only needed
@@ -429,16 +429,18 @@ board every time would spend context on a report nobody asked for twice.
 
 ```jsonc
 {
-  "tdd": { "enabled": true }   // false: /dev-task implements directly
+  "tdd": { "enabled": true }   // false: /dev-build implements directly
 }
 ```
 
-`/dev-task` §2 agrees the acceptance criteria and §7 verifies them. This key decides what happens
-between those two points. On — the default — §6 hands each criterion to `/dev-tdd`, which drives it
-red/green/refactor: a test confirmed to fail **for the intended reason** before any production
-code, then the least code that passes it, then a refactor while green.
+`/dev-plan` §2 agrees the acceptance criteria and `/dev-build` §5 verifies them. This key decides
+what happens between those two points. On — the default — `/dev-build` §4 hands each criterion to
+`/dev-tdd`, which drives it red/green/refactor: a test confirmed to fail **for the intended
+reason** before any production code, then the least code that passes it, then a refactor while
+green. A `dev-builder` subagent building one unit of a split ticket reads the same line and runs
+the same loop.
 
-`false` turns the handoff off and §6 implements directly. Nothing else changes: §7 still walks
+`false` turns the handoff off and `/dev-build` §4 implements directly. Nothing else changes: §5 still walks
 every criterion and still wants evidence for each, so a criterion with no test needs the command
 output that shows it works.
 
@@ -545,7 +547,7 @@ the commit convention (#12) is a reference, not a closing keyword
 | `notesMaxChars` | `4000` | How much of it `dev.mjs config` prints before it truncates. |
 | `notes` | none | The older inline array. Still read, still printed first, never rewritten. |
 
-Both sources are shown to the model on every `/dev-task`, `/dev-bug` and `/dev-done`, so a note is
+Both sources are shown to the model on every `/dev-task`, `/dev-file`, `/dev-bug` and `/dev-done`, so a note is
 context the next session starts with rather than something it has to be told.
 
 The file is a **log, not a config**: entries are appended and never rewritten, so anything you edit
