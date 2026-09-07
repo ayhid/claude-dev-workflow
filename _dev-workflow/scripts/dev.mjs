@@ -12,6 +12,8 @@
  *   dev.mjs resume [ABC-22]                       put the working copy back, say what is on it
  *   dev.mjs abandon ABC-22 "why"                  drop the work, walk the ticket back
  *   dev.mjs land   [ABC-22] [--apply]             open a PR, or rebase and push
+ *   dev.mjs split  ABC-22 @units.json             file a plan's work units as sub-issues
+ *   dev.mjs build  ABC-22 [--start|--land]        the units' board; mount or land the ready ones
  *   dev.mjs assess                                greenfield or brownfield, from signals
  *   dev.mjs ingest scan|next|record|answer|emit   absorb a codebase's documentation
  *   dev.mjs docs init|record|render|check         the documentation skeleton, greenfield
@@ -39,6 +41,8 @@ const USAGE = `usage: dev.mjs <command> [args]
   resume [ISSUE-ID] [--repo PATH] [--print]
   abandon <ISSUE-ID> <REASON|@FILE> [--force] [--repo PATH]
   land   [ISSUE-ID] [--apply] [--repo PATH] [--criteria first-pass|reworked]
+  split  <PARENT-ID> @units.json [--print]     file work units as sub-issues, in dependency order
+  build  <PARENT-ID> [--start] [--land [--apply]] [--repo PATH]   the units' board; mount or land what is ready
   assess [--repo PATH] [--json]         greenfield or brownfield, proposed from signals
   ingest [scan|next|read|enrich|record|answer|emit]   absorb existing documentation, in steps
   reorg  [classify|shortlist|detect|resolve|map|rewrite]   from ingest's ledger to a staged, reorganised draft
@@ -63,6 +67,8 @@ const COMMANDS = {
   resume: () => import('./cmd/resume.mjs'),
   abandon: () => import('./cmd/abandon.mjs'),
   land: () => import('./cmd/land.mjs'),
+  split: () => import('./cmd/split.mjs'),
+  build: () => import('./cmd/build.mjs'),
   assess: () => import('./cmd/assess.mjs'),
   ingest: () => import('./cmd/ingest.mjs'),
   reorg: () => import('./cmd/reorg.mjs'),

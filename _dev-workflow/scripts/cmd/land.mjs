@@ -106,7 +106,14 @@ async function openPullRequest({ workDir, branch, base, issue, reviewer, remote,
   return { ok: true, url: pr.url };
 }
 
-export async function run(args) {
+/**
+ * @param {string[]} args
+ * @param {{reconcile?: boolean}} [flow]
+ *   `reconcile: false` skips the `sync --apply` that follows a `pr` delivery.
+ *   Only `build --land` passes it (#103): landing a wave is several PRs and
+ *   one reconcile, and the reconcile is the caller's to run once at the end.
+ */
+export async function run(args, { reconcile = true } = {}) {
   const { opts, rest } = parseArgs(args);
   const { config, root, provider } = await context();
   const repo = resolveRepo(config, root, opts.repo);
@@ -117,9 +124,9 @@ export async function run(args) {
   // there would report the base and land nothing.
   const cwd = process.cwd();
   const cwdBranch = await vcs.currentBranch(cwd);
-  const branch = cwdBranch ?? (await vcs.currentBranch(repo.dir));
+  let branch = cwdBranch ?? (await vcs.currentBranch(repo.dir));
   if (!branch) throw new UserError('HEAD is detached — check out the ticket branch first');
-  const workDir = cwdBranch ? cwd : repo.dir;
+  let workDir = cwdBranch ? cwd : repo.dir;
 
   // `.dev-workflow.json` is tracked, so a worktree carries a copy and the config
   // walk resolves the project root to the worktree when this runs from inside
@@ -134,6 +141,23 @@ export async function run(args) {
     throw new UserError(
       `could not read an issue ID out of the branch "${branch}" — pass one: dev.mjs land <ISSUE-ID>`,
     );
+  }
+
+  // An explicit ID names the work, not the place it is run from. A coordinator
+  // standing in the main checkout — `build --land`, or a person who never left
+  // the repo root — used to be refused with "already on main" while the
+  // ticket's worktree sat one lookup away (#103). The lookup refuses an
+  // ambiguous ticket, and that refusal stands.
+  if (rest[0] && issueIdFromBranch(config, branch) !== id) {
+    const found = await locateWork({ config, vcs, repoDir, id });
+    if (found?.path) {
+      workDir = found.path;
+      branch = found.branch;
+    } else if (found) {
+      throw new UserError(
+        `${id} is on branch ${found.branch}, which is checked out nowhere — mount it first: dev.mjs resume ${id}`,
+      );
+    }
   }
 
   // The branch work is delivered onto, which is `branch.base` unless the project
@@ -193,6 +217,12 @@ export async function run(args) {
       apply: opts.apply,
       L,
     });
+
+    if (opts.apply && !reconcile) {
+      L.push('then:     the caller reconciles the ticket once the wave has landed');
+      process.stdout.write(`${L.join('\n')}\n`);
+      return 0;
+    }
 
     if (opts.apply) {
       // The reconciler is the one code path that knows how an open PR maps onto
