@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -815,4 +815,84 @@ test('the closing line says what happened to the files and the config on update 
   const second = await runInstaller(['--update', '--dir', dir]);
   assert.equal(second.code, 0, second.out);
   assert.match(second.out, /Config: 1 setting added\./);
+});
+
+// --- a write that fails midway (#101) ------------------------------------------
+//
+// The manifest is written last, which is right for a crash — except that the
+// next run then compares the files a newer version half-wrote against the hash
+// the older manifest records, reads them as user edits, and protects them: the
+// update is stuck until `--force`. So a failed install undoes itself, from an
+// in-memory journal, and the old manifest stays true. No backup directory: the
+// payload is committed, and git is the backup.
+
+/** Every file under `dir`, relative path → content, so two trees can be compared whole. */
+const snapshot = (dir, base = dir, out = {}) => {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) snapshot(full, base, out);
+    else out[full.slice(base.length + 1)] = readFileSync(full, 'utf8');
+  }
+  return out;
+};
+
+/** A next version of the distribution: one file changed, one added, one dropped. */
+const nextVersion = () => {
+  const src = scratch();
+  for (const d of [...PAYLOAD_SOURCES, 'skills', 'agents']) cpSync(join(SOURCE_ROOT, d), join(src, d), { recursive: true });
+  writeFileSync(join(src, 'scripts', 'dev.mjs'), '// v2\n');
+  writeFileSync(join(src, 'lib', 'brand-new.mjs'), 'export const x = 1;\n');
+  rmSync(join(src, 'lib', 'metrics.mjs'));
+  return src;
+};
+
+test('a write that fails on the manifest restores every file written and every file removed (#101)', () => {
+  const dir = scratch();
+  install(dir);
+  const before = snapshot(dir);
+
+  // Every payload write and removal has happened by the time the manifest is
+  // written, so failing there exercises the whole journal.
+  const failOnManifest = (abs, content) => {
+    if (abs.endsWith(MANIFEST_PATH)) throw new Error('EACCES: permission denied');
+    writeFileSync(abs, content);
+  };
+  assert.throws(
+    () => installPayload({ sourceRoot: nextVersion(), projectDir: dir, version: '10.0.0', writeFile: failOnManifest }),
+    /EACCES/,
+  );
+
+  assert.deepEqual(snapshot(dir), before, 'every file is as it was, and nothing new is left behind');
+  assert.equal(readManifest(dir).installation.version, '9.9.9');
+});
+
+test('a write that fails on a payload file restores the ones before it, and the next run is an ordinary update (#101)', () => {
+  const dir = scratch();
+  install(dir);
+  const before = snapshot(dir);
+  const src = nextVersion();
+
+  let writes = 0;
+  const failLate = (abs, content) => {
+    if (++writes === planFiles(src).size - 1) throw new Error('ENOSPC: no space left on device');
+    writeFileSync(abs, content);
+  };
+  assert.throws(() => installPayload({ sourceRoot: src, projectDir: dir, version: '10.0.0', writeFile: failLate }), /ENOSPC/);
+  assert.deepEqual(snapshot(dir), before);
+
+  // Nothing reads as a user edit: the changed file is written, the dropped one removed.
+  const next = installPayload({ sourceRoot: src, projectDir: dir, version: '10.0.0' });
+  assert.deepEqual(next.skipped, []);
+  assert.ok(next.written.includes(join(PAYLOAD_DIR, 'scripts', 'dev.mjs')));
+  assert.ok(next.written.includes(join(PAYLOAD_DIR, 'lib', 'brand-new.mjs')));
+  assert.ok(next.removed.includes(join(PAYLOAD_DIR, 'lib', 'metrics.mjs')));
+  assert.equal(readFileSync(join(dir, PAYLOAD_DIR, 'scripts', 'dev.mjs'), 'utf8'), '// v2\n');
+});
+
+test('the commit hook keeps its executable bit through the default atomic write (#101)', () => {
+  const dir = scratch();
+  install(dir);
+  const hook = join(dir, PAYLOAD_DIR, 'hooks', 'check-commit-ticket.sh');
+  assert.ok(statSync(hook).mode & 0o111);
+  assert.ok(!existsSync(`${hook}.tmp`), 'no temporary is left beside a written file');
 });
