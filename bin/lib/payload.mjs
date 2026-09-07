@@ -167,8 +167,15 @@ export function isOwnedPath(rel) {
  */
 function writeAtomically(absPath, body) {
   const tmp = `${absPath}.tmp`;
-  writeFileSync(tmp, body);
-  renameSync(tmp, absPath);
+  try {
+    writeFileSync(tmp, body);
+    renameSync(tmp, absPath);
+  } catch (err) {
+    // A writer cleans up after itself: the journal restores files, it does not
+    // know which temporary a given writer leaves behind.
+    rmSync(tmp, { force: true });
+    throw err;
+  }
 }
 
 /**
@@ -187,7 +194,13 @@ function writeAtomically(absPath, body) {
  */
 function makeJournal() {
   const entries = [];
+  const dirs = [];
   return {
+    /** Create `dir` and its parents, remembering the first one that did not exist. */
+    mkdir(dir) {
+      const created = mkdirSync(dir, { recursive: true });
+      if (created) dirs.push(created);
+    },
     /** Call before the first write to, or removal of, `abs`. */
     remember(abs) {
       const present = existsSync(abs);
@@ -197,10 +210,9 @@ function makeJournal() {
         mode: present ? statSync(abs).mode : null,
       });
     },
-    /** Put every remembered path back as it was. */
+    /** Put every remembered path back as it was, then drop the directories this run created. */
     undo() {
       for (const { abs, previous, mode } of entries.reverse()) {
-        rmSync(`${abs}.tmp`, { force: true });
         if (previous === null) {
           rmSync(abs, { force: true });
         } else {
@@ -208,6 +220,8 @@ function makeJournal() {
           chmodSync(abs, mode);
         }
       }
+      // Each was absent before this run, so everything under it is this run's.
+      for (const dir of dirs.reverse()) rmSync(dir, { recursive: true, force: true });
     },
   };
 }
@@ -368,7 +382,7 @@ export function installPayload({
       }
 
       if (!dryRun) {
-        mkdirSync(dirname(dest), { recursive: true });
+        journal.mkdir(dirname(dest));
         journal.remember(dest);
         writeFile(dest, content);
         // Carry the executable bit across: the commit hook is run as a script.
@@ -406,7 +420,7 @@ export function installPayload({
     hookAdded = merged.added;
     addedCommands = merged.addedCommands;
     if (!dryRun && hookAdded) {
-      mkdirSync(dirname(settingsAbs), { recursive: true });
+      journal.mkdir(dirname(settingsAbs));
       journal.remember(settingsAbs);
       writeFile(settingsAbs, `${JSON.stringify(merged.settings, null, 2)}\n`);
     }
@@ -426,7 +440,7 @@ export function installPayload({
         files: manifestFiles.sort((a, b) => a.path.localeCompare(b.path)),
       };
       const manifestAbs = join(projectDir, MANIFEST_PATH);
-      mkdirSync(dirname(manifestAbs), { recursive: true });
+      journal.mkdir(dirname(manifestAbs));
       journal.remember(manifestAbs);
       writeFile(manifestAbs, `${JSON.stringify(manifest, null, 2)}\n`);
     }

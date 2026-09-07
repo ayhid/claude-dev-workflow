@@ -866,6 +866,16 @@ test('a write that fails on the manifest restores every file written and every f
   assert.equal(readManifest(dir).installation.version, '9.9.9');
 });
 
+test('a fresh install that fails leaves no directory behind either (#101)', () => {
+  const dir = scratch();
+  const failOnManifest = (abs, content) => {
+    if (abs.endsWith(MANIFEST_PATH)) throw new Error('EACCES: permission denied');
+    writeFileSync(abs, content);
+  };
+  assert.throws(() => install(dir, { writeFile: failOnManifest }), /EACCES/);
+  assert.deepEqual(readdirSync(dir), [], 'the project is exactly as empty as it was');
+});
+
 test('a write that fails on a payload file restores the ones before it, and the next run is an ordinary update (#101)', () => {
   const dir = scratch();
   install(dir);

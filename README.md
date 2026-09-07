@@ -285,7 +285,9 @@ some, naming them; then **Change config** (the wizard, current values as default
 config** (the wizard from scratch — files you edited stay protected unless `--force`) and
 **Cancel**. With no terminal to ask on, the recommended path is what happens, so a bare `init`
 from a pipe updates the project rather than hanging. A config that is not a JSON object cannot be
-kept or diffed: the installer says so and the wizard starts from scratch.
+kept or diffed: the installer says so and the wizard starts from scratch. Two flags answer the
+question on the command line and skip it: `--force` runs the wizard with your current values as
+defaults and overwrites files you edited, and `--print` prints the config the wizard would write.
 
 Every run ends on one line saying what became of the files and of the config —
 `Files updated: 27 written. Config: retained.`, `Config: 2 settings added.`, `Config: replaced.`
