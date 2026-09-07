@@ -1,19 +1,23 @@
 {
   "installation": {
     "version": "1.20.0",
-    "installDate": "2026-09-08T09:24:31.524Z",
-    "lastUpdated": "2026-09-08T09:25:11.691Z"
+    "installDate": "2026-09-08T09:27:08.022Z",
+    "lastUpdated": "2026-09-08T09:27:08.022Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
     "dev-adr",
     "dev-bug",
+    "dev-build",
     "dev-docs-init",
     "dev-done",
+    "dev-file",
     "dev-ingest-docs",
     "dev-init",
     "dev-lint-rules",
+    "dev-plan",
     "dev-review",
+    "dev-split",
     "dev-standup",
     "dev-task",
     "dev-tdd"
@@ -49,7 +53,7 @@
     },
     {
       "path": "_dev-workflow/lib/config.mjs",
-      "sha256": "3fc174a5fd1c21dc27dcd38418658f1ac8d578683e37c14703652ec99b64a297"
+      "sha256": "b13d3fd0577fd51a45325e119d0a3cfc13df8fcd96fddc3a8ef0226a2dd83c38"
     },
     {
       "path": "_dev-workflow/lib/docset.mjs",
@@ -232,6 +236,10 @@
       "sha256": "8a5c85065f2fcbbd3c0ba8b467f7ddeaa9ed35e0bc11606dbfd614933281e30f"
     },
     {
+      "path": ".claude/agents/dev-builder.md",
+      "sha256": "bd012b6c5a0a284d14e9fb66a514a7ad0d3190a3245e506c3730eab565c8c981"
+    },
+    {
       "path": ".claude/agents/dev-reader.md",
       "sha256": "200fd28acd5303e61b568095f8130e1710fe4558634dbc0d4df8461647f4ec16"
     },
@@ -253,7 +261,11 @@
     },
     {
       "path": ".claude/skills/dev-bug/SKILL.md",
-      "sha256": "c88917c16d95ef366780692852d8382a77d0d7376f27ce0912995082bb6b4a47"
+      "sha256": "01ece87a4df801d1bb4d4c50846561dff8369cf5b5fa93f7264486ff2ae34ee5"
+    },
+    {
+      "path": ".claude/skills/dev-build/SKILL.md",
+      "sha256": "0f4e0cb45a4f6f67d110f9b167681cf68bc230ce7ad5b899e40adf2bbe8f0d54"
     },
     {
       "path": ".claude/skills/dev-docs-init/SKILL.md",
@@ -261,7 +273,11 @@
     },
     {
       "path": ".claude/skills/dev-done/SKILL.md",
-      "sha256": "8ba1c1545f042a87088943b9d7ffa1eaeaac49738593331f4947971a56f8f667"
+      "sha256": "1a789f3db19be6db9aeb61a0a78e7fdb44f729b7dcfce69acd8a36487ccf4d24"
+    },
+    {
+      "path": ".claude/skills/dev-file/SKILL.md",
+      "sha256": "1d13f9614ec84b7929463554eb282bf36118335a82da0a543b128ad98fb2e153"
     },
     {
       "path": ".claude/skills/dev-ingest-docs/SKILL.md",
@@ -274,6 +290,10 @@
     {
       "path": ".claude/skills/dev-lint-rules/SKILL.md",
       "sha256": "fb1060e53431fc1e021fde8733e4cc8739cf3a79f26a8a2673fd6736bf8121c5"
+    },
+    {
+      "path": ".claude/skills/dev-plan/SKILL.md",
+      "sha256": "76f0371891375a18486f18aa385565972bef060a252c6aa8de0dce43f04d839e"
     },
     {
       "path": ".claude/skills/dev-review/lenses/audit.md",
@@ -292,16 +312,20 @@
       "sha256": "c1a3417523b97d5170243d64beb5d40f3ea06ca40d37650da108121b50caef00"
     },
     {
+      "path": ".claude/skills/dev-split/SKILL.md",
+      "sha256": "8335deb1ac0dcc0eec78f21c65a3e398a90bb38fa8fccffb053ff2353a4df8e2"
+    },
+    {
       "path": ".claude/skills/dev-standup/SKILL.md",
       "sha256": "f6491aeec3c760f456d1f5de90145b3d028a327513f66f518df4ee6ab36b7426"
     },
     {
       "path": ".claude/skills/dev-task/SKILL.md",
-      "sha256": "e0d1858d9831077fc9d02f1dadd9a28c70b23aa1431eef84b557f42d515ab42e"
+      "sha256": "4edbaa8a578c5feea3cc5086ff6d28ec1809681862744c6e1dd3d330da5d9be2"
     },
     {
       "path": ".claude/skills/dev-tdd/SKILL.md",
-      "sha256": "d75fb55f05f33ab3eca7e720000497b0cfb0b5534ae3d09b319b9d439ea18702"
+      "sha256": "6c065ed379fcaf1b3e3478d9d74e1756410e06286c6f13f133cbf4e7bfd0c103"
     }
   ]
 }
