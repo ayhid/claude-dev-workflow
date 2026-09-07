@@ -51,6 +51,8 @@ export function runContractSuite(label, h) {
       'create',
       'checkRepresentation',
       'repairRepresentation',
+      'createChild',
+      'children',
     ]) {
       assert.equal(typeof p[m], 'function', `${m} must be implemented`);
     }
@@ -230,6 +232,70 @@ export function runContractSuite(label, h) {
     const r = await p.repairRepresentation(h.issueId);
     assert.equal(typeof r.ok, 'boolean');
     if (!r.ok) assert.equal(typeof r.error, 'string');
+  });
+
+  // --- work units: a parent and its children ------------------------------------
+  //
+  // Every adapter answers these too, and there is deliberately no capability
+  // flag: both trackers can make one issue a child of another, so a flag would
+  // only be a place for a caller to forget the else (#103).
+
+  t('children of an issue with none is an empty list, not an error', async () => {
+    const p = await h.make();
+    const r = await p.children(h.otherIssueId);
+    assert.ok(r.ok, r.error);
+    assert.deepEqual(r.data, []);
+  });
+
+  t('createChild files the issue, links it, and the parent lists it afterwards (rule 3)', async () => {
+    const p = await h.make();
+    const r = await p.createChild({
+      parent: h.issueId,
+      summary: 'A unit',
+      description: '## Acceptance criteria\n\n- [ ] AC1: x',
+    });
+    assert.ok(r.ok, r.error);
+    assert.equal(typeof r.id, 'string');
+    assert.equal(typeof r.url, 'string');
+    assert.ok(Array.isArray(r.warnings), 'warnings is always an array');
+
+    const listed = await p.children(h.issueId);
+    assert.ok(listed.ok, listed.error);
+    assert.ok(
+      listed.data.some((c) => c.id === r.id),
+      `the parent must list ${r.id} after the write — ${JSON.stringify(listed.data)}`,
+    );
+    for (const c of listed.data) {
+      assert.equal(typeof c.id, 'string');
+      assert.equal(typeof c.title, 'string');
+      assert.equal(typeof c.url, 'string');
+      assert.equal(typeof c.body, 'string', 'body is a string even when empty — build parses it');
+    }
+  });
+
+  t('rule 4: children returns the same bytes twice, sorted', async () => {
+    const p = await h.make();
+    await p.createChild({ parent: h.issueId, summary: 'Second unit', description: '' });
+    const a = await p.children(h.issueId);
+    const b = await p.children(h.issueId);
+    assert.deepEqual(a.data, b.data);
+    const ids = a.data.map((c) => c.id);
+    assert.deepEqual(ids, [...ids].sort((x, y) => x.localeCompare(y, undefined, { numeric: true })));
+  });
+
+  t('a failing transport makes children report rather than throw', async () => {
+    const p = await h.makeFailing();
+    const r = await p.children(h.issueId);
+    assert.equal(r.ok, false, 'an unreachable tracker is not a childless issue');
+    assert.equal(typeof r.error, 'string');
+    assert.ok(r.error.length > 0);
+  });
+
+  t('a failing transport makes createChild report rather than throw', async () => {
+    const p = await h.makeFailing();
+    const r = await p.createChild({ parent: h.issueId, summary: 'x', description: '' });
+    assert.equal(r.ok, false);
+    assert.equal(typeof r.error, 'string');
   });
 
   // --- rule 3: writes read back and converge ----------------------------------
