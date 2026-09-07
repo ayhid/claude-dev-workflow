@@ -2,7 +2,8 @@
 /**
  * Interactive installer for the dev-workflow Claude Code skills.
  *
- *   npx claude-dev-workflow@latest                          # configure the project in the cwd
+ *   npx claude-dev-workflow@latest                          # configure the project in the cwd;
+ *                                                           # on a configured one, triage first
  *   npx claude-dev-workflow@latest --update                 # express: refresh the files
  *   npx claude-dev-workflow@latest --update --reconfigure   # …and then change the config
  *   npx claude-dev-workflow@latest --dir ..                 # …somewhere else
@@ -32,6 +33,13 @@
  *   change config  `--update --reconfigure` — the same refresh, then the whole
  *                  wizard with the current values as its defaults. It existed
  *                  before, spelled as the bare command, and nothing said so.
+ *
+ * The bare command on a project that already has the workflow no longer opens
+ * the wizard on its own either: `reinstall.mjs` triages what is there, and the
+ * select it renders puts the recommendation first — express when nothing is
+ * missing, keep-and-add when settings are — then change config, replace, cancel.
+ * With no TTY the recommendation is taken. Every run ends on one line saying
+ * what became of the files and of the config.
  *
  * The first question is which issue tracker the project uses, because that
  * answer decides every question after it. Until it existed the wizard opened on

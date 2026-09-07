@@ -64,6 +64,24 @@ one has not been. (The reason used to be that the wizard was YouTrack-only and i
 mandatory; the wizard now asks which tracker first and configures either, but the rule outlived its
 original justification.)
 
+**`init` on a configured project triages before it asks anything.** The bare command used to open
+on "Reconfigure it?" with the wizard behind yes and nothing behind no; express was never offered
+there. `bin/lib/reinstall.mjs` is the decision — `fresh`, `express`, `needs-keys`, `corrupt`, with
+a recommendation — and it is pure, fed text rather than a path, for the reason `config-keys.mjs`
+is: a script built out of clack prompts cannot be asserted. `init` renders it as a select whose
+first option is the recommendation, and with no TTY takes that option. Express reached from the
+select is the same `runExpress` that `update` runs, so the two cannot drift. `replace` empties the
+wizard's defaults and nothing else: it does not imply `--force`, because a word in a menu must not
+overwrite a file the manifest exists to protect.
+
+**`installPayload` undoes itself when a write fails.** The manifest is written last, which is right
+for a crash — except the next run then compares the files a newer version half-wrote against the
+older manifest, reads them as user edits, and protects them: stuck until `--force`. So every write
+and removal is journaled in memory and a throw restores all of it, in reverse, before the error
+reaches the caller. Every write is atomic and goes through one injected `writeFile`, which is what
+lets a test fail the fourth write and check what comes back. No backup directory, by design: the
+payload is committed and git is the backup.
+
 **Express may add a config key, and may do nothing else to the config.** A version that introduces
 a key used to leave every updated project without it, silently and for ever. `bin/lib/config-keys.mjs`
 is the registry that makes the question answerable at all — key, default, and the prompt for it —

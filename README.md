@@ -276,13 +276,30 @@ with what value, so the choice is in the log rather than lost. Express never blo
 
 **Change config** — `--update --reconfigure` — does the same refresh and then runs the whole
 wizard, with your current config as the initial answer to every question. It is the way to update
-*and* change a value in one go; a bare `npx claude-dev-workflow@latest` on a configured project
-offers the same wizard without the refresh.
+*and* change a value in one go.
+
+**Re-running `init` on a configured project** does not start the wizard on its own. It looks at what
+is there and asks, with the recommendation first: **Express** when your config already has every
+setting this version knows about; **Keep the config and add the new settings** when it predates
+some, naming them; then **Change config** (the wizard, current values as defaults), **Replace the
+config** (the wizard from scratch — files you edited stay protected unless `--force`) and
+**Cancel**. With no terminal to ask on, the recommended path is what happens, so a bare `init`
+from a pipe updates the project rather than hanging. A config that is not a JSON object cannot be
+kept or diffed: the installer says so and the wizard starts from scratch.
+
+Every run ends on one line saying what became of the files and of the config —
+`Files updated: 27 written. Config: retained.`, `Config: 2 settings added.`, `Config: replaced.`
 
 The installer compares each file against the hash recorded at install time: untouched files are
 replaced, files you have edited are reported and left alone, and files a newer version no longer
 ships are removed. `--force` overrides that. Your `.claude/settings.json` is merged, never
 overwritten: hooks you added yourself survive, and the entry is not duplicated on a re-run.
+
+Every write is atomic, and an install that fails partway — a permission error, a full disk — puts
+back every file it had written or removed before reporting the error, so the manifest it never
+reached is still true and the next run is an ordinary update rather than one stuck behind
+`--force`. There is no backup directory: `_dev-workflow/` is meant to be committed, and git is
+the backup.
 
 ### Checking a version from inside a project
 
