@@ -75,6 +75,10 @@ export function buildConfig({
     // which tracker it is for even when every other key happens to match.
     provider,
     ...resolvedIdentity,
+    // The link type `split` nests work units with. Written unconditionally for
+    // a YouTrack project so it sits in the config-keys registry (only keys the
+    // wizard always writes may), and never for GitHub, which has no such name.
+    ...(github ? {} : { youtrack: { subtaskLinkType: 'Subtask' } }),
     language,
     states: {
       start: states.start,

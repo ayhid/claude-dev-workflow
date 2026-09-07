@@ -32,9 +32,6 @@ cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // ""' 2>/dev/null) || e
 # Fast bail: not a git commit at all.
 [[ "$cmd" =~ (^|[\;\&\|[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)*[[:space:]]+commit([[:space:]]|$) ]] || exit 0
 
-# No inline message (editor, -F file, --amend --no-edit): defer to husky/commitlint.
-[[ "$cmd" =~ (^|[[:space:]])(-m|--message)([[:space:]]|=) ]] || exit 0
-
 # --- config ------------------------------------------------------------------
 escape='chore(no-ticket)'
 types='feat|fix|docs|style|refactor|test|chore|perf|ci|revert|build'
@@ -105,6 +102,24 @@ case "$id_re" in
     id_re='[A-Z][A-Z0-9]*-[0-9]+'
     ;;
 esac
+
+# --- hook bypass ----------------------------------------------------------------
+# `--no-verify` (and its short form `-n`) skips husky's commit-msg hook, which is
+# what covers the commits this guard defers on. Nothing else sees a raw `git`
+# issued through Bash — `lib/vcs.mjs` refuses the flag, but only for its own
+# calls — so this is the one place a bypass from a session or a subagent can be
+# stopped. Checked after the config so a project that turned the hook off is
+# not blocked, and before the inline-message deferral so an editor commit with
+# `--no-verify` is refused too.
+# Quoted text is dropped first: a message that mentions `-n` is not a flag.
+unquoted=$(printf '%s' "$cmd" | tr '\n' ' ' | sed -E "s/\"[^\"]*\"//g; s/'[^']*'//g")
+if [[ "$unquoted" =~ (^|[[:space:]])(--no-verify|-n)([[:space:]]|$) ]]; then
+  echo "BLOCKED: git commit --no-verify bypasses the commit hooks. This workflow never skips a hook — fix what the hook reports instead." >&2
+  exit 2
+fi
+
+# No inline message (editor, -F file, --amend --no-edit): defer to husky/commitlint.
+[[ "$cmd" =~ (^|[[:space:]])(-m|--message)([[:space:]]|=) ]] || exit 0
 
 # --- extract the subject line ------------------------------------------------
 # Flatten newlines first: git commit -m "subject\n\nbody" is one shell word, but
