@@ -32,6 +32,11 @@ So: after changing anything that writes, run it once against a real issue.
 
 - `dev.mjs create` on a throwaway issue you then close.
 - `dev.mjs update` or `dev.mjs sync --apply` on a ticket that genuinely needs moving.
+- `dev.mjs split <throwaway> @units.json` with two units, the second depending on the first — then
+  `gh api repos/<o>/<r>/issues/<n>/sub_issues` (or the parent's links, on YouTrack) to see the link
+  the adapter read back, `split` again to see it file nothing, `build <throwaway> --start` to see
+  one worktree forked from `origin/<base>` and the parent moved, and `build <throwaway> --land` for
+  the dry run. Remove the worktree and branch by hand, then close all three as not planned.
 
 Then re-run it, and confirm the operation is idempotent.
 
