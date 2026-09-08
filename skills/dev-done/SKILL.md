@@ -59,6 +59,18 @@ node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" fetch <ISSUE-ID>
 Re-read rather than trusting earlier context: comments may have been added while you worked,
 and the state may have moved underneath you.
 
+**A `## Sub-issues` section means this is a split ticket**, and its evidence is its units, not a
+branch of its own:
+
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" build <ISSUE-ID>
+```
+
+Refuse to close it while any unit is not `done` — name the ones that are not, and stop. When every
+unit is done, §3 walks the *parent's* criteria across the landed units (each unit's body says which
+it owned), §4 runs the checks on the base branch they landed on, §5 has nothing to check because
+the parent has no branch, and §6 closes it with the transition alone rather than `land`.
+
 ## 3. Verify each acceptance criterion
 
 Walk the checklist one criterion at a time. For each, state **met** or **not met** and cite
@@ -127,7 +139,7 @@ node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" note "<the durable fa
 ```
 
 It lands in the project's notes file, tagged with the date and this ticket, and is shown to every
-later `/dev-task`, `/dev-bug` and `/dev-done`.
+later `/dev-task`, `/dev-file`, `/dev-bug` and `/dev-done`.
 
 Most tickets teach nothing durable, and **that is the normal case** — say nothing rather than
 manufacturing a note. Three things do not belong here:

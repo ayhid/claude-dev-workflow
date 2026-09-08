@@ -1,6 +1,6 @@
 ---
 name: dev-tdd
-description: Drive an agreed acceptance criterion through red/green/refactor — a test confirmed to fail for the intended reason before any production code, then the least code that passes it. Use when /dev-task hands off at implementation, or when the user types /dev-tdd.
+description: Drive an agreed acceptance criterion through red/green/refactor — a test confirmed to fail for the intended reason before any production code, then the least code that passes it. Use when /dev-build hands off at implementation, inside a dev-builder subagent building one unit, or when the user types /dev-tdd.
 argument-hint: "[the criterion to drive, or empty for the next unmet one]"
 ---
 
@@ -8,18 +8,20 @@ argument-hint: "[the criterion to drive, or empty for the next unmet one]"
 
 `$ARGUMENTS` is either one acceptance criterion, or empty — in which case take the next unmet one.
 
-`/dev-task` §6 hands off here, and everything below runs **in the checkout `/dev-task` §5 printed**,
-not in the repo root.
+`/dev-build` §4 hands off here, and everything below runs **in the checkout `/dev-build` §3 printed**,
+not in the repo root. A `dev-builder` subagent building one unit of a split ticket runs this same
+loop, in the worktree it was given — the rules are identical; only the ticket is smaller.
 
 ## The criteria are already agreed — this skill does not touch them
 
-`/dev-task` §2 settled what "done" means and wrote it as `AC1`, `AC2`, … Use those ids, spelled
+`/dev-plan` §2 settled what "done" means and wrote it as `AC1`, `AC2`, … on the ticket's `## Plan`
+comment — or, for a work unit, the unit's own `## Acceptance criteria`. Use those ids, spelled
 exactly as they are written there. There is no criteria step in this skill and there must not be
-one: a second AC vocabulary beside the first is drift, and the list §7 verifies against is the
-list §2 produced.
+one: a second AC vocabulary beside the first is drift, and the list `/dev-build` §5 verifies
+against is the list the plan produced.
 
 If you arrived here without one — the user typed `/dev-tdd` on its own — get the list before
-writing anything: `/dev-task` §1 fetches the ticket and §2 restates its criteria. Do not invent
+writing anything: `dev.mjs fetch <ID>` prints the ticket and its `## Plan` comment. Do not invent
 criteria to have something to drive.
 
 ## 0. Load the project's workflow config
@@ -31,7 +33,7 @@ node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" config
 Three things here decide how the loop runs: the repo's **checks** (the command that runs the
 tests), the **commit** pattern, and the `tdd:` line.
 
-`tdd: off` means the project does not want this loop by default, so `/dev-task` §6 will not have
+`tdd: off` means the project does not want this loop by default, so `/dev-build` §4 will not have
 sent you here. A user who typed `/dev-tdd` anyway is asking for it on this ticket — say the project
 has it switched off in one line, and carry on. The switch is a default, not a refusal.
 
@@ -90,7 +92,7 @@ Commit the test and the code it drove **together**, in the configured commit pat
 ticket id. One commit per criterion, or per tight red/green pair — the point is that a reader sees
 the test arrive with the behaviour rather than a fortnight later.
 
-Then back to §1 until every criterion has been through the loop, and on to `/dev-task` §7. That
+Then back to §1 until every criterion has been through the loop, and on to `/dev-build` §5. That
 step is not a formality just because the tests are green: it re-reads each criterion against the
 code and cites the evidence, and a criterion can be technically passing and still not be what the
 ticket asked for.
