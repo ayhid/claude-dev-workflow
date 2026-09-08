@@ -203,13 +203,9 @@ async function start({ config, provider, vcs, parent, states, ready, L }) {
     const repo = r.repo;
     if (!forkFrom.has(repo.path)) {
       const remote = deliveryFor(config, repo.path).remote ?? 'origin';
-      const fetched = await vcs.git(repo.dir, ['fetch', remote, base]);
-      const tracking = `${remote}/${base}`;
-      if (fetched.ok && (await vcs.refExists(repo.dir, tracking))) forkFrom.set(repo.path, tracking);
-      else {
-        forkFrom.set(repo.path, base);
-        L.push(`note:     forking from local ${base} — could not fetch ${tracking}${fetched.ok ? '' : `: ${fetched.stderr.trim()}`}`);
-      }
+      const fresh = await vcs.freshestBase({ dir: repo.dir, remote, base });
+      forkFrom.set(repo.path, fresh.ref);
+      if (fresh.why) L.push(`note:     forking from local ${base} — ${fresh.why}`);
     }
 
     if (r.checkout?.path) {
@@ -226,7 +222,7 @@ async function start({ config, provider, vcs, parent, states, ready, L }) {
       id: r.id,
       base: forkFrom.get(repo.path),
     });
-    for (const line of started.lines) if (/^(branch|mode|created|state|warning):/.test(line)) L.push(`  ${line}`);
+    for (const line of started.lines) if (/^(branch|mode|forked|created|state|warning):/.test(line)) L.push(`  ${line}`);
     if (!started.moved) L.push(`  ${r.id} was mounted but not moved — retry: dev.mjs update ${r.id} state start`);
     if (started.dir) dispatch.push([r.id, started.dir]);
   }
