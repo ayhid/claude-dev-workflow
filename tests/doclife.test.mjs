@@ -131,6 +131,19 @@ test('a path answer overrides its rule', () => {
   assert.match(r.verdicts[0].justification, /^triage path override: /);
 });
 
+test('the applied count is the paths the rule itself decided — an overridden path is not reported under its rule', () => {
+  const g = proposeTriage(['docs/a-2025-01-01.md', 'docs/b-2024-05-05.md', 'docs/guide.md']);
+  const r = applyTriage(g, {
+    rules: { 'dated-name': 'historical', 'default-reference': 'reference' },
+    paths: { 'docs/a-2025-01-01.md': 'reference', 'docs/guide.md': 'historical' },
+  });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.verdicts.map((v) => v.path), ['docs/b-2024-05-05.md', 'docs/guide.md']);
+  assert.deepEqual(r.applied.map((a) => [a.rule, a.lifecycle, a.count]), [['dated-name', 'historical', 1], ['default-reference', 'reference', 0]]);
+  assert.equal(r.overridden, 2);
+  assert.deepEqual(r.skipped, []);
+});
+
 test('an unknown rule id, an unknown lifecycle or a path outside the groups is refused', () => {
   assert.match(applyTriage(groups(), { rules: { bogus: 'historical' } }).error, /bogus/);
   assert.match(applyTriage(groups(), { rules: { 'dated-name': 'ancient' } }).error, /ancient/);

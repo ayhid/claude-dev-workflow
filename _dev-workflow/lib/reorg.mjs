@@ -948,17 +948,25 @@ function titleOf(text) {
  * `recordedAt`, never the clock, so the same ledger renders the same bytes
  * (provider.mjs rule 4). Stale claims are listed rather than rendered: a
  * decision inferred from a document that has changed since is a proposal
- * nobody should be reading yet.
+ * nobody should be reading yet. A stale or excluded claim still **holds its
+ * number**: claim ids only ever grow, so numbering every intent claim in id
+ * order — rendered or not — is what keeps a live claim's proposal at the same
+ * number, and the same file name, after its neighbour goes stale. Skipping
+ * the number instead renumbered every proposal after it, and the command
+ * then removed files whose claims were live and unchanged.
  *
  * @returns {{adrs: Array<{number: number, file: string, text: string, claimId: string, source: string}>, stale: object[]}}
  */
 export function proposedAdrs(ledger, { existingNumbers = [] } = {}) {
-  const intents = (ledger.claims ?? []).filter((c) => c.kind === 'intent' && c.status !== 'excluded').sort(byId);
+  const intents = (ledger.claims ?? []).filter((c) => c.kind === 'intent').sort(byId);
   const stale = intents.filter((c) => c.status === 'stale');
   let number = nextNumber(existingNumbers);
   const adrs = [];
   for (const claim of intents) {
-    if (claim.status === 'stale') continue;
+    if (claim.status === 'stale' || claim.status === 'excluded') {
+      number++;
+      continue;
+    }
     const title = titleOf(claim.text);
     const from = claim.source && claim.source !== 'derived' ? `\`${claim.source}\`` : 'the code, derived';
     const context = [

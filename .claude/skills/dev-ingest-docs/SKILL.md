@@ -477,7 +477,8 @@ with its provenance as the context, the options left for you to fill in. Numbere
 record in the project's real decisions directory (`docs.decisionsDir`), so accepting one never
 collides; dated from when the claim was recorded, so a re-run changes nothing. Stale claims are
 listed, not proposed — re-read their sources first (§2d) — and a proposal whose claim has gone stale
-since is removed on the next run and named.
+since is removed on the next run and named. A proposal you have edited is never overwritten or
+removed: the run refuses it and says so, and `--force` is you saying the edit is yours to lose.
 
 They are proposals, in `artifacts/`, and the ADR immutability hook does not guard them — by design:
 a proposed record is the one kind that is meant to be edited. Accepting one is `/dev-adr`'s job, in

@@ -681,6 +681,18 @@ test('proposedAdrs numbers from 1 with no existing records, in claim order, and 
   assert.match(title, /…$/);
 });
 
+test('a live claim keeps its number when an earlier intent claim goes stale or is excluded', () => {
+  const full = proposedAdrs(withIntentClaims(), { existingNumbers: [7] });
+  assert.deepEqual(full.adrs.map((a) => [a.number, a.claimId]), [[8, 'c1'], [9, 'c3']]);
+
+  for (const status of ['stale', 'excluded']) {
+    const ledger = { ...withIntentClaims(), claims: withIntentClaims().claims.map((c) => (c.id === 'c1' ? { ...c, status } : c)) };
+    const { adrs } = proposedAdrs(ledger, { existingNumbers: [7] });
+    assert.deepEqual(adrs.map((a) => [a.number, a.claimId]), [[9, 'c3']], `c3 stays 0009 when c1 is ${status}`);
+    assert.equal(adrs[0].text, full.adrs[1].text, 'and its record is byte-identical');
+  }
+});
+
 // --- through the real CLI ----------------------------------------------------------
 
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -1268,10 +1280,71 @@ test('adrs removes a proposed record whose claim is gone or stale, and says so',
   writeFileSync(LEDGER(s.repo), JSON.stringify(ledger, null, 2));
 
   const r = await s.dev(['reorg', 'adrs']);
-  assert.equal(r.code, 0, r.stderr);
-  assert.match(r.stdout, /removed.*0099-left-over\.md/);
+  assert.equal(r.code, 1, 'a refusal is an exit 1, as rewrite has it');
+  assert.match(r.stdout, /removed.*0002-worktrees-are-the-default/, 'a file this tool wrote and nobody touched is removed');
+  assert.match(r.stdout, /refused.*0099-left-over\.md.*never written by this tool/, 'a file it never wrote is not its to delete');
   assert.match(r.stdout, /1 stale intent claim\(s\) not proposed: c3/);
+  assert.deepEqual(readdirSync(DECISIONS(s.repo)).sort(), [files[0], '0099-left-over.md']);
+
+  const forced = await s.dev(['reorg', 'adrs', '--force']);
+  assert.equal(forced.code, 0, forced.stderr);
+  assert.match(forced.stdout, /removed.*0099-left-over\.md/);
   assert.deepEqual(readdirSync(DECISIONS(s.repo)).sort(), [files[0]]);
+});
+
+test('adrs refuses to overwrite or remove a proposal edited by hand, records what it wrote, and --force is the user saying the edit is theirs to lose', async () => {
+  const s = await withIntent();
+  await s.dev(['reorg', 'adrs']);
+  const [first, second] = readdirSync(DECISIONS(s.repo)).sort();
+  assert.equal(Object.keys(readLedger(s.repo).adrsWritten ?? {}).length, 2, 'the hash of every proposal written is recorded');
+
+  const edited = `${readFileSync(join(DECISIONS(s.repo), first), 'utf8')}\n- **Mongo** — rejected: nobody here runs it.\n`;
+  writeFileSync(join(DECISIONS(s.repo), first), edited);
+
+  const again = await s.dev(['reorg', 'adrs']);
+  assert.equal(again.code, 1);
+  assert.match(again.stdout, new RegExp(`refused.*${first}.*edited by hand`));
+  assert.match(again.stdout, new RegExp(`unchanged.*${second}`));
+  assert.equal(readFileSync(join(DECISIONS(s.repo), first), 'utf8'), edited, 'the edit survives');
+
+  const ledger = readLedger(s.repo);
+  ledger.claims = ledger.claims.map((c) => (c.id === 'c1' ? { ...c, status: 'stale' } : c));
+  writeFileSync(LEDGER(s.repo), JSON.stringify(ledger, null, 2));
+  const stale = await s.dev(['reorg', 'adrs']);
+  assert.equal(stale.code, 1);
+  assert.match(stale.stdout, new RegExp(`refused.*${first}.*edited by hand`), 'a stale claim does not make an edited proposal deletable');
+  assert.ok(existsSync(join(DECISIONS(s.repo), first)));
+
+  const dry = await s.dev(['reorg', 'adrs', '--dry-run', '--force']);
+  assert.equal(dry.code, 0, dry.stderr);
+  assert.match(dry.stdout, new RegExp(`would remove.*${first}`));
+  assert.ok(existsSync(join(DECISIONS(s.repo), first)), '--dry-run removes nothing, even forced');
+
+  const forced = await s.dev(['reorg', 'adrs', '--force']);
+  assert.equal(forced.code, 0, forced.stderr);
+  assert.match(forced.stdout, new RegExp(`removed.*${first}`));
+  assert.deepEqual(readdirSync(DECISIONS(s.repo)).sort(), [second]);
+  assert.deepEqual(Object.keys(readLedger(s.repo).adrsWritten), [second], 'a removed file is forgotten');
+});
+
+test('triage refuses a second @file rather than silently using the first, and a ledger with no sources triages nothing', async () => {
+  const { repo, dev } = await withDocs(HISTORICAL_DOCS);
+  await dev(['ingest', 'scan']);
+  const answers = join(repo, 'answers.json');
+  writeFileSync(answers, JSON.stringify({ rules: { 'dated-name': 'historical' } }));
+  const before = readFileSync(LEDGER(repo), 'utf8');
+
+  const two = await dev(['reorg', 'triage', `@${answers}`, '@other.json']);
+  assert.notEqual(two.code, 0);
+  assert.match(two.stderr, /other\.json/);
+  assert.equal(readFileSync(LEDGER(repo), 'utf8'), before, 'nothing recorded');
+
+  const ledger = JSON.parse(before);
+  delete ledger.sources;
+  writeFileSync(LEDGER(repo), JSON.stringify(ledger, null, 2));
+  const none = await dev(['reorg', 'triage']);
+  assert.equal(none.code, 0, none.stderr);
+  assert.match(none.stdout, /0 document\(s\) triaged by 0 rule\(s\)/);
 });
 
 test('adrs with no intent claims writes nothing and says why', async () => {

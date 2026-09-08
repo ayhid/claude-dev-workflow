@@ -14,7 +14,7 @@
  *                                assemble docs-reorganized/ and migration-report.md
  *   dev.mjs reorg triage [--print]   every lifecycle rule with the documents it covers; --print an answers template
  *   dev.mjs reorg triage @answers.json   {rules: {id: lifecycle}, paths: {path: lifecycle}} → archive verdicts
- *   dev.mjs reorg adrs [--dry-run]   one proposed ADR per intent claim, under reorg/decisions/
+ *   dev.mjs reorg adrs [--dry-run] [--force]   one proposed ADR per intent claim, under reorg/decisions/
  *
  * `triage` is bulk classification by rule, before the reading rather than after
  * it: a confirmed-historical rule records an ordinary `archive` verdict per
@@ -25,6 +25,11 @@
  * directory (`docs.decisionsDir`) so an accepted proposal never collides, but
  * writes only under `reorg/decisions/`: the immutability hook guards the real
  * directory, and a proposal is exactly the kind of record it must not guard.
+ * It is also the kind of record a person edits — the options are theirs to
+ * fill in — so the sha256 of every file written goes in the ledger under
+ * `adrsWritten`, the way `rewrite` keeps `rewritten`, and a file that no longer
+ * matches is refused rather than overwritten or removed. `--force` is the user
+ * saying the edit is theirs to lose.
  *
  * Phase 3 writes under `_dev-workflow/artifacts/reorg/` — beside the ledger's
  * directory, inside the payload root, so the installer's delete pass never
@@ -98,7 +103,9 @@ const USAGE = `usage: dev.mjs reorg <verb>
                      --print prints an answers template as JSON
   triage <@file>     {rules: {id: lifecycle}, paths: {path: lifecycle}} — a confirmed historical rule
                      records an archive verdict per path; an unanswered rule is counted, not applied
-  adrs [--dry-run]   one proposed ADR per intent claim under decisions/, numbered after docs.decisionsDir`;
+  adrs [--dry-run] [--force]
+                     one proposed ADR per intent claim under decisions/, numbered after docs.decisionsDir;
+                     a proposal edited by hand is refused, and --force overwrites or removes it`;
 
 const ledgerPath = (root) => join(root, ARTIFACT_DIR, LEDGER);
 
@@ -425,10 +432,14 @@ const TRIAGEABLE = ['pending', 'read'];
  */
 function triage({ root, rest }) {
   const ledger = requireLedger(root);
-  const candidates = ledger.sources.filter((s) => TRIAGEABLE.includes(s.state)).map((s) => s.path);
+  const candidates = (ledger.sources ?? []).filter((s) => TRIAGEABLE.includes(s.state)).map((s) => s.path);
   const groups = proposeTriage(candidates);
 
-  const answersArg = rest.find((a) => a.startsWith('@'));
+  const answersArgs = rest.filter((a) => a.startsWith('@'));
+  if (answersArgs.length > 1) {
+    throw new UserError(`one answers file at a time — got ${answersArgs.join(' and ')}\n\n${USAGE}`);
+  }
+  const [answersArg] = answersArgs;
   const flags = rest.filter((a) => !a.startsWith('@'));
   for (const flag of flags) {
     if (flag !== '--print') throw new UserError(`unknown argument '${flag}'\n\n${USAGE}`);
@@ -475,15 +486,24 @@ function triage({ root, rest }) {
  * The existing numbers come from the project's real decisions directory —
  * read here, since `lib/reorg.mjs` stays fs-free — and nothing is ever
  * written there. A file in the proposed directory that matches the ADR
- * pattern and is not among what would be written now is stale (its claim
- * went stale, or was excluded) and is removed and named: a proposal nobody
+ * pattern and is not among what would be written now has no proposal behind
+ * it any more (its claim went stale or was excluded, or the real directory
+ * grew and the numbering moved) and is removed and named: a proposal nobody
  * can trace to a live claim is exactly the kind of record that gets accepted
  * by mistake.
+ *
+ * Both the removal and the write are refused for a file whose bytes are not
+ * what this tool last wrote — edited by hand since, or never written by it —
+ * unless `--force`. The rule and the mechanism are `rewrite`'s: a proposal is
+ * meant to be edited, and an edit lost to a re-run is exactly the silent
+ * overwrite the manifest refuses everywhere else in this tool.
  */
 function adrs({ config, root, rest }) {
   let dryRun = false;
+  let force = false;
   for (const arg of rest) {
     if (arg === '--dry-run') dryRun = true;
+    else if (arg === '--force') force = true;
     else throw new UserError(`unknown argument '${arg}'\n\n${USAGE}`);
   }
 
@@ -500,37 +520,70 @@ function adrs({ config, root, rest }) {
     L.push(`dev reorg: no intent claims to propose as decisions${stale.length ? ` (${stale.length} stale)` : ''} — nothing written`);
   }
 
+  const written = { ...(ledger.adrsWritten ?? {}) };
+  let wrote = false;
+  let refused = 0;
+  const notOurs = '(edited by hand since it was written, or never written by this tool';
+
   const keep = new Set(proposed.map((a) => a.file));
   const present = existsSync(dir) ? readdirSync(dir).filter((n) => parseAdrFilename(n)) : [];
   for (const name of present.sort()) {
     if (keep.has(name)) continue;
-    if (!dryRun) unlinkSync(join(dir, name));
-    L.push(`${label(dryRun ? 'would remove' : 'removed')}${join(rel, name)}   (no live intent claim behind it)`);
+    const relName = join(rel, name);
+    if (sha256(readFileSync(join(dir, name), 'utf8')) !== written[name] && !force) {
+      L.push(`${label('refused')}${relName}   ${notOurs} — --force removes it)`);
+      refused++;
+      continue;
+    }
+    if (dryRun) {
+      L.push(`${label('would remove')}${relName}   (no proposal by that name from this ledger)`);
+      continue;
+    }
+    unlinkSync(join(dir, name));
+    delete written[name];
+    wrote = true;
+    L.push(`${label('removed')}${relName}   (no proposal by that name from this ledger)`);
   }
 
   for (const a of proposed) {
     const abs = join(dir, a.file);
+    const relName = join(rel, a.file);
     const before = existsSync(abs) ? readFileSync(abs, 'utf8') : null;
+    // Already what we would write: nothing to lose, whatever the ledger
+    // remembers — so the hash is (re)recorded rather than the file refused.
     if (before === a.text) {
-      L.push(`${label('unchanged')}${join(rel, a.file)}   (${a.claimId})`);
+      if (written[a.file] !== sha256(a.text)) {
+        written[a.file] = sha256(a.text);
+        wrote = true;
+      }
+      L.push(`${label('unchanged')}${relName}   (${a.claimId})`);
+      continue;
+    }
+    if (before !== null && sha256(before) !== written[a.file] && !force) {
+      L.push(`${label('refused')}${relName}   ${notOurs} — --force overwrites it)`);
+      refused++;
       continue;
     }
     if (dryRun) {
-      L.push(`${label('would write')}${join(rel, a.file)}   (${a.claimId})`);
+      L.push(`${label('would write')}${relName}   (${a.claimId})`);
       continue;
     }
     mkdirSync(dir, { recursive: true });
     writeFileSync(abs, a.text);
-    L.push(`${label(before === null ? 'created' : 'rewritten')}${join(rel, a.file)}   (${a.claimId})`);
+    written[a.file] = sha256(a.text);
+    wrote = true;
+    L.push(`${label(before === null ? 'created' : 'rewritten')}${relName}   (${a.claimId})`);
   }
+  if (!dryRun && wrote) saveLedger(root, { ...ledger, adrsWritten: written });
 
   if (proposed.length) {
     L.push('', `${proposed.length} proposed ADR(s) numbered after ${config.docs?.decisionsDir ?? 'docs/decisions'} (next: ${String(proposed[0].number).padStart(4, '0')})${dryRun ? ' — dry run, nothing written' : ''}`);
   }
   if (stale.length) L.push(`${stale.length} stale intent claim(s) not proposed: ${stale.map((c) => c.id).join(', ')} — re-read their sources first`);
   if (proposed.length) L.push('Accept one with /dev-adr — it is copied into the real directory there, never here.');
+  if (refused) L.push(`${refused} refused — edited by hand since written, or never written by this tool. --force overwrites or removes them.`);
   process.stdout.write(`${L.join('\n')}\n`);
-  return 0;
+  return refused ? 1 : 0;
 }
 
 /** The architecture file, parsed by the format its extension names. */
