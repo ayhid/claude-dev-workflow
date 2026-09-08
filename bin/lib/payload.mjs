@@ -47,8 +47,10 @@ import { dirname, join, relative, sep } from 'node:path';
 // drift. See lib/manifest.mjs for why the ownership boundary does *not* move
 // with it.
 import {
+  AGENTS_DIR,
   MANIFEST_PATH,
   PAYLOAD_DIR,
+  SKILLS_DIR,
   detectDrift,
   isGeneratedPath,
   readJson,
@@ -56,22 +58,18 @@ import {
   sha256,
 } from '../../lib/manifest.mjs';
 
-export { MANIFEST_PATH, PAYLOAD_DIR, detectDrift, isGeneratedPath, readManifest };
-
 /**
- * Where a project's skills live. Exported because `tools/check-payload.mjs`
- * sweeps it for installed skills the source no longer plans, and a second
- * spelling of this path there would be the drift this module exists to prevent.
+ * The roots, re-exported rather than restated.
+ *
+ * `SKILLS_DIR` and `AGENTS_DIR` (the third root — #91, ADR 0003: one Markdown
+ * file per agent, `dev-<name>.md`, under the same `dev-` prefix the skills
+ * claim) used to be defined here, because only the installer needed to know
+ * them. The installed payload has to answer the same question now —
+ * `resolveInstallRoots` reports every root an install resolved to — so they
+ * moved beside `PAYLOAD_DIR`, where one file decides all of them.
+ * `tools/check-payload.mjs` imports them from here, and still may.
  */
-export const SKILLS_DIR = join('.claude', 'skills');
-
-/**
- * Where a project's subagent definitions live — the third root (#91, ADR 0003).
- * One Markdown file per agent, `dev-<name>.md`, the same prefix the skills
- * claim: Claude Code reads agents from here, and a skill dispatches one by the
- * name in its frontmatter.
- */
-export const AGENTS_DIR = join('.claude', 'agents');
+export { AGENTS_DIR, MANIFEST_PATH, PAYLOAD_DIR, SKILLS_DIR, detectDrift, isGeneratedPath, readManifest };
 const SETTINGS_PATH = join('.claude', 'settings.json');
 
 /** Directories copied verbatim from the distribution into `_dev-workflow/`. */

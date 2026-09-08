@@ -16,11 +16,104 @@
  */
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
-/** Where the payload lands, relative to the project root. Fixed, so the skills need no templating. */
+/** Where the payload lands under the project, in local mode. */
 export const PAYLOAD_DIR = '_dev-workflow';
 export const MANIFEST_PATH = join(PAYLOAD_DIR, '_config', 'manifest.json');
+
+/**
+ * Where a project's skills live, and where its subagent definitions live — one
+ * file per agent, `dev-<name>.md` (ADR 0003).
+ *
+ * Here rather than in `bin/lib/payload.mjs`, which re-exports them: both roots
+ * are now part of an *answer* the installed payload has to give as well, since
+ * `resolveInstallRoots` below reports every root an install resolved to. Two
+ * spellings of `.claude/skills` is the drift this module exists to prevent.
+ */
+export const SKILLS_DIR = join('.claude', 'skills');
+export const AGENTS_DIR = join('.claude', 'agents');
+
+/**
+ * Where a **global** install keeps the runtime, relative to the user's home.
+ *
+ * Spelled here and nowhere else: `tests/installroots.test.mjs` sweeps `bin/`
+ * and `lib/` for a second spelling — the literal path and the
+ * `join('.claude', 'dev-workflow')` form both — and fails on one. A root that
+ * two files decide independently is a root they eventually disagree about, and
+ * the symptom is a `dev.mjs` the skills cannot find.
+ *
+ * One machine, one payload, however the binary arrived: brew, `npm -g` and
+ * `npx …@latest` all write here.
+ */
+export const GLOBAL_PAYLOAD_DIR = '.claude/dev-workflow';
+
+/** The two install modes, in the order the wizard offers them. */
+export const INSTALL_MODES = ['local', 'global'];
+
+/**
+ * The placeholder the skill and agent *sources* carry where the path to
+ * `dev.mjs` is spelled, and which the installer replaces with the mode's own
+ * payload root on the way in.
+ *
+ * A constant rather than a literal in two files: the sources put it in and the
+ * installer takes it out, so a typo on either side is a skill whose first
+ * command names a path that does not exist. `{{…}}` because nothing in
+ * Markdown, YAML frontmatter or a shell command line means anything by it.
+ */
+export const PAYLOAD_ROOT_TOKEN = '{{DEV_WORKFLOW_PAYLOAD_ROOT}}';
+
+/**
+ * Every root an install resolves to, for one mode.
+ *
+ * `local` returns the project-relative paths every install has always used.
+ * `global` moves the **runtime alone** onto the machine: the skills, the agents
+ * and the bash guards stay in the project, because a guard that is not there
+ * exits 127 — neither 0 nor 2 — so enforcement would disappear silently from a
+ * fresh clone rather than fail loudly.
+ *
+ * That split is why there are two manifests rather than one. Each root records
+ * what was written into it; in local mode they are the same file, which is the
+ * degenerate case of the same shape rather than a special case.
+ *
+ * `env` is a parameter rather than `process.env` because every test of this
+ * needs `$HOME` pointed somewhere temporary, and a resolver that read the real
+ * one could only be tested by mutating global state.
+ *
+ * @param {{projectDir: string, mode?: string, env?: NodeJS.ProcessEnv}} opts
+ * @returns {{mode: string, projectRoot: string, payloadRoot: string, skillsRoot: string,
+ *            agentsRoot: string, payloadManifest: string, projectManifest: string}}
+ */
+export function resolveInstallRoots({ projectDir, mode = 'local', env = {} } = {}) {
+  if (typeof projectDir !== 'string' || projectDir === '') {
+    throw new Error('resolveInstallRoots needs a projectDir');
+  }
+  if (!INSTALL_MODES.includes(mode)) {
+    throw new Error(`unknown install mode "${mode}" — expected ${INSTALL_MODES.join(' or ')}`);
+  }
+
+  const projectRoot = resolve(projectDir);
+  const projectManifest = join(projectRoot, MANIFEST_PATH);
+
+  let payloadRoot = join(projectRoot, PAYLOAD_DIR);
+  if (mode === 'global') {
+    // Named, not inferred: a home-less environment resolving to `undefined/.claude`
+    // would write a directory called "undefined" and report success.
+    const home = env.HOME || env.USERPROFILE;
+    if (!home) throw new Error('install.mode is global but neither HOME nor USERPROFILE is set');
+    payloadRoot = join(home, GLOBAL_PAYLOAD_DIR);
+  }
+
+  return {
+    mode,
+    projectRoot,
+    payloadRoot,
+    skillsRoot: join(projectRoot, SKILLS_DIR),
+    agentsRoot: join(projectRoot, AGENTS_DIR),
+    payloadManifest: join(payloadRoot, '_config', 'manifest.json'),
+    projectManifest,
+  };
+}
 
 export const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 
