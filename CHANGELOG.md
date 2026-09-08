@@ -1,3 +1,10 @@
+## [1.20.1](https://github.com/ayhid/claude-dev-workflow/compare/v1.20.0...v1.20.1) (2026-09-08)
+
+
+### Bug Fixes
+
+* **youtrack:** read the State and Assignee fields by their configured names ([#58](https://github.com/ayhid/claude-dev-workflow/issues/58)) ([#112](https://github.com/ayhid/claude-dev-workflow/issues/112)) ([2597d92](https://github.com/ayhid/claude-dev-workflow/commit/2597d92cd8f0c85ab367c238641e3817bd1b02ec)), closes [#14](https://github.com/ayhid/claude-dev-workflow/issues/14)
+
 # [1.20.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.19.0...v1.20.0) (2026-09-07)
 
 
