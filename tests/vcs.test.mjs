@@ -273,3 +273,27 @@ test('landedLog skips merges, keeps the sha/subject format the parser reads, and
     error: 'fatal: bad revision',
   });
 });
+
+test('freshestBase fetches and prefers the remote-tracking ref, and never touches the local branch (#122)', async () => {
+  const run = fakeRun({ 'rev-parse --verify --quiet origin/main': { stdout: 'abc' } });
+  const vcs = makeVcs({ run });
+  const r = await vcs.freshestBase({ dir: '/repo', remote: 'origin', base: 'main' });
+  assert.deepEqual(r, { ref: 'origin/main', hasRemote: true, fetched: true, why: null });
+  assert.deepEqual(run.calls, [
+    'git -C /repo remote get-url origin',
+    'git -C /repo fetch origin main',
+    'git -C /repo rev-parse --verify --quiet origin/main',
+  ]);
+  assert.ok(!run.calls.some((c) => /pull|merge|switch|checkout|reset/.test(c)), 'the local base is read, never moved');
+});
+
+test('freshestBase falls back to the local base with the reason: no remote, or a failed fetch', async () => {
+  const noRemote = makeVcs({ run: fakeRun({ 'remote get-url origin': { ok: false, stderr: 'error: No such remote' } }) });
+  assert.deepEqual(await noRemote.freshestBase({ dir: '/repo', base: 'main' }), { ref: 'main', hasRemote: false, fetched: false, why: 'no remote "origin"' });
+
+  const offline = makeVcs({ run: fakeRun({ 'fetch origin main': { ok: false, stderr: "fatal: unable to access 'https://x/': Could not resolve host: x" } }) });
+  const r = await offline.freshestBase({ dir: '/repo', base: 'main' });
+  assert.equal(r.ref, 'main');
+  assert.equal(r.fetched, false);
+  assert.match(r.why, /^could not fetch origin\/main: fatal: unable to access/);
+});
