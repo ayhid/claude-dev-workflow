@@ -228,6 +228,11 @@ that exists neither locally nor on the remote rather than discovering it after p
 In `direct` mode the main checkout is switched to the target to merge and switched back afterwards,
 so a worktree session never leaves the repo root sitting on a branch nobody selected.
 
+`standup` and `status` are phrased per repo in the mode it uses: on a `direct` repo the PR cell
+reads `direct` rather than `none`, and the first section of the standup is **landed since**, read
+off the base branch — the same evidence `sync` reads — instead of the merged pull requests a `pr`
+repo reports.
+
 ## `repos` — more than one
 
 Omit it entirely for a single-repo project.

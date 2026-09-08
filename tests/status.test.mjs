@@ -111,3 +111,34 @@ test('the board prints the same bytes for the same rows', () => {
 test('an empty board says nothing is checked out rather than printing a bare header', () => {
   assert.match(describeBoard([]).join('\n'), /no worktrees/);
 });
+
+// --- delivery mode (#44) ---------------------------------------------------------
+
+test('on a direct repo "no PR" is not a pending step', () => {
+  const out = text({ branch: '22-x', issue: { id: '#22', state: 'In Progress' }, pr: null, delivery: 'direct' });
+  assert.match(out, /pr\s+direct delivery, no PR/);
+  assert.doesNotMatch(out, /none yet/);
+  assert.match(out, /next\s+dev\.mjs land/, 'the next step is unchanged: land follows delivery.mode');
+});
+
+test('a pull request opened by hand on a direct repo is still reported', () => {
+  const out = text({
+    branch: '22-x',
+    issue: { id: '#22', state: 'In Review' },
+    pr: { number: 23, state: 'OPEN', url: 'https://example.invalid/23' },
+    delivery: 'direct',
+  });
+  assert.match(out, /pr\s+#23 open/);
+});
+
+test('the board cell reads "direct" where a pr project reads "none"', () => {
+  const rows = [
+    { path: '/w/9', branch: '9-a', issue: { id: '#9', state: 'In Progress' }, pr: null, dirty: 0, delivery: 'direct' },
+    { path: '/w/10', branch: '10-b', issue: { id: '#10', state: 'In Progress' }, pr: null, dirty: 0, delivery: 'pr' },
+    { path: '/w/11', branch: '11-c', issue: { id: '#11', state: 'In Progress' }, pr: PR_UNKNOWN, dirty: 0, delivery: 'direct' },
+  ];
+  const out = describeBoard(rows).join('\n');
+  assert.match(out, /^#9 {9}In Progress {4}direct/m);
+  assert.match(out, /^#10 {8}In Progress {4}none/m);
+  assert.match(out, /^#11 {8}In Progress {4}direct/m);
+});

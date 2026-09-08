@@ -16,9 +16,12 @@ It scans every configured repo and reads the tracker, so nothing here needs to b
 from `git`, `gh` or the issue list. Five sections come back, in this order:
 
 - **merged since** — what landed inside the window, with each ticket's current state. A line
-  marked *merged, but the ticket has not been reconciled* is drift, not finished work.
+  marked *merged, but the ticket has not been reconciled* is drift, not finished work. On a repo
+  with `delivery.mode: direct` the section is **landed since** and lists the commits on the base
+  branch by sha, one per ticket, because nothing there is ever merged — it is landed.
 - **in flight** — one row per ticket branch: state, PR, whether the tree is dirty or ahead of the
-  base, and how long since its last commit.
+  base, and how long since its last commit. The PR cell reads `direct` on a repo that delivers
+  without one; that is not a pending step, and `none` is only ever printed where a PR is expected.
 - **stale** — anything with no commit for the threshold (7 days by default).
 - **open in the tracker** — every open issue nothing above already accounts for: the work that
   exists but has not been started here. Capped, with a count of the rest.
