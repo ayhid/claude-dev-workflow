@@ -38,6 +38,9 @@ Nothing installed is project-specific: instance, project, ticket language, repo 
 ladder, branch naming, isolation mode and commit convention all come from one
 [`.dev-workflow.json`](docs/configuration.md) per project.
 
+**[Documentation site →](https://ayhid.github.io/dev-workflow-documentation/)** — a one-page quick
+start, a use case per situation, recipes, and a reference with real output for every command.
+
 **Contents** &nbsp;
 [Quick start](#quick-start) &middot;
 [How a ticket flows](#how-a-ticket-flows) &middot;
