@@ -224,6 +224,7 @@ async function listTemplates({ config, root, provider }) {
     );
     return 0;
   }
+  for (const u of d.unreadable) process.stderr.write(`dev create: skipped an unreadable issue template — ${u.error}\n`);
   process.stderr.write(`dev create: ${d.templates.length} template(s), ${describeSource(d.source)}\n`);
   process.stdout.write(`${d.templates.map((t) => `${t.filename}\t${t.name}`).join('\n')}\n`);
   return 0;
@@ -237,7 +238,9 @@ async function listTemplates({ config, root, provider }) {
 async function printTemplate({ config, root, provider }, name) {
   const d = await discoverTemplates({ root, provider });
   if (!d.ok) throw new UserError(d.error);
-  const repo = d.templates.length ? selectTemplate({ templates: d.templates, source: d.source, name }) : null;
+  const repo = d.templates.length
+    ? selectTemplate({ templates: d.templates, source: d.source, name, unreadable: d.unreadable })
+    : null;
   if (repo?.ok) {
     process.stderr.write(`dev create: template: ${repo.template.name} (${describeSource(repo.source)})\n`);
     process.stdout.write(renderTemplate(repo.template));
@@ -291,7 +294,14 @@ export async function run(args) {
   // candidate for anything.
   const found = await discoverTemplates({ root, provider });
   if (!found.ok) throw new UserError(found.error);
-  const picked = selectTemplate({ templates: found.templates, source: found.source, name: opts.template, type });
+  for (const u of found.unreadable) process.stderr.write(`dev create: skipped an unreadable issue template — ${u.error}\n`);
+  const picked = selectTemplate({
+    templates: found.templates,
+    source: found.source,
+    name: opts.template,
+    type,
+    unreadable: found.unreadable,
+  });
   if (!picked.ok) throw new UserError(picked.error);
   const { template, source } = picked;
   const where = describeSource(source, template, configuredType(config, type) ?? type);

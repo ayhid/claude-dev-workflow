@@ -333,6 +333,22 @@ test('AC6: two repo templates and no --template is refused listing both; --templ
   assert.match(ok.stderr, /template: Bug form \(repo checkout\)/);
 });
 
+test('an unreadable template beside a readable one is warned about, not fatal', async () => {
+  const s = await withStubGh();
+  withLocalTemplates(s, { 'bug_report.md': BUG_MD, 'bad.yml': 'body:\n  - attributes:\n      label: x\n' });
+  const body = '## Describe the bug\nx\n## To Reproduce\ny\n### Expected behavior\nz\n';
+  const r = await s.dev(['create', 'The export times out', body, 'Bug', '--template', 'bug_report.md']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(r.stdout, '#99\n');
+  assert.match(r.stderr, /bad\.yml/, 'the broken file is named');
+  assert.match(r.stderr, /template: Bug report \(repo checkout\)/);
+
+  const named = await s.dev(['create', 'The export times out', body, 'Bug', '--template', 'bad.yml']);
+  assert.equal(named.code, 1);
+  assert.match(named.stderr, /line 2/);
+  assert.equal(filed(s.read('log')), 1, 'only the first run filed');
+});
+
 test('the template is checked before the duplicate scan and before any write', async () => {
   const s = await withStubGh();
   const r = await s.dev(['create', 'Half a thing is still broken', '## Problem\nno criteria\n']);

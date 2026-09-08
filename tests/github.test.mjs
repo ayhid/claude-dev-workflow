@@ -536,13 +536,29 @@ test('create warns rather than failing when a type has no label', async () => {
 
 test('create passes template labels after the type label, one --label each', async () => {
   const config = { ...CONFIG, github: { ...CONFIG.github, labels: { ...CONFIG.github.labels, type: { Bug: 'kind: bug' } } } };
-  const { provider, calls, issues } = build({ config });
+  const { provider, calls, issues } = build({ config, labels: ['status: in progress', 'status: review', 'status: done', 'kind: bug', 'needs-triage', 'area: export'] });
   const r = await provider.create({ summary: 'T', description: 'B', type: 'Bug', labels: ['needs-triage', 'area: export'] });
   assert.ok(r.ok, r.error);
   const c = calls.find((x) => x.args[1] === 'create');
   const labels = c.args.filter((_, i) => c.args[i - 1] === '--label');
   assert.deepEqual(labels, ['kind: bug', 'needs-triage', 'area: export']);
   assert.deepEqual(issues.get(9).labels.map((l) => l.name), ['kind: bug', 'needs-triage', 'area: export']);
+});
+
+test('a template label the repository does not have is dropped with a warning, and the issue is still filed', async () => {
+  // The issue existing matters more than its labels — the same rule the type
+  // label already follows. `gh issue create` fails outright on an unknown
+  // label, which would turn a stale `labels:` line in a template into a
+  // repository that cannot file issues.
+  const { provider, calls, issues } = build({ labels: ['status: in progress', 'status: review', 'status: done', 'needs-triage'] });
+  const r = await provider.create({ summary: 'T', description: 'B', labels: ['needs-triage', 'nope'] });
+  assert.ok(r.ok, r.error);
+  assert.equal(r.id, '#9');
+  const c = calls.find((x) => x.args[1] === 'create');
+  assert.deepEqual(c.args.filter((_, i) => c.args[i - 1] === '--label'), ['needs-triage']);
+  assert.deepEqual(issues.get(9).labels.map((l) => l.name), ['needs-triage']);
+  assert.match(r.warnings.join(' '), /"nope"/);
+  assert.match(r.warnings.join(' '), /created without it/);
 });
 
 test('create without labels sends no --label at all', async () => {

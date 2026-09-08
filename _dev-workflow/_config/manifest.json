@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.20.1",
     "installDate": "2026-09-08T10:07:31.602Z",
-    "lastUpdated": "2026-09-08T10:25:17.940Z"
+    "lastUpdated": "2026-09-08T10:25:18.086Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -65,7 +65,7 @@
     },
     {
       "path": "_dev-workflow/lib/github.mjs",
-      "sha256": "4a370986b04b6931eab05b2a6cb37c1e03144b1619d287eb9c91018f0f1c804b"
+      "sha256": "2b4d40a5c6bd372ae4d8994295cb64d35dfb974a0f06249f42a611741bef4142"
     },
     {
       "path": "_dev-workflow/lib/ingest.mjs",
@@ -77,7 +77,7 @@
     },
     {
       "path": "_dev-workflow/lib/issuetemplate.mjs",
-      "sha256": "06ca939030fc5138e9e68d1fce45bb8c631cd0640d15b95704c512418b16c36e"
+      "sha256": "01b8c56519ea27f6ebc49a7676048c48e2544ddbbbcfbf4d68cdb0f56c547432"
     },
     {
       "path": "_dev-workflow/lib/manifest.mjs",
@@ -173,7 +173,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/create.mjs",
-      "sha256": "f0acfdc3051d3008d9045a63f796d74be3c64d490ae6bb3c54a285d20d12f482"
+      "sha256": "9ed21b11fa7a4496f93e5405bbf5719d5e9d13b1c925a4800c0e48ea6021322d"
     },
     {
       "path": "_dev-workflow/scripts/cmd/docs.mjs",

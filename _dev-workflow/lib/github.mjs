@@ -645,7 +645,22 @@ export function createGitHubProvider({ config, run = sh, onWarn }) {
       const args = ['issue', 'create', '-R', repo, '--title', summary, '--body-file', '-'];
       if (type && gh.labels?.type?.[type]) args.push('--label', gh.labels.type[type]);
       else if (type) warnings.push(`no GitHub label mapped for type "${type}" — created without it`);
-      for (const l of extra) if (l) args.push('--label', l);
+
+      // A template's `labels:` may name a label this repository no longer has,
+      // and `gh issue create` fails the whole create on it. The issue existing
+      // matters more than its labels — the rule the type label already
+      // follows — so unknown ones are dropped with a warning. If the label
+      // list itself cannot be read, the labels go through as given: a guess
+      // either way, and this one is at least visible in gh's own error.
+      const wanted = extra.filter(Boolean);
+      if (wanted.length) {
+        const known = await json(['label', 'list', '-R', repo, '--limit', '200', '--json', 'name']);
+        const names = known.ok ? new Set((known.data ?? []).map((l) => l.name)) : null;
+        for (const l of wanted) {
+          if (names && !names.has(l)) warnings.push(`${repo} has no label "${l}" (from the issue template) — created without it`);
+          else args.push('--label', l);
+        }
+      }
 
       const r = await call(args, { input: description ?? '' });
       if (!r.ok) return { ok: false, error: `could not create the issue: ${r.stderr}` };

@@ -236,11 +236,38 @@ test('discoverTemplates: no capability means no lookup and source none', async (
   assert.equal(asked, false);
 });
 
-test('discoverTemplates: a template the parser refuses is an error naming the file', async () => {
+test('discoverTemplates: a repo whose only template is unreadable is an error naming the file', async () => {
+  // Not a fall-through to the shipped default: the project stated a shape,
+  // and filing the generic skeleton against a broken template would be the
+  // silent substitution this module exists to stop.
   const root = repoWith({ '.github/ISSUE_TEMPLATE/bad.yml': 'body:\n  - attributes:\n      label: x\n' });
   const r = await discoverTemplates({ root, provider: { capabilities: { issueTemplates: false } } });
   assert.equal(r.ok, false);
   assert.match(r.error, /bad\.yml/);
+  assert.match(r.error, /line 2/);
+});
+
+test('discoverTemplates: one unreadable template does not take the readable ones down with it', async () => {
+  const root = repoWith({
+    '.github/ISSUE_TEMPLATE/bug_report.md': BUG_MD,
+    '.github/ISSUE_TEMPLATE/bad.yml': 'body:\n  - attributes:\n      label: x\n',
+  });
+  const r = await discoverTemplates({ root, provider: { capabilities: { issueTemplates: false } } });
+  assert.ok(r.ok, r.error);
+  assert.deepEqual(r.templates.map((t) => t.filename), ['bug_report.md']);
+  assert.equal(r.unreadable.length, 1);
+  assert.equal(r.unreadable[0].filename, 'bad.yml');
+  assert.match(r.unreadable[0].error, /type/);
+});
+
+test('selectTemplate: naming the unreadable template is refused with its parse error, not "not found"', () => {
+  const unreadable = [{ filename: 'bad.yml', error: 'bad.yml, line 2: a body item needs a "type"' }];
+  const r = selectTemplate({ templates: [bug], source: 'checkout', name: 'bad.yml', unreadable });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /line 2/);
+  assert.match(r.error, /type/);
+  // And with one readable template left, no name is still that one.
+  assert.equal(selectTemplate({ templates: [bug], source: 'checkout', unreadable }).template, bug);
 });
 
 // --- selection -------------------------------------------------------------------
@@ -352,6 +379,31 @@ test('AC13: on the default path, missing or empty criteria is refused for every 
     assert.equal(empty.ok, false, `${type}: an empty criteria section must refuse`);
     assert.deepEqual(empty.missing, ['Acceptance criteria']);
   }
+});
+
+test('the printed placeholder left unedited does not count as criteria', () => {
+  // `create --template Bug` prints `- [ ] AC1: ` under the heading. Filing that
+  // verbatim is the empty section wearing a checkbox.
+  for (const type of ['Bug', 'Feature', 'Task']) {
+    const t = defaultTemplateFor(type);
+    const r = validateBody(renderTemplate(t), t, { source: 'default' });
+    assert.equal(r.ok, false, `${type}: the unedited skeleton must refuse`);
+    assert.deepEqual(r.missing, ['Acceptance criteria']);
+  }
+  const ticked = validateBody('## Acceptance criteria\n- [ ] AC1:\n- [x] \n- [ ]\n', DEFAULT_TEMPLATES.generic, { source: 'default' });
+  assert.equal(ticked.ok, false, 'checkboxes with nothing after them are not criteria');
+  const real = validateBody('## Acceptance criteria\n- [ ] AC1: the export completes\n', DEFAULT_TEMPLATES.generic, { source: 'default' });
+  assert.ok(real.ok);
+});
+
+test('a section is a ## or ### heading, in the body as in the template', () => {
+  // The template reader takes sections from level 2 and 3 headings only; the
+  // validator holds the body to the same rule, or a `#### Acceptance criteria`
+  // satisfies a check its own template file would not have defined.
+  const t = DEFAULT_TEMPLATES.generic;
+  assert.equal(validateBody('#### Acceptance criteria\n- [ ] AC1: x\n', t, { source: 'default' }).ok, false);
+  assert.equal(validateBody('# Acceptance criteria\n- [ ] AC1: x\n', t, { source: 'default' }).ok, false);
+  assert.ok(validateBody('### Acceptance criteria\n- [ ] AC1: x\n', t, { source: 'default' }).ok);
 });
 
 test('AC14: on the default path, a missing non-criteria section is a warning, not a refusal', () => {

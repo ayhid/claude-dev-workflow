@@ -128,7 +128,10 @@ if [ -n "\${GH_ISSUES:-}" ] && [ -f "$GH_ISSUES" ]; then
     "issue close")  put --arg n "$3" '.[$n].state="CLOSED" | .[$n].stateReason="COMPLETED"' ;;
     "issue reopen") put --arg n "$3" '.[$n].state="OPEN" | .[$n].stateReason=null' ;;
     "issue comment") cat >> "$GH_COMMENT" ;;
-    "label list") echo '[{"name":"status: in progress"},{"name":"status: in review"},{"name":"status: done"}]' ;;
+    # The ladder labels plus the two the test templates name: \`create\` now
+    # drops a template label the repository does not have, so a fixture
+    # template's \`labels:\` only land when the repository has them.
+    "label list") echo '[{"name":"status: in progress"},{"name":"status: in review"},{"name":"status: done"},{"name":"bug"},{"name":"needs-triage"}]' ;;
     "api graphql")
       q="$*"
       case "$q" in
@@ -227,7 +230,7 @@ case "\${1:-} \${2:-}" in
     printf '%s' "$next" > "$GH_STATE"
     ;;
   "issue comment") cat >> "$GH_COMMENT" ;;
-  "label list") echo '[{"name":"status: in progress"},{"name":"status: in review"},{"name":"status: done"}]' ;;
+  "label list") echo '[{"name":"status: in progress"},{"name":"status: in review"},{"name":"status: done"},{"name":"bug"},{"name":"needs-triage"}]' ;;
   # \`--state\` is answered separately when the test said so: one list for every
   # state makes a merged PR an open one too, and the two rungs it maps onto are
   # different answers to the same question.
