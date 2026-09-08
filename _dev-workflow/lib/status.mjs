@@ -67,8 +67,11 @@ export function describeCheckout(facts) {
  * a step that does not exist and "could not ask" would ask about something
  * nobody expects. A PR that *is* there is reported whatever the mode: someone
  * opened it by hand, and that is evidence.
+ *
+ * Exported because `standup` renders the same cell: one rule, or the two
+ * boards would come to disagree about what a missing PR means.
  */
-const noPrExpected = (pr, delivery) => delivery === 'direct' && (!pr || pr === PR_UNKNOWN);
+export const noPrExpected = (pr, delivery) => delivery === 'direct' && (!pr || pr === PR_UNKNOWN);
 
 function renderPr(pr, { delivery = null } = {}) {
   if (noPrExpected(pr, delivery)) return 'direct delivery, no PR';

@@ -427,18 +427,21 @@ export function makeVcs({ run }) {
    * perfectly well-formed issue ID — for a *pull request* number. Every merge
    * would credit whatever issue happens to share that number.
    *
-   * Bounded at `limit` because `standup` runs this inside the SessionStart
-   * hook's 3s ceiling: a window is a window, and 200 non-merge commits on the
-   * base branch is more than any report lists.
+   * Unbounded unless the caller passes `limit`, and the bound is the caller's
+   * to state, not a default here. `sync` reconciles a whole window and must
+   * see every commit in it — a cap it never asked for silently dropped the
+   * oldest and reported them unchanged. `standup` runs inside the SessionStart
+   * hook's 3s ceiling and bounds the read itself, because a report lists a
+   * handful of tickets and a window is a window.
    *
    * @returns {Promise<{ok: true, log: string} | {ok: false, error: string}>}
    */
-  async function landedLog(dir, ref, { cutoff, limit = 200 }) {
+  async function landedLog(dir, ref, { cutoff, limit = null }) {
     const r = await git(dir, [
       'log', ref,
       '--no-merges',
       `--since=${cutoff}`,
-      '-n', String(limit),
+      ...(limit == null ? [] : ['-n', String(limit)]),
       `--format=%H${LOG_SEP}%s`,
     ]);
     if (!r.ok) return { ok: false, error: r.stderr || `could not read commits on ${ref} in ${dir}` };

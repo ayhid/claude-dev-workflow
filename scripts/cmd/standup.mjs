@@ -42,6 +42,12 @@ import { repoDirs, repoPathFor, scanRepos } from './status.mjs';
 
 const USAGE = 'usage: dev.mjs standup [--since 1d] [--stale 7d] [--repo PATH]';
 
+// The most base-branch commits read per direct repo. This command runs inside
+// the SessionStart hook's 3s ceiling, and 200 non-merge commits in a window is
+// more than any report lists. The bound is stated here, not in `vcs.landedLog`,
+// because `sync` reads the same log and must see all of it.
+const LANDED_LIMIT = 200;
+
 export function parseArgs(argv) {
   const opts = { since: '1d', stale: '7d', repo: '' };
   for (let i = 0; i < argv.length; i++) {
@@ -92,8 +98,9 @@ export async function run(argv) {
   // `repos[].delivery` — answered row by row below.
   const forkBase = config.branch?.base ?? 'main';
   const deliveryOf = (dir) => {
-    const d = deliveryFor(config, repoPathFor(config, main, dir));
-    return { mode: d.mode, base: deliveryBase(config, d) };
+    const path = repoPathFor(config, main, dir);
+    const d = deliveryFor(config, path);
+    return { path, mode: d.mode, base: deliveryBase(config, d) };
   };
 
   // Both windows go through the reconciler's own parser, so `7d` means the same
@@ -136,15 +143,27 @@ export async function run(argv) {
   // it inside the SessionStart hook's 3s ceiling; a pr repo pays nothing.
   // `mergedSince` stays PR-only: a PR opened by hand on a direct repo is still
   // evidence, and the two lists are simply concatenated.
+  //
+  // A read that fails is carried into the report, not dropped: the hook
+  // discards stderr, and a section that says "nothing landed" over a base
+  // branch that does not exist offers the wrong remedy for it.
   let direct = false;
+  const landedUnread = [];
   for (const dir of dirs) {
-    const { mode, base } = deliveryOf(dir);
+    const { path, mode, base } = deliveryOf(dir);
     if (mode !== 'direct') continue;
     direct = true;
     const ref = await vcs.baseRef(dir, base);
-    if (!ref) continue;
-    const log = await vcs.landedLog(dir, ref, { cutoff });
-    if (log.ok) merged.push(...landedSince(landedCommits(log.log, { syntax: provider.syntax })));
+    if (!ref) {
+      landedUnread.push(`${path}: no branch '${base}' here or on a remote`);
+      continue;
+    }
+    const log = await vcs.landedLog(dir, ref, { cutoff, limit: LANDED_LIMIT });
+    if (!log.ok) {
+      landedUnread.push(`${path}: could not read commits on ${ref}: ${log.error}`);
+      continue;
+    }
+    merged.push(...landedSince(landedCommits(log.log, { syntax: provider.syntax })));
   }
 
   // One batched read for every ticket on the board, in flight or just merged.
@@ -173,6 +192,7 @@ export async function run(argv) {
     staleAfter,
     prUnknown: scanned.prUnknown || rows.some((r) => r.pr === PR_UNKNOWN),
     direct,
+    landedUnread,
   });
 
   process.stdout.write(`${lines.join('\n')}\n`);

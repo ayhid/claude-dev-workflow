@@ -395,6 +395,26 @@ test('a landed commit is listed by its sha, and a ticket it did not move gets th
   assert.match(out, /^ {2}#27 {2}feat: by hand {3}#25 Done$/m, 'a PR opened by hand on a direct repo is still evidence');
 });
 
+test('a base branch that could not be read never renders as "nothing landed"', () => {
+  // Not read and read-and-empty are two facts, and the remedy the empty line
+  // offers — widen the window — is the wrong one when the read itself failed.
+  const unread = describeStandup(facts({
+    direct: true,
+    landedUnread: [".: no branch 'nowhere' here or on a remote"],
+  })).join('\n');
+  assert.match(unread, /\nlanded since 2026-08-26\n {2}\(could not read what landed — \.: no branch 'nowhere' here or on a remote\)\n/);
+  assert.doesNotMatch(unread, /nothing landed/);
+
+  // With one repo read and another not, what was read is listed and the
+  // failure is still said: a partial section must not look complete.
+  const partial = describeStandup(facts({
+    direct: true,
+    merged: [{ label: 'ccc3333', title: 'fix(x): y (#12)', issueId: '#12', mergedAt: null, more: 0, issue: { id: '#12', state: 'Done' } }],
+    landedUnread: ['packages/b: could not read commits on origin/main: fatal: bad object'],
+  })).join('\n');
+  assert.match(partial, /^ {2}ccc3333 {2}fix\(x\): y \(#12\) {3}#12 Done\n {2}\(could not read what landed — packages\/b: could not read commits on origin\/main: fatal: bad object\)$/m);
+});
+
 test('on a direct repo the PR cell says so, with or without the GitHub CLI', () => {
   const rows = (pr) => [{ issue: { id: '#12', state: 'In Progress' }, branch: 'feat/12-x', dirty: 0, commits: 1, lastCommit: daysAgo(1), pr, delivery: 'direct' }];
   assert.match(describeStandup(facts({ rows: rows(null) })).join('\n'), /#12 {6}In Progress {3}direct {6}1 ahead/);
@@ -478,6 +498,17 @@ test('a direct project reports what landed on the base branch, and no PR column 
   assert.doesNotMatch(r.stdout, /release/, 'a ticketless commit is not listed');
   assert.match(r.stdout, /#12 {6}In Progress {3}direct {6}/, 'no PR is expected here, and the cell says so');
   assert.doesNotMatch(r.stdout, /none/);
+});
+
+test('a direct project whose base branch does not exist says so, not "nothing landed"', async () => {
+  const { dev } = await withStubGh({
+    config: { ...CONFIG, delivery: { mode: 'direct', base: 'nowhere' } },
+  });
+
+  const r = await dev(['standup', '--since', '7d']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /\nlanded since [^\n]*\n {2}\(could not read what landed — \.: no branch 'nowhere' here or on a remote\)\n/);
+  assert.doesNotMatch(r.stdout, /nothing landed/);
 });
 
 test('a pull-request project never reads the base branch log', async () => {
