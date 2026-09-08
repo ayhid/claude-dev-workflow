@@ -134,7 +134,9 @@ export function normalizeFindings(raw, lens) {
     // alone let 1.5 through, which anchors a finding at a line no file has —
     // found by the edge lens on the first live run, and the one thing it got right.
     const line = Number.isInteger(Number(lineRaw)) && Number(lineRaw) > 0 ? Number(lineRaw) : null;
+    // Fallback: an invalid or missing severity becomes 'minor' (docs/review.md, "The fields").
     const severity = SEVERITIES.includes(str(item.severity)) ? str(item.severity) : 'minor';
+    // No fallback: an invalid or missing bucket is '' and omitted from the JSON half (docs/review.md).
     const bucket = BUCKETS.includes(str(item.bucket)) ? str(item.bucket) : '';
 
     const f = {
