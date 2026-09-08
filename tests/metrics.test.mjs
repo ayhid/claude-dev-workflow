@@ -92,6 +92,37 @@ test('a nonsense event is refused rather than written', () => {
   assert.throws(() => renderEvent({ role: 'done', id: '', state: 'x' }), /needs an issue ID/);
 });
 
+// --- a close made elsewhere (#48) --------------------------------------------
+
+test('an observed close carries the mark as its last key, and nothing else changes', () => {
+  const base = { role: 'done', id: '#12', state: 'Done', at: AT, provider: 'github', elapsedMs: 5, starts: 1 };
+  assert.equal(
+    renderEvent({ ...base, observed: true }),
+    '{"at":"2026-08-27T09:00:00.000Z","event":"done","id":"#12","state":"Done","provider":"github",' +
+      '"elapsedMs":5,"starts":1,"criteria":null,"observed":true}\n',
+  );
+  // A row a command wrote is byte-identical to what it has always been: the
+  // key is absent, not false, so every existing log and every diff of one
+  // stays about the events.
+  assert.equal(renderEvent({ ...base, observed: false }), renderEvent(base));
+  assert.doesNotMatch(renderEvent(base), /observed/);
+});
+
+test('closeEvent passes the mark through, and a start never carries it', () => {
+  const line = JSON.parse(closeEvent({ events: [], role: 'done', id: '#1', state: 'Done', at: AT, observed: true }));
+  assert.equal(line.observed, true);
+  assert.equal('observed' in JSON.parse(renderEvent({ role: 'start', id: '#1', state: 'x', at: AT, observed: true })), false);
+});
+
+test('a reader ignores the key it does not know, so old and new logs read alike', () => {
+  const { events } = parseLog(
+    '{"at":"2026-08-01T00:00:00.000Z","event":"start","id":"#1","state":"In Progress"}\n' +
+      '{"at":"2026-08-02T00:00:00.000Z","event":"done","id":"#1","state":"Done","elapsedMs":1,"starts":1,"criteria":null,"observed":true}\n',
+  );
+  assert.equal(events.length, 2);
+  assert.equal(currentCycle(events, '#1').length, 0, 'an observed close closes the cycle like any other');
+});
+
 // --- reading a log that reality has been at ---------------------------------
 
 test('a corrupt line is skipped and counted, never thrown', () => {
@@ -310,4 +341,104 @@ test('the leniency is the sigil and nothing else', () => {
   assert.equal(startsSince([{ event: 'start', id: 'ABC-37' }], '#37'), 0);
   assert.equal(startsSince([{ event: 'start', id: 'abc-37' }], 'ABC-37'), 0);
   assert.equal(startsSince([{ event: 'start', id: '#137' }], '#37'), 0);
+});
+
+// --- a close made elsewhere, through the real CLI (#48) -------------------------
+
+// Every e2e test here is on #12: the stub's graphql arm knows that issue and
+// no other, so it is the only ticket `sync` can read a state for.
+const merged = (title, headRefName = 'feat/12-thing', mergedAt = '2026-09-01T12:00:00.000Z') => [
+  { number: 7, headRefName, title, url: 'https://github.com/o/r/pull/7', mergedAt, createdAt: '2026-08-31T12:00:00.000Z' },
+];
+const DONE_LABEL = '{"name":"status: done"}';
+const OBSERVED_LINE = /1 close\(s\) made elsewhere recorded in the local transition log/;
+
+/**
+ * A single-repo project the reconciler can find a slug for (`repos[].github`),
+ * with the ticket in Backlog so `resume` makes the start transition.
+ */
+const syncProject = (opts = {}) => withStubGh({ repos: ['repo'], labels: '', ...opts });
+
+test('sync records a close it observes, dated at the merge', async () => {
+  const { projectRoot, dev } = await syncProject({ prsByState: { merged: merged('feat: thing (#12)') } });
+  const started = await dev(['resume', '#12']);
+  assert.equal(started.code, 0, started.stderr);
+
+  // The PR merged and CI closed the ticket; none of that happened here.
+  writeFileSync(join(projectRoot, 'gh.state'), DONE_LABEL);
+  const r = await dev(['sync']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /#12 .*already there or ahead/);
+  assert.match(r.stdout, OBSERVED_LINE);
+
+  const [start, done] = lines(projectRoot);
+  assert.equal(start.event, 'start');
+  assert.deepEqual([done.event, done.state, done.starts, done.observed], ['done', 'Done', 1, true]);
+  assert.equal(done.at, '2026-09-01T12:00:00.000Z', "the PR's mergedAt, not the moment sync ran");
+  assert.ok(done.elapsedMs !== null, 'measured against the start this log recorded');
+  assert.equal(Object.keys(done).at(-1), 'observed');
+});
+
+test('sync twice records the close once', async () => {
+  const { projectRoot, dev } = await syncProject({ prsByState: { merged: merged('feat: thing (#12)') } });
+  await dev(['resume', '#12']);
+  writeFileSync(join(projectRoot, 'gh.state'), DONE_LABEL);
+
+  await dev(['sync']);
+  const after = readFileSync(LOG(projectRoot), 'utf8');
+  const again = await dev(['sync']);
+  assert.equal(again.code, 0, again.stderr);
+  assert.doesNotMatch(again.stdout, /recorded in the local transition log/);
+  assert.equal(readFileSync(LOG(projectRoot), 'utf8'), after);
+});
+
+test('a close nobody started here is not observed, and no log appears for it', async () => {
+  const { projectRoot, dev } = await syncProject({ labels: DONE_LABEL, prsByState: { merged: merged('feat: thing (#12)') } });
+  const r = await dev(['sync']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.doesNotMatch(r.stdout, /recorded in the local transition log/);
+  assert.equal(existsSync(LOG(projectRoot)), false);
+});
+
+test('a PR title naming the issue as owner/repo#12 closes #12', async () => {
+  const { projectRoot, dev } = await syncProject({
+    prsByState: { merged: merged('fix: the thing o/r#12', 'hand-named-branch') },
+  });
+  await dev(['resume', '#12']);
+  writeFileSync(join(projectRoot, 'gh.state'), DONE_LABEL);
+
+  const r = await dev(['sync']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /^#12 /m, 'the table names the issue the one way the project spells it');
+  assert.match(r.stdout, OBSERVED_LINE);
+  assert.equal(lines(projectRoot).at(-1).id, '#12');
+});
+
+test('sync --apply moves a ticket through the one writer, and a later run observes nothing twice', async () => {
+  const { projectRoot, dev } = await syncProject({ prsByState: { merged: merged('feat: thing (#12)') } });
+  await dev(['resume', '#12']);
+
+  const applied = await dev(['sync', '--apply']);
+  assert.equal(applied.code, 0, applied.stderr);
+  assert.match(applied.stdout, /#12 +-> Done/);
+  assert.doesNotMatch(applied.stdout, /recorded in the local transition log/);
+
+  const [, done] = lines(projectRoot);
+  assert.deepEqual([done.event, done.starts], ['done', 1]);
+  assert.equal('observed' in done, false, 'a close this command made is a command row, byte-identical to before');
+
+  const again = await dev(['sync', '--apply']);
+  assert.equal(again.code, 0, again.stderr);
+  assert.equal(lines(projectRoot).length, 2, 'the cycle is closed; nothing to observe');
+});
+
+test('an unreadable log never fails the reconcile', async () => {
+  const { projectRoot, dev } = await syncProject({ labels: DONE_LABEL, prsByState: { merged: merged('feat: thing (#12)') } });
+  const { mkdirSync } = await import('node:fs');
+  mkdirSync(LOG(projectRoot));
+
+  const r = await dev(['sync']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /Everything is in sync/);
+  assert.match(r.stderr, /could not record the observed close of #12/);
 });

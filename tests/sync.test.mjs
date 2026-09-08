@@ -99,6 +99,19 @@ test('strongestEvidence is order-independent', () => {
   assert.equal(ev.get('ABC-1').state, 'Done');
 });
 
+test('strongestEvidence carries when the evidence happened, only when it knows', () => {
+  // A merged PR has a `mergedAt` and the observed close is dated at it (#48);
+  // an open PR and a landed commit have none, and the key is absent rather
+  // than null so every existing deepEqual over this shape stays true.
+  const ev = strongestEvidence([
+    { id: 'ABC-1', rank: 1, state: 'In Review', url: 'open', at: null },
+    { id: 'ABC-1', rank: 2, state: 'Done', url: 'merged', at: '2026-09-01T12:00:00Z' },
+    { id: 'ABC-2', rank: 2, state: 'Done', url: 'commit' },
+  ]);
+  assert.deepEqual(ev.get('ABC-1'), { rank: 2, state: 'Done', url: 'merged', at: '2026-09-01T12:00:00Z' });
+  assert.deepEqual(ev.get('ABC-2'), { rank: 2, state: 'Done', url: 'commit' });
+});
+
 test('strongestEvidence keeps issues apart and skips idless rows', () => {
   const ev = strongestEvidence([
     { id: 'ABC-1', rank: 1, state: 'In Review', url: 'a' },
