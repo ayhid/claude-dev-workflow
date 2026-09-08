@@ -24,7 +24,9 @@ your PATH first.
 ## Verifying a write path
 
 The read paths (`dev.mjs fetch`, `create --dup-check`, `dev.mjs config`, a `dev.mjs sync` dry run)
-can be exercised freely against any instance. The **write paths cannot be verified without writing
+can be exercised freely against any instance. `create` itself runs that same scan before it files
+and refuses on a match with exit `2`, so a throwaway issue whose title echoes an open one needs
+`--allow-duplicate` — the refusal is the feature, not a broken write path. The **write paths cannot be verified without writing
 once**, and a dry run that looks perfect proves nothing about them — `dev.mjs sync --apply` once
 shipped with a command the API rejects, and every dry run had reported the correct plan.
 

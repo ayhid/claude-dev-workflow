@@ -406,8 +406,9 @@ Each command below is prefixed with `node _dev-workflow/scripts/dev.mjs`.
 | `update ABC-22 state done @/tmp/c.md` | moves it, with a comment (literal or `@file`) | HTTP only |
 | `update ABC-22 comment "note"` | comment only | HTTP only |
 | `update ABC-22 raw "Type Bug Priority Major"` | a backend-native command, YouTrack only | HTTP only |
-| `create --dup-check "slug 500 router"` | open issues matching keywords | HTTP only |
-| `create "Summary" @/tmp/body.md Bug Major` | files the issue, prints the new ID on stdout | HTTP only |
+| `create --dup-check "slug 500 router"` | open issues matching keywords; reports only, never files (exits 1 only when the search itself cannot run) | HTTP only |
+| `create "Summary" @/tmp/body.md Bug Major` | scans open issues for a duplicate first, then files the issue and prints the new ID on stdout | HTTP only |
+| `create "Summary" @/tmp/body.md --allow-duplicate` | files even though the scan matched, and says what it matched | HTTP only |
 | `start ABC-22 [--type T] [--mode worktree\|branch] [--repo PATH]` | branch or worktree, ticket to in progress | HTTP + git |
 | `start ABC-22 --print` | just shows the name and path | git |
 | `resume [ABC-22]` | worktree back, uncommitted files and commits so far, ticket caught up | HTTP + git |
@@ -431,6 +432,11 @@ Each command below is prefixed with `node _dev-workflow/scripts/dev.mjs`.
 | `note` | where notes live and how many there are | nothing |
 | `version` | installed vs latest, and files you have edited | HTTP only |
 | `version --upgrade` | brings the payload up to date | git |
+
+`create` runs the duplicate scan itself, on every file: when an open issue matches the summary's
+keywords it prints the candidates, exits `2` and files nothing, and `--allow-duplicate` is the one
+flag that overrides it. A backend that cannot search, or a search that fails, warns and files — the
+check is never a new way for filing to fail.
 
 `config`, `fetch`, `update` and `create` are plain HTTP. `start`, `resume`, `abandon`, `land`,
 `standup` and `sync` additionally drive `git`, and `land`, `standup` and `sync` the GitHub CLI —

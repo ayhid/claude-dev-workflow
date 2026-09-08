@@ -97,19 +97,24 @@ If the sentence contains several independent goals, list them and ask:
 An issue that needs several branches to close is a candidate for `/dev-split` *after* it is planned,
 not a reason to file several now.
 
-## 4. Check it is not already filed
+## 4. It may already be filed — `create` checks, you decide
 
-```bash
-node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" create --dup-check "<3-6 distinctive keywords>"
-```
+There is no separate command to remember here. `create` in §6 scans the open issues for the
+summary's keywords **before it files anything**, and when something matches it refuses: the
+candidates are on stdout, one `<ID>\t<title>` per line, the exit code is `2`, and nothing was
+created.
 
-Not generic words like "error" or "page". If something plausible matches, show it and ask whether
-to work on that instead. On that choice, comment what was just learned on the existing issue and
-**stop** — do not also create a new one:
+On a refusal, show the candidates and ask whether to work on one of them instead. On that choice,
+comment what was just learned on the existing issue and **stop** — do not also create a new one:
 
 ```bash
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" update <EXISTING-ID> comment "<what this session added>"
 ```
+
+If the user says it is genuinely new, re-run the same `create` with `--allow-duplicate`. That flag
+is the user's call, never yours: it prints what it overrode on stderr, so filing a duplicate is an
+explicit act and reads as one. A backend that cannot search, or a search that fails, warns and
+files — the scan is never a reason a file does not happen.
 
 ## 5. Draft the issue
 
@@ -180,9 +185,11 @@ node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" create "<summary>" @<
 ```
 
 `<Type>` is the one settled in §0, spelled as `issueTypes` spells it — it decides the branch type
-later, so `Bug` and `Feature` are not interchangeable here. stdout is the new ID and nothing else;
-the confirmation and any warning about a field that did not land are on stderr. If a warning says a
-field needs setting by hand, say so.
+later, so `Bug` and `Feature` are not interchangeable here. A summary that begins with `-` reads as
+a flag: put `--` before it (`create --allow-duplicate -- "<summary>" …`). Exit `2` is the duplicate
+refusal of §4: go back there. Otherwise stdout is the new ID and nothing else; the confirmation and
+any warning about a field that did not land are on stderr. If a warning says a field needs setting by
+hand, say so.
 
 ## 7. Stop
 

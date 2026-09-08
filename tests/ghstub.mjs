@@ -36,8 +36,10 @@ export const git = async (dir, ...args) => {
  *
  * State lives in files so a test can set it up and read it back: `$GH_STATE`
  * holds the issue's labels, `$GH_PRS` the pull requests to report, `$GH_LOG`
- * every call made, and `$GH_COMMENT` whatever was posted. `$GH_FAIL_EDIT=1`
- * makes the tracker reject a write, which is how the ordering rules are tested.
+ * every call made, `$GH_COMMENT` whatever was posted, and `$GH_CREATED` the
+ * last issue filed. `$GH_FAIL_EDIT=1` makes the tracker reject a write, which
+ * is how the ordering rules are tested; `$GH_FAIL_SEARCH=1` makes the search
+ * index unavailable, which is how "warn and file" is told from "refuse".
  */
 const GH_STUB = `#!/usr/bin/env bash
 set -u
@@ -60,14 +62,30 @@ if [ -n "\${GH_ISSUES:-}" ] && [ -f "$GH_ISSUES" ]; then
       view "$3" ;;
     "issue list")
       limit=100
-      while [ $# -gt 0 ]; do [ "$1" = "--limit" ] && limit="$2"; shift; done
-      jq -c --argjson l "$limit" '[to_entries[].value | select(.state=="OPEN") | {number,title,url,state,stateReason,labels:(.labels|map({name:.}))}] | sort_by(-.number) | .[:$l]' "$T" ;;
+      q=""
+      while [ $# -gt 0 ]; do
+        [ "$1" = "--limit" ] && limit="$2"
+        [ "$1" = "--search" ] && q="$2"
+        shift
+      done
+      # \`--search\` is the dup-check, and honours its keywords by whole word
+      # against the titles — a listing that ignored them would make every
+      # \`create\` in table mode match the whole repository and refuse.
+      if [ -n "$q" ] && [ "\${GH_FAIL_SEARCH:-}" = "1" ]; then echo "gh: search is unavailable" >&2; exit 1; fi
+      jq -c --argjson l "$limit" --arg q "$q" '($q | ascii_downcase | split(" ") | map(select(. != ""))) as $ws | [to_entries[].value | select(.state=="OPEN") | select(($ws | length) == 0 or ((.title | ascii_downcase | split(" ")) as $tw | any($ws[]; . as $w | ($tw | index($w)) != null))) | {number,title,url,state,stateReason,labels:(.labels|map({name:.}))}] | sort_by(-.number) | .[:$l]' "$T" ;;
     "issue create")
       body=$(cat)
       title=""
-      while [ $# -gt 0 ]; do [ "$1" = "--title" ] && title="$2"; shift; done
+      labels=""
+      created=""
+      while [ $# -gt 0 ]; do
+        [ "$1" = "--title" ] && title="$2"
+        [ "$1" = "--label" ] && { labels="$labels $2"; created="$created"$'\\n'"label	$2"; }
+        shift
+      done
       n=$(jq -r '[keys[]|tonumber]|max+1' "$T")
-      put --arg n "$n" --arg t "$title" --arg b "$body" '.[$n]={number:($n|tonumber),title:$t,body:$b,state:"OPEN",stateReason:null,url:("https://github.com/o/r/issues/"+$n),labels:[],subIssues:[]}'
+      put --arg n "$n" --arg t "$title" --arg b "$body" --arg ls "$labels" '.[$n]={number:($n|tonumber),title:$t,body:$b,state:"OPEN",stateReason:null,url:("https://github.com/o/r/issues/"+$n),labels:($ls | split(" ") | map(select(. != ""))),subIssues:[]}'
+      printf 'title\t%s%s\nbody\n%s\n' "$title" "$created" "$body" > "$GH_CREATED"
       printf 'Creating issue in o/r\\n\\nhttps://github.com/o/r/issues/%s\\n' "$n" ;;
     "issue edit")
       n="$3"; add=""; remove=""
@@ -120,13 +138,45 @@ case "\${1:-} \${2:-}" in
   # carry an issue nobody has branched for — otherwise the standup section for
   # exactly that case can never be exercised end to end.
   "issue list")
-    has_search=""
-    for a in "$@"; do [ "$a" = "--search" ] && has_search=1; done
-    if [ -n "$has_search" ]; then
-      printf '[{"number":12,"state":"OPEN","stateReason":null,"labels":[%s]}]\\n' "$(cat "$GH_STATE")"
+    q=""
+    while [ $# -gt 0 ]; do [ "$1" = "--search" ] && q="$2"; shift; done
+    if [ -n "$q" ]; then
+      # The dup-check. Honours the keywords by whole word against the two
+      # titles this repository holds, so a test can drive a match and a miss
+      # from the summary alone — which is what \`create\` derives them from.
+      if [ "\${GH_FAIL_SEARCH:-}" = "1" ]; then echo "gh: search is unavailable" >&2; exit 1; fi
+      hit() {
+        t=" $(printf '%s' "$1" | tr '[:upper:]' '[:lower:]') "
+        for w in $(printf '%s' "$q" | tr '[:upper:]' '[:lower:]'); do
+          case "$t" in *" $w "*) return 0 ;; esac
+        done
+        return 1
+      }
+      rows=""
+      hit "Half a thing" && rows='{"number":12,"title":"Half a thing","url":"https://github.com/o/r/issues/12"}'
+      if hit "nobody has started this"; then
+        [ -n "$rows" ] && rows="$rows,"
+        rows="$rows"'{"number":41,"title":"nobody has started this","url":"https://github.com/o/r/issues/41"}'
+      fi
+      printf '[%s]\\n' "$rows"
     else
       printf '[{"number":41,"title":"nobody has started this","state":"OPEN","stateReason":null,"url":"https://github.com/o/r/issues/41","labels":[]},{"number":12,"title":"Half a thing","state":"OPEN","stateReason":null,"url":"https://github.com/o/r/issues/12","labels":[%s]}]\\n' "$(cat "$GH_STATE")"
     fi
+    ;;
+  # Records what was filed — title, every \`--label\`, and the body it drained
+  # from stdin — so a test can assert on the issue as the tracker received it,
+  # not on the argv alone. Answers as issue 99, which nothing else here holds.
+  "issue create")
+    body=$(cat)
+    title=""
+    labels=""
+    while [ $# -gt 0 ]; do
+      [ "$1" = "--title" ] && title="$2"
+      [ "$1" = "--label" ] && labels="$labels"$'\\n'"label	$2"
+      shift
+    done
+    printf 'title\t%s%s\nbody\n%s\n' "$title" "$labels" "$body" > "$GH_CREATED"
+    printf 'Creating issue in o/r\\n\\nhttps://github.com/o/r/issues/99\\n'
     ;;
   "api graphql")
     # The batched state read. Answers by exact number, like the real one: the
@@ -273,10 +323,12 @@ export async function withStubGh({ labels = '{"name":"status: in progress"}', pr
     comment: join(s.root, 'gh.comment'),
     prs: join(s.root, 'gh.prs'),
     issues: join(s.root, 'gh.issues'),
+    created: join(s.root, 'gh.created'),
   };
   // Table mode: the whole repository as a number -> issue map (see GH_STUB).
   if (issues) writeFileSync(paths.issues, JSON.stringify(issues));
   writeFileSync(paths.log, '');
+  writeFileSync(paths.created, '');
   writeFileSync(paths.state, labels);
   writeFileSync(paths.comment, '');
   writeFileSync(paths.prs, JSON.stringify(prs));
@@ -300,6 +352,7 @@ export async function withStubGh({ labels = '{"name":"status: in progress"}', pr
             GH_COMMENT: paths.comment,
             GH_PRS: paths.prs,
             ...(issues ? { GH_ISSUES: paths.issues } : {}),
+            GH_CREATED: paths.created,
             ...extraEnv,
           },
         },
