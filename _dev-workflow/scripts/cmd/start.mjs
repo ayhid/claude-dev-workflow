@@ -17,7 +17,7 @@ import {
   renderBranch,
   worktreePathFor,
 } from '../../lib/branch.mjs';
-import { resolveBranchType } from '../../lib/config.mjs';
+import { deliveryFor, resolveBranchType } from '../../lib/config.mjs';
 import { canonicalId } from '../../lib/issueid.mjs';
 import { sh } from '../../lib/sh.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
@@ -67,9 +67,11 @@ export async function run(args) {
  * one vcs, and going through the same code, is what keeps a unit's checkout
  * indistinguishable from a ticket's.
  *
- * `base` overrides the configured fork point when given — `build` passes the
- * remote-tracking base after a fetch so a later wave forks from what has
- * actually landed, not from a local branch nothing moved.
+ * The fork point is the freshest base the checkout can see — `origin/<base>`
+ * after a fetch, the local branch only when there is no remote or the fetch
+ * fails, and the `forked:` line says which (#122). `base` overrides that when
+ * given: `build` resolves it once per repo and passes it for every unit of a
+ * wave, rather than fetching once per unit.
  *
  * @returns {Promise<{lines: string[], code: number, dir: string|null, branch: string, moved: boolean}>}
  */
@@ -126,7 +128,19 @@ export async function startIssue({ config, provider, vcs, configured, id, type: 
     return { lines: L, code: 0, dir: null, branch, moved: false };
   }
 
-  const started = await vcs.startWork({ dir: repo.dir, branch, base, mode, worktreePath });
+  // Fork from what has actually landed, never from where local `base` was
+  // left. `--print` above skips this: nothing is created, so nothing is fetched.
+  let forkFrom = wantedBase;
+  if (forkFrom === null) {
+    const remote = deliveryFor(config, repo.path).remote ?? 'origin';
+    const fresh = await vcs.freshestBase({ dir: repo.dir, remote, base });
+    forkFrom = fresh.ref;
+    L.push(`forked:   ${fresh.ref}${fresh.why ? ` — ${fresh.why}` : ''}`);
+  } else {
+    L.push(`forked:   ${forkFrom}`);
+  }
+
+  const started = await vcs.startWork({ dir: repo.dir, branch, base: forkFrom, mode, worktreePath });
   if (!started.ok) throw new UserError(started.error);
   L.push(`created:  ${started.created ? 'new branch' : 'existing branch, reused'}`);
 
