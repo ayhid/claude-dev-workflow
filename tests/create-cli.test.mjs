@@ -124,6 +124,43 @@ test('an unknown flag is refused rather than read as a summary', async () => {
   assert.match(r.stderr, /unknown flag --bogus/);
 });
 
+test('a summary that begins with a dash is filed when it comes after --', async () => {
+  // A bug titled after the flag that is broken is exactly what this tracker
+  // files; `--` is the one deterministic way to say "positional from here".
+  const s = await withStubGh();
+  const r = await s.dev(['create', '--', '--force flag does nothing on abandon', 'body']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(r.stdout, '#99\n');
+  assert.match(s.read('created'), /^title\t--force flag does nothing on abandon\n/);
+});
+
+test('a dash-led summary without -- is refused, and the refusal names --', async () => {
+  const s = await withStubGh();
+  const r = await s.dev(['create', '--force flag does nothing on abandon', 'body']);
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /unknown flag --force flag does nothing on abandon/);
+  assert.match(r.stderr, /after `--`/, 'the way out is in the message, not in a manual');
+  assert.equal(s.read('log'), '', 'nothing scanned or filed');
+});
+
+test('flags before -- still apply; everything after it is positional', async () => {
+  const s = await withStubGh();
+  const r = await s.dev(['create', '--allow-duplicate', '--', 'Half a thing is still broken', 'body']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(r.stdout, '#99\n');
+  assert.match(r.stderr, /duplicate check overridden/);
+});
+
+test('a whitespace-only summary is a usage error, with nothing scanned or filed', async () => {
+  // '   ' is truthy; without a trim it would reach the scan as an empty
+  // query, which a search backend reads as "no filter".
+  const s = await withStubGh();
+  const r = await s.dev(['create', '   ', 'body']);
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /usage: dev\.mjs create/);
+  assert.equal(s.read('log'), '');
+});
+
 test('a missing description is a usage error, with nothing scanned or filed', async () => {
   const s = await withStubGh();
   const r = await s.dev(['create', 'only a summary']);

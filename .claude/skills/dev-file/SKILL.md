@@ -185,10 +185,11 @@ node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" create "<summary>" @<
 ```
 
 `<Type>` is the one settled in §0, spelled as `issueTypes` spells it — it decides the branch type
-later, so `Bug` and `Feature` are not interchangeable here. Exit `2` is the duplicate refusal of §4:
-go back there. Otherwise stdout is the new ID and nothing else; the confirmation and any warning
-about a field that did not land are on stderr. If a warning says a field needs setting by hand, say
-so.
+later, so `Bug` and `Feature` are not interchangeable here. A summary that begins with `-` reads as
+a flag: put `--` before it (`create --allow-duplicate -- "<summary>" …`). Exit `2` is the duplicate
+refusal of §4: go back there. Otherwise stdout is the new ID and nothing else; the confirmation and
+any warning about a field that did not land are on stderr. If a warning says a field needs setting by
+hand, say so.
 
 ## 7. Stop
 

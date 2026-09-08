@@ -37,6 +37,7 @@ const USAGE = `usage: dev.mjs <command> [args]
   update <ISSUE-ID> raw "<command>" [COMMENT|@FILE]   backend-native, where supported
   create <SUMMARY> <DESCRIPTION|@FILE> [TYPE] [PRIORITY] [--allow-duplicate]
                                         scans open issues first; a match exits 2 and files nothing
+                                        (a summary that starts with a dash goes after --)
   create --dup-check <KEYWORDS>         search open issues, report only
   start  <ISSUE-ID> [--type T] [--mode worktree|branch] [--repo PATH] [--print]
   resume [ISSUE-ID] [--repo PATH] [--print]

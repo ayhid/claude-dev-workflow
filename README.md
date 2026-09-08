@@ -406,7 +406,7 @@ Each command below is prefixed with `node _dev-workflow/scripts/dev.mjs`.
 | `update ABC-22 state done @/tmp/c.md` | moves it, with a comment (literal or `@file`) | HTTP only |
 | `update ABC-22 comment "note"` | comment only | HTTP only |
 | `update ABC-22 raw "Type Bug Priority Major"` | a backend-native command, YouTrack only | HTTP only |
-| `create --dup-check "slug 500 router"` | open issues matching keywords; reports only, always exits 0 | HTTP only |
+| `create --dup-check "slug 500 router"` | open issues matching keywords; reports only, never files (exits 1 only when the search itself cannot run) | HTTP only |
 | `create "Summary" @/tmp/body.md Bug Major` | scans open issues for a duplicate first, then files the issue and prints the new ID on stdout | HTTP only |
 | `create "Summary" @/tmp/body.md --allow-duplicate` | files even though the scan matched, and says what it matched | HTTP only |
 | `start ABC-22 [--type T] [--mode worktree\|branch] [--repo PATH]` | branch or worktree, ticket to in progress | HTTP + git |

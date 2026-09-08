@@ -3,6 +3,11 @@
  *
  *   dev.mjs create "<summary>" "<description>|@FILE" [TYPE] [PRIORITY] [--allow-duplicate]
  *   dev.mjs create --dup-check "<keywords>"
+ *   dev.mjs create [--allow-duplicate] -- "<summary>" ...
+ *
+ * `--` ends the flags. A summary is free text, and one that begins with a
+ * dash — a bug titled after the flag that is broken — is exactly what this
+ * tracker files; without the separator it would read as an unknown flag.
  *
  * stdout carries the new issue ID and nothing else, so a caller can capture it
  * directly; every confirmation and warning goes to stderr. Type and Priority
@@ -150,17 +155,22 @@ export function parseArgs(args) {
   const rest = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if (a === '--allow-duplicate') opts.allowDuplicate = true;
+    if (a === '--') {
+      rest.push(...args.slice(i + 1));
+      break;
+    } else if (a === '--allow-duplicate') opts.allowDuplicate = true;
     else if (a === '--dup-check') opts.dupCheck = takeValue(args, ++i, a);
-    else if (a.startsWith('-')) throw new UserError(`unknown flag ${a}`);
-    else rest.push(a);
+    else if (a.startsWith('-')) {
+      throw new UserError(`unknown flag ${a} — a summary or description that starts with a dash goes after \`--\``);
+    } else rest.push(a);
   }
   return { opts, rest };
 }
 
 const USAGE =
   'usage: dev.mjs create "<summary>" "<description>|@FILE" [TYPE] [PRIORITY] [--allow-duplicate]\n' +
-  '       dev.mjs create --dup-check "<keywords>"';
+  '       dev.mjs create --dup-check "<keywords>"\n' +
+  '       (a summary that starts with a dash goes after --)';
 
 export async function run(args) {
   const { opts, rest } = parseArgs(args);
@@ -178,7 +188,9 @@ export async function run(args) {
   // Only an explicit one is worth warning about when the backend has no types:
   // warning about our own default would fire on every create.
   const typeWasGiven = rest[2] !== undefined;
-  if (!summary || rawDescription === undefined) throw new UserError(USAGE);
+  // Trimmed: '   ' is truthy, and would reach the scan as an empty query,
+  // which a search backend reads as "no filter" and matches everything.
+  if (!summary?.trim() || rawDescription === undefined) throw new UserError(USAGE);
 
   const description = readArg(rawDescription, 'description file');
   const { provider } = await context();

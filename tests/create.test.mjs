@@ -16,6 +16,7 @@ import {
   DUP_STOPWORDS,
   dupKeywords,
   findDuplicates,
+  parseArgs,
   renderCandidates,
   unsupportedFieldWarnings,
 } from '../scripts/cmd/create.mjs';
@@ -183,4 +184,17 @@ test('findDuplicates hands the keywords to the provider as one query string', as
   assert.ok(r.ok);
   assert.deepEqual(seen, ['half thing']);
   assert.deepEqual(r.data, [{ id: '#12', title: 'Half a thing' }]);
+});
+
+// --- `--` ends the flags ---------------------------------------------------------
+
+test('parseArgs treats everything after -- as positional, flags before it still apply', () => {
+  const { opts, rest } = parseArgs(['--allow-duplicate', '--', '--dup-check', '-x']);
+  assert.equal(opts.allowDuplicate, true);
+  assert.equal(opts.dupCheck, undefined, 'a --dup-check after -- is text, not a flag');
+  assert.deepEqual(rest, ['--dup-check', '-x']);
+});
+
+test('parseArgs refuses an unknown flag and says how to pass dash-led text', () => {
+  assert.throws(() => parseArgs(['--bogus']), /unknown flag --bogus.*after `--`/);
 });
