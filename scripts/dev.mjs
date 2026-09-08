@@ -7,7 +7,7 @@
  *   dev.mjs update ABC-22 state start              move a rung, read the state back
  *   dev.mjs update ABC-22 comment "note"          comment only
  *   dev.mjs create --dup-check "slug 500 router"  open issues matching keywords
- *   dev.mjs create "Summary" @/tmp/body.md Bug Major
+ *   dev.mjs create "Summary" @/tmp/body.md Bug Major   scans for a duplicate, then files
  *   dev.mjs start  ABC-22                         branch or worktree + move to start
  *   dev.mjs resume [ABC-22]                       put the working copy back, say what is on it
  *   dev.mjs abandon ABC-22 "why"                  drop the work, walk the ticket back
@@ -35,8 +35,9 @@ const USAGE = `usage: dev.mjs <command> [args]
   update <ISSUE-ID> state <start|review|done|abandon|"<ladder state>"> [COMMENT|@FILE] [--criteria C]
   update <ISSUE-ID> comment <TEXT|@FILE>
   update <ISSUE-ID> raw "<command>" [COMMENT|@FILE]   backend-native, where supported
-  create <SUMMARY> <DESCRIPTION> [TYPE] [PRIORITY]
-  create --dup-check <KEYWORDS>         search open issues
+  create <SUMMARY> <DESCRIPTION|@FILE> [TYPE] [PRIORITY] [--allow-duplicate]
+                                        scans open issues first; a match exits 2 and files nothing
+  create --dup-check <KEYWORDS>         search open issues, report only
   start  <ISSUE-ID> [--type T] [--mode worktree|branch] [--repo PATH] [--print]
   resume [ISSUE-ID] [--repo PATH] [--print]
   abandon <ISSUE-ID> <REASON|@FILE> [--force] [--repo PATH]
