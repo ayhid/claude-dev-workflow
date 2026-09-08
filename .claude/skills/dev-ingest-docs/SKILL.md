@@ -82,6 +82,45 @@ count, and a bare `dev.mjs ingest` right after it has the read/pending split (`s
 K pending)`), so this costs nothing extra: `Found N documents, all pending` on a first scan, or
 `Found N documents; M already read, K pending` on a rescan.
 
+## 1b. Triage by rule
+
+Before anything is read, decide what each document *is*. On a real brownfield corpus most of
+`docs/` is not a description of the system: dated sprint proposals, gap analyses, validation
+reports, stories, epics, PRDs and briefs are records of a moment, and read as sources they yield
+confidently anchored claims from year-old snapshots — the failure the anchoring rule exists to
+prevent.
+
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" reorg triage
+```
+
+It groups every pending or read document under the rule that claims it — a README stays
+`reference`, a date in the name or a `stories/` directory proposes `historical`, and so on — and
+prints one line per rule with its count and a few of its paths. Nothing is recorded. **The unit of
+approval is the rule, not the file**: put the rules to the user as they were printed, a dozen lines
+at most, and ask which proposals hold. Where one path under a rule is the exception, name it — a
+path answer beats its rule. Then record the answers:
+
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" reorg triage --print > <scratch>/answers.json   # every rule pre-filled with its proposal
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" reorg triage @<scratch>/answers.json
+```
+
+```json
+{ "rules": { "dated-name": "historical", "stories-dir": "historical", "readme": "reference" },
+  "paths": { "docs/stories/index.md": "reference" } }
+```
+
+A rule confirmed `historical` records an ordinary `archive` verdict for each of its documents,
+justified by the rule (`triage rule dated-name: …`), and `ingest next` never offers those again —
+it says how many it set aside, and a bare `dev.mjs ingest` shows the count, so nothing disappears
+silently. A rule left out of the file is **counted, not applied** — silence is not confirmation —
+and the command names it. An unknown rule id or lifecycle refuses the whole file.
+
+A rescan (§1) drops the verdict of any document whose content changed, so an edited historical
+document is offered for reading again until triage is re-run for it: after a rescan that reports
+`changed:`, run `reorg triage` and confirm again before dispatching readers.
+
 ## 2. Read the documents — in parallel
 
 ```bash
@@ -238,7 +277,9 @@ node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" reorg classify @<scra
 A verdict is asserted, not arbitrated — the same standing a claim has, not a question's. It is not
 put to the user for approval one at a time; it is recorded, and `dev.mjs reorg` reports the counts.
 Re-classifying a document (a rescan changed it, or the reasoning improves) simply replaces its
-verdict — nothing to undo first.
+verdict — nothing to undo first. A verdict triage recorded (§1b) is an ordinary verdict and may be
+overridden here the same way: a dated document that turns out to be the only account of something
+still current is `keep`, and saying so replaces the rule's `archive`.
 
 ## 4. Find what says the same thing — and what disagrees
 
@@ -422,7 +463,27 @@ saying what was written from what, what was not mapped, and what is listed as ar
 edited by hand is refused on the next run rather than overwritten, and says so; `--force` is the
 user's call.
 
-**d. Then it is ordinary work.** The staged tree is a draft for review, not the project's docs.
+**d. Seed proposed ADRs from the intent claims.**
+
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" reorg adrs --dry-run
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" reorg adrs
+```
+
+Every `intent` claim in the ledger is a *why* nothing in the tree can settle — exactly what a
+decision record holds. This writes one `proposed` ADR per live intent claim under
+`_dev-workflow/artifacts/reorg/decisions/`: the claim's first sentence as the title, its text quoted
+with its provenance as the context, the options left for you to fill in. Numbered after the highest
+record in the project's real decisions directory (`docs.decisionsDir`), so accepting one never
+collides; dated from when the claim was recorded, so a re-run changes nothing. Stale claims are
+listed, not proposed — re-read their sources first (§2d) — and a proposal whose claim has gone stale
+since is removed on the next run and named.
+
+They are proposals, in `artifacts/`, and the ADR immutability hook does not guard them — by design:
+a proposed record is the one kind that is meant to be edited. Accepting one is `/dev-adr`'s job, in
+the real directory, with the options the user actually weighed — never by copying the file over.
+
+**e. Then it is ordinary work.** The staged tree is a draft for review, not the project's docs.
 Applying it — copying a file into `docs/`, deleting a superseded one, archiving another — is a
 change to the project like any other: `/dev-task` it, so it goes through a ticket, a branch and a
 review. Do not start moving their files because the draft made it obvious what to do.
@@ -433,10 +494,10 @@ review. Do not start moving their files because the draft made it obvious what t
 node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" ingest        # where it stands
 ```
 
-Stop whenever. The ledger holds the sources, the claims, the questions and answers, the
-classification verdicts, the pairs with their resolutions, and the mapping, and it is committed with
-the rest of `_dev-workflow/`, so a colleague picking it up gets every decision too — not just the
-map. `dev.mjs reorg` says where classification, detection, the gate and the mapping stand.
+Stop whenever. The ledger holds the sources, the claims, the questions and answers, the triage and
+classification verdicts, the pairs with their resolutions, and the mapping, and it is committed
+with the rest of `_dev-workflow/`, so a colleague picking it up gets every decision too — not just
+the map. `dev.mjs reorg` says where classification, detection, the gate and the mapping stand.
 
 Two things worth saying out loud when you report progress: how many documents are left, and how many
 claims turned out to contradict the code. The second number is the finding.

@@ -357,11 +357,16 @@ duplicate it.
 `{lib,scripts,hooks}` from the distribution on every install and hashes them, so a version that
 stops shipping one gets it removed on update; `_config/manifest.json` is not among them — it is
 installer-managed metadata `installPayload` writes itself, recording the hashes of everything else.
-`artifacts/` is per-project generated data — `/dev-ingest-docs`'s ledger
-and map today, a future `docs draft`'s proposed set tomorrow — and the installer must never plan,
-hash, touch or delete it. `isOwnedPath` cannot enforce that half on its own: it answers "is this
-ours to have created", which is `true` for both, since a project's own generated documentation is
-exactly the kind of content this tool is meant to produce. `isGeneratedPath` is the second
+`artifacts/` is per-project generated data — `/dev-ingest-docs`'s ledger and map under
+`documentation/`, and under `reorg/` the staged draft plus `reorg/decisions/`, the second generated
+set: every `intent` claim rendered by `reorg adrs` as a `proposed` ADR, numbered after the project's
+real `docs.decisionsDir` so accepting one never collides. Those proposals are deliberately
+**unguarded** by `check-adr-immutable.sh`, which watches `decisionsDir` alone: a proposal is the one
+kind of record that is meant to be edited, and `/dev-adr` is how one becomes a real record. The
+installer must never plan, hash, touch or delete any of it. `isOwnedPath` cannot enforce that half
+on its own: it answers "is this ours to have created", which is `true` for both, since a project's
+own generated documentation is exactly the kind of content this tool is meant to produce.
+`isGeneratedPath` is the second
 predicate the delete pass checks before removing anything, unconditionally — independent of
 `planned`, independent of what a manifest happens to say. Never rely on `planFiles` simply not
 mentioning `artifacts/` to keep it safe; that omission is not the guarantee.
