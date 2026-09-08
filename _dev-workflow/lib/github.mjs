@@ -31,6 +31,7 @@
  */
 import { sh } from './sh.mjs';
 import { idSyntaxFor } from './issueid.mjs';
+import { TEMPLATE_DIR } from './issuetemplate.mjs';
 import { ladderOf, rankOf, resolveRung } from './config.mjs';
 import { UNKNOWN } from './sync.mjs';
 
@@ -357,6 +358,9 @@ export function createGitHubProvider({ config, run = sh, onWarn }) {
       // Issue search is fuzzy and eventually consistent, unlike a tracker query.
       freeTextSearch: true,
       rawCommand: false,
+      // `.github/ISSUE_TEMPLATE/` is readable through the contents API, so a
+      // template the checkout does not carry can still be honoured.
+      issueTemplates: true,
     },
 
     async whoami() {
@@ -627,7 +631,13 @@ export function createGitHubProvider({ config, run = sh, onWarn }) {
       return { ok: true };
     },
 
-    async create({ summary, description, type }) {
+    /**
+     * File an issue. `labels` are the template's own (`labels:` in its
+     * frontmatter), applied after the type label, one `--label` each — the
+     * caller learned them from lib/issuetemplate.mjs and this adapter does not
+     * care where they came from.
+     */
+    async create({ summary, description, type, labels: extra = [] }) {
       const gate = await ensureGh();
       if (!gate.ok) return gate;
 
@@ -635,6 +645,22 @@ export function createGitHubProvider({ config, run = sh, onWarn }) {
       const args = ['issue', 'create', '-R', repo, '--title', summary, '--body-file', '-'];
       if (type && gh.labels?.type?.[type]) args.push('--label', gh.labels.type[type]);
       else if (type) warnings.push(`no GitHub label mapped for type "${type}" — created without it`);
+
+      // A template's `labels:` may name a label this repository no longer has,
+      // and `gh issue create` fails the whole create on it. The issue existing
+      // matters more than its labels — the rule the type label already
+      // follows — so unknown ones are dropped with a warning. If the label
+      // list itself cannot be read, the labels go through as given: a guess
+      // either way, and this one is at least visible in gh's own error.
+      const wanted = extra.filter(Boolean);
+      if (wanted.length) {
+        const known = await json(['label', 'list', '-R', repo, '--limit', '200', '--json', 'name']);
+        const names = known.ok ? new Set((known.data ?? []).map((l) => l.name)) : null;
+        for (const l of wanted) {
+          if (names && !names.has(l)) warnings.push(`${repo} has no label "${l}" (from the issue template) — created without it`);
+          else args.push('--label', l);
+        }
+      }
 
       const r = await call(args, { input: description ?? '' });
       if (!r.ok) return { ok: false, error: `could not create the issue: ${r.stderr}` };
@@ -667,6 +693,56 @@ export function createGitHubProvider({ config, run = sh, onWarn }) {
      * `build` parses the body for the dependency line, so a per-child `issue
      * view` would be one spawn per unit on every board.
      */
+    /**
+     * The repository's issue templates, raw: `{filename, text}` per file under
+     * `.github/ISSUE_TEMPLATE/`, sorted by name. Parsing — and deciding that
+     * `config.yml` is not a template — belongs to lib/issuetemplate.mjs, so the
+     * two backends cannot disagree about what a template is.
+     *
+     * A repository without the directory is a 404 on the listing and answers
+     * an empty list; any other failure is reported, since an unreachable
+     * tracker is not a repository without templates.
+     */
+    async templates() {
+      const gate = await ensureGh();
+      if (!gate.ok) return gate;
+
+      const base = `repos/${repo}/contents/${TEMPLATE_DIR}`;
+      const listing = await call(['api', base]);
+      if (!listing.ok) {
+        if (/HTTP 404/.test(listing.stderr)) return { ok: true, data: [] };
+        return { ok: false, error: listing.stderr || `gh exited ${listing.code}` };
+      }
+      let entries;
+      try {
+        entries = JSON.parse(listing.stdout || '[]');
+      } catch (err) {
+        return { ok: false, error: `could not parse the template listing: ${err.message}` };
+      }
+      const names = (Array.isArray(entries) ? entries : [])
+        .filter((e) => e?.type === 'file' && /\.(md|ya?ml)$/i.test(e.name ?? ''))
+        .map((e) => e.name)
+        .sort();
+
+      const data = [];
+      for (const name of names) {
+        const r = await call(['api', `${base}/${name}`]);
+        if (!r.ok) return { ok: false, error: `could not read ${TEMPLATE_DIR}/${name}: ${r.stderr || `gh exited ${r.code}`}` };
+        let file;
+        try {
+          file = JSON.parse(r.stdout || 'null');
+        } catch (err) {
+          return { ok: false, error: `could not parse ${TEMPLATE_DIR}/${name}: ${err.message}` };
+        }
+        const text =
+          file?.encoding === 'base64'
+            ? Buffer.from(String(file.content ?? '').replace(/\n/g, ''), 'base64').toString('utf8')
+            : String(file?.content ?? '');
+        data.push({ filename: name, text });
+      }
+      return { ok: true, data };
+    },
+
     async children(id) {
       const n = numberOf(id);
       if (!n) return { ok: false, error: `"${id}" is not a GitHub issue reference` };

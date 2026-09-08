@@ -124,33 +124,24 @@ translate only the prose around them, headings included.
 
 Summary line: `<component>: <what>` — specific enough to be searchable.
 
-The headings depend on what is being filed. For work to build or change:
+**The sections come from the project, not from this file.** Ask the tool what the issue must
+contain, on this project, for this type:
 
-```markdown
-## Problem
-## Proposed change
-## In scope
-## Out of scope
-## Acceptance criteria
-- [ ] AC1: …
-## Assumptions
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" create --templates
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" create --template <name|Type>
 ```
 
-For a defect:
+`--templates` lists the repository's own issue templates (from the checkout, or the tracker when
+the checkout has none). If it lists one, print it with `--template <filename>` and draft into
+**every** heading it has — `create` refuses a body missing any of them, and there is no flag around
+that. If it lists several, the user picks which one applies; remember the filename for §6. If it
+lists none, `--template <Type>` prints the shipped default for the type settled in §0 — draft into
+those headings, and know that only `## Acceptance criteria` is enforced, present and non-empty;
+the rest warn.
 
-```markdown
-## Symptom
-## Steps to reproduce
-## Expected vs actual
-## Environment
-## Suspected area
-## Acceptance criteria
-- [ ] AC1: …
-## Assumptions
-```
-
-(The section list per type is carried here until `create --template <TYPE>` ships with #36; a
-repo's own issue template then decides it, with no change to this skill.)
+Add a `## Assumptions` section when §2 left anything open (below). An extra section never fails the
+check.
 
 **The bar for a criterion.** Each one must be falsifiable, name the evidence that would show it met,
 and be checkable at `/dev-done` without a judgement call — everything downstream is verified against
@@ -185,11 +176,17 @@ node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" create "<summary>" @<
 ```
 
 `<Type>` is the one settled in §0, spelled as `issueTypes` spells it — it decides the branch type
-later, so `Bug` and `Feature` are not interchangeable here. A summary that begins with `-` reads as
-a flag: put `--` before it (`create --allow-duplicate -- "<summary>" …`). Exit `2` is the duplicate
-refusal of §4: go back there. Otherwise stdout is the new ID and nothing else; the confirmation and
-any warning about a field that did not land are on stderr. If a warning says a field needs setting by
-hand, say so.
+later, so `Bug` and `Feature` are not interchangeable here. When §5 found several repository
+templates, add `--template <filename>` naming the one the user chose; `create` refuses to guess. A
+summary that begins with `-` reads as a flag: put `--` before it
+(`create --allow-duplicate --template <filename> -- "<summary>" …`).
+
+stderr says which template was applied — `template: <name> (repo checkout | repo via API | shipped
+default for <Type>)` — and, on a repo template, adds its `labels:` and `title:` prefix to the
+issue for you. A refusal naming missing sections means the draft in §5 did not follow the
+template: fix the body, do not trim the template. Exit `2` is the duplicate refusal of §4: go back
+there. Otherwise stdout is the new ID and nothing else; the confirmation and any warning about a
+field that did not land are on stderr. If a warning says a field needs setting by hand, say so.
 
 ## 7. Stop
 

@@ -26,7 +26,10 @@ your PATH first.
 The read paths (`dev.mjs fetch`, `create --dup-check`, `dev.mjs config`, a `dev.mjs sync` dry run)
 can be exercised freely against any instance. `create` itself runs that same scan before it files
 and refuses on a match with exit `2`, so a throwaway issue whose title echoes an open one needs
-`--allow-duplicate` — the refusal is the feature, not a broken write path. The **write paths cannot be verified without writing
+`--allow-duplicate` — the refusal is the feature, not a broken write path. It also refuses a body
+that does not satisfy the repository's issue template (this repo ships none, so the shipped default
+for the type applies and `## Acceptance criteria` must be present and non-empty); read the shape
+first with `create --template <TYPE>`. The **write paths cannot be verified without writing
 once**, and a dry run that looks perfect proves nothing about them — `dev.mjs sync --apply` once
 shipped with a command the API rejects, and every dry run had reported the correct plan.
 

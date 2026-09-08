@@ -53,6 +53,7 @@ export function runContractSuite(label, h) {
       'repairRepresentation',
       'createChild',
       'children',
+      'templates',
     ]) {
       assert.equal(typeof p[m], 'function', `${m} must be implemented`);
     }
@@ -60,7 +61,7 @@ export function runContractSuite(label, h) {
     assert.ok(p.syntax?.regex instanceof RegExp, 'syntax.regex must be a RegExp');
     assert.equal(typeof p.syntax.ere, 'string', 'syntax.ere is what the bash hook needs');
     assert.equal(typeof p.syntax.sample, 'string');
-    for (const c of ['types', 'priorities', 'assignee', 'freeTextSearch', 'rawCommand']) {
+    for (const c of ['types', 'priorities', 'assignee', 'freeTextSearch', 'rawCommand', 'issueTemplates']) {
       assert.equal(typeof p.capabilities[c], 'boolean', `capabilities.${c} must be declared`);
     }
   });
@@ -90,6 +91,24 @@ export function runContractSuite(label, h) {
       assert.equal(typeof c.body, 'string');
       if (c.at !== null) assert.match(c.at, /^\d{4}-\d{2}-\d{2}T/);
     }
+  });
+
+  // --- issue templates ---------------------------------------------------------
+  //
+  // A backend that has no notion of a repository template says so with the
+  // capability and answers an empty list — never an error — so no caller
+  // needs a branch on the provider name to know whether to ask.
+
+  t('templates() answers ok with an array, empty when the capability is false', async () => {
+    const p = await h.make();
+    const r = await p.templates();
+    assert.ok(r.ok, r.error);
+    assert.ok(Array.isArray(r.data), 'templates() returns an array');
+    for (const f of r.data) {
+      assert.equal(typeof f.filename, 'string');
+      assert.equal(typeof f.text, 'string', 'raw text — parsing stays in lib/issuetemplate.mjs');
+    }
+    if (!p.capabilities.issueTemplates) assert.equal(r.data.length, 0, 'no capability, no templates');
   });
 
   // --- rule 4: stable output --------------------------------------------------

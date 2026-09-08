@@ -9,24 +9,26 @@
  * it receives per dispatch. Deliberately narrow, refusing what it cannot read,
  * for the reason lib/architecture.mjs gives.
  */
+import { parseFrontmatter } from '../../lib/issuetemplate.mjs';
+
 export { AGENT_PREFIX } from './payload.mjs';
 
-const FRONTMATTER = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/;
-
 /**
+ * The frontmatter reader lives in lib/issuetemplate.mjs — the payload needs
+ * one for issue templates, and two readers of one format is the drift this
+ * repo refuses. This stays stricter than that reader on purpose: a line it
+ * cannot read is a refusal here, since a shipped agent is checked, not merely
+ * consumed.
+ *
  * @returns {{ok: true, agent: {name: string, description: string, model: string, tools: string[], body: string}} | {ok: false, error: string}}
  */
 export function parseAgent(text) {
-  const m = String(text ?? '').match(FRONTMATTER);
-  if (!m) return { ok: false, error: 'no frontmatter block' };
-  const fields = {};
-  for (const line of m[1].split('\n')) {
+  const { fields, body, raw } = parseFrontmatter(text);
+  if (raw === null) return { ok: false, error: 'no frontmatter block' };
+  for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
-    const kv = line.match(/^([A-Za-z_-]+):\s*(.*)$/);
-    if (!kv) return { ok: false, error: `unreadable frontmatter line: ${line}` };
-    fields[kv[1]] = kv[2].trim();
+    if (!/^([A-Za-z_-]+):\s*(.*)$/.test(line)) return { ok: false, error: `unreadable frontmatter line: ${line}` };
   }
-  const body = m[2].replace(/^\n+/, '');
   if (!body.trim()) return { ok: false, error: 'an agent needs a body — its system prompt' };
   const tools = (fields.tools ?? '').split(',').map((t) => t.trim()).filter(Boolean);
   return {

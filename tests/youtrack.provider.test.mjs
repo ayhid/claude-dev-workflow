@@ -167,6 +167,20 @@ runContractSuite('youtrack', {
 
 // --- YouTrack-specific behaviour the contract cannot express -------------------
 
+test('templates: the capability is false and the answer is empty with no request made', async () => {
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls += 1;
+    return new Response('{}', { status: 200 });
+  };
+  const r = createYouTrackProvider({ config: CONFIG, fetch: fetchImpl, env: { YOUTRACK_TOKEN: 'test-token' } });
+  assert.ok(r.ok);
+  assert.equal(r.provider.capabilities.issueTemplates, false);
+  const t = await r.provider.templates();
+  assert.deepEqual(t, { ok: true, data: [] });
+  assert.equal(calls, 0, 'no repo-template lookup on a backend that has none');
+});
+
 test('setState refuses an off-ladder state before sending it', async () => {
   const { provider } = build();
   // 'Staging' is not on this project's ladder. Rule 2: catch it here, where the

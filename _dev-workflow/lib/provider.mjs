@@ -129,6 +129,9 @@ export const PROVIDERS = ['youtrack', 'github'];
  * @property {boolean} assignee
  * @property {boolean} freeTextSearch  is dup-check exact, or best-effort?
  * @property {boolean} rawCommand      does a backend-native command DSL exist?
+ * @property {boolean} issueTemplates  can the *repository's* issue templates be read?
+ *   Covers repo template discovery only (`templates()`); the shipped defaults
+ *   in lib/issuetemplate.mjs are backend-agnostic and apply everywhere.
  */
 
 /**
