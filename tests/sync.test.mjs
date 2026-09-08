@@ -7,6 +7,7 @@ import {
   cutoffFrom,
   decide,
   extractIssueIds,
+  landedCommits,
   LOG_SEP,
   parseSince,
   renderComment,
@@ -122,6 +123,24 @@ test('strongestEvidence keeps issues apart and skips idless rows', () => {
 });
 
 // --- commits that belong to no PR --------------------------------------------
+
+test('landedCommits reads sha, subject and the issues each subject names', () => {
+  // The one parse of the base-branch log, shared by `sync` and `standup` (#44)
+  // so the two cannot disagree about which commits landed.
+  const log = [
+    logLine('aaa111', 'fix(router): 500 on nested slug (ABC-12)'),
+    logLine('bbb222', 'chore(no-ticket): tidy'),
+    'no separator on this line',
+    `${logLine('ccc333', 'feat: two at once (ABC-1, ABC-2)')}\n`,
+  ].join('\n');
+
+  assert.deepEqual(landedCommits(log, { syntax: 'ABC' }), [
+    { sha: 'aaa111', subject: 'fix(router): 500 on nested slug (ABC-12)', ids: ['ABC-12'] },
+    { sha: 'bbb222', subject: 'chore(no-ticket): tidy', ids: [] },
+    { sha: 'ccc333', subject: 'feat: two at once (ABC-1, ABC-2)', ids: ['ABC-1', 'ABC-2'] },
+  ]);
+  assert.deepEqual(landedCommits('', { syntax: 'ABC' }), []);
+});
 
 test('commitObservations reads an issue ID out of a landed commit subject', () => {
   const log = [

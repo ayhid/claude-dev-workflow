@@ -19,13 +19,14 @@ import {
   describeStandup,
   humanAge,
   inFlight,
+  landedSince,
   mergedSince,
   OPEN_SHOWN,
   pickNext,
   WAITING,
 } from '../lib/standup.mjs';
 import { PR_UNKNOWN } from '../lib/status.mjs';
-import { git, withStubGh } from './ghstub.mjs';
+import { CONFIG, git, withStubGh } from './ghstub.mjs';
 
 const config = deepMerge(DEFAULTS, {
   provider: 'github',
@@ -75,6 +76,31 @@ test('merged since takes only merged PRs inside the window, newest first', () =>
   assert.deepEqual(mergedSince([], { cutoff }), []);
 });
 
+// --- what landed without a PR (#44) ----------------------------------------------
+
+// `landedCommits` output: newest first, as `git log` prints it.
+const landed = [
+  { sha: 'ccc3333333', subject: 'fix(x): follow-up (#12)', ids: ['#12'] },
+  { sha: 'bbb2222222', subject: 'chore(no-ticket): tidy', ids: [] },
+  { sha: 'aaa1111111', subject: 'feat(x): the thing (#12)', ids: ['#12'] },
+  { sha: 'ddd4444444', subject: 'feat(y): other (#9)', ids: ['#9'] },
+];
+
+test('landed since is one entry per ticket, newest first, in the merged section shape', () => {
+  assert.deepEqual(landedSince(landed), [
+    { label: 'ccc3333', title: 'fix(x): follow-up (#12)', issueId: '#12', mergedAt: null, more: 1 },
+    { label: 'ddd4444', title: 'feat(y): other (#9)', issueId: '#9', mergedAt: null, more: 0 },
+  ]);
+});
+
+test('a landed commit naming no ticket is dropped, not listed as "no ticket"', () => {
+  // A merged PR with no ticket is a thing to notice. A commit with none is
+  // every merge, every release bump and every chore on the base branch, and
+  // listing them would bury the section.
+  assert.deepEqual(landedSince([landed[1]]), []);
+  assert.deepEqual(landedSince([]), []);
+});
+
 // --- what counts as in flight ---------------------------------------------------
 
 test('the base branch is not work in flight, but a branch with no ticket is', () => {
@@ -87,6 +113,17 @@ test('the base branch is not work in flight, but a branch with no ticket is', ()
     'feat/12-thing',
     'someones-experiment',
   ]);
+});
+
+test('a checkout on the branch a repo delivers onto is not in flight either', () => {
+  // Forked from `main`, landed on `develop`: neither branch is work, and the
+  // one the row itself names is the delivery base (#44).
+  const rows = [
+    { branch: 'main', base: 'develop' },
+    { branch: 'develop', base: 'develop' },
+    { branch: 'feat/1-x', base: 'develop' },
+  ];
+  assert.deepEqual(inFlight(rows, { base: 'main' }).map((r) => r.branch), ['feat/1-x']);
 });
 
 // --- what each row needs ---------------------------------------------------------
@@ -310,6 +347,82 @@ test('an unreadable PR state is reported once, not as "no PR"', () => {
   assert.match(out, /PR state unavailable/);
 });
 
+// --- phrased per delivery mode (#44) ----------------------------------------------
+
+test('a project delivering by pull request prints exactly what it printed before', () => {
+  // The oracle is the output of the renderer as it was before delivery mode
+  // reached it, captured verbatim. Every pr-mode project sees these bytes
+  // from a SessionStart hook; a changed byte there is a changed greeting in
+  // every one of them.
+  const out = describeStandup(facts({
+    rows: [
+      { issue: { id: '#12', state: 'In Progress' }, branch: 'feat/12-x', dirty: 1, commits: 2, lastCommit: daysAgo(2), pr: null },
+      { issue: { id: '#19', state: 'In Review' }, branch: 'feat/19-old', dirty: 0, commits: 1, lastCommit: daysAgo(21), pr: { number: 30, state: 'OPEN' } },
+      { issue: null, branch: 'spike', dirty: 0, commits: 0, lastCommit: null, pr: PR_UNKNOWN },
+    ],
+    merged: [
+      { number: 27, title: 'feat: the thing', mergedAt: daysAgo(0), issue: { id: '#25', state: 'In Review' } },
+      { number: 26, title: 'chore: no ticket here', mergedAt: daysAgo(0), issue: null },
+    ],
+    open: { rows: [{ id: '#41', title: 'unstarted', state: 'Backlog', url: 'u' }], truncated: false, error: null },
+    prUnknown: true,
+  })).join('\n');
+  assert.equal(out, "standup   2026-08-27   since 2026-08-26 (1d)\n\nmerged since 2026-08-26\n  #27  feat: the thing   #25 In Review\n        ^ merged, but the ticket has not been reconciled — dev.mjs sync --apply\n  #26  chore: no ticket here   no ticket\n\nin flight\n  ISSUE    STATE         PR          TREE     AGE    BRANCH\n  #12      In Progress   none        1 dirty  2d     feat/12-x\n  #19      In Review     #30 open    1 ahead  3w     feat/19-old\n  -        -             -           clean    -      spike\n\nstale — no commit for 7d\n  #19      3w     PR #30 is waiting on review\n\nopen in the tracker\n  #41      Backlog       unstarted\n\nnext\n  #12 — 1 uncommitted change — commit them, then: dev.mjs land\n\nPR state unavailable: the GitHub CLI is missing or not authenticated (gh auth login).");
+});
+
+test('the section is "landed since" when any repo delivers direct, "merged since" otherwise', () => {
+  const pr = describeStandup(facts()).join('\n');
+  assert.match(pr, /\nmerged since 2026-08-26\n {2}\(nothing merged in the window/);
+  assert.doesNotMatch(pr, /landed/);
+
+  const direct = describeStandup(facts({ direct: true })).join('\n');
+  assert.match(direct, /\nlanded since 2026-08-26\n {2}\(nothing landed in the window/);
+  assert.doesNotMatch(direct, /merged since/);
+});
+
+test('a landed commit is listed by its sha, and a ticket it did not move gets the reconcile hint', () => {
+  // The branch is gone after a direct land, so this line is the only place
+  // the priority-0 signal can live on a direct repo.
+  const out = describeStandup(facts({
+    direct: true,
+    merged: [
+      { label: 'ccc3333', title: 'fix(x): follow-up (#12)', issueId: '#12', mergedAt: null, more: 1, issue: { id: '#12', state: 'In Progress' } },
+      { label: '#27', number: 27, title: 'feat: by hand', mergedAt: daysAgo(0), issue: { id: '#25', state: 'Done' } },
+    ],
+  })).join('\n');
+  assert.match(out, /^ {2}ccc3333 {2}fix\(x\): follow-up \(#12\) {3}#12 In Progress {2}\(\+1 more\)$/m);
+  assert.match(out, /landed, but the ticket has not been reconciled — dev\.mjs sync --apply/);
+  assert.match(out, /^ {2}#27 {2}feat: by hand {3}#25 Done$/m, 'a PR opened by hand on a direct repo is still evidence');
+});
+
+test('a base branch that could not be read never renders as "nothing landed"', () => {
+  // Not read and read-and-empty are two facts, and the remedy the empty line
+  // offers — widen the window — is the wrong one when the read itself failed.
+  const unread = describeStandup(facts({
+    direct: true,
+    landedUnread: [".: no branch 'nowhere' here or on a remote"],
+  })).join('\n');
+  assert.match(unread, /\nlanded since 2026-08-26\n {2}\(could not read what landed — \.: no branch 'nowhere' here or on a remote\)\n/);
+  assert.doesNotMatch(unread, /nothing landed/);
+
+  // With one repo read and another not, what was read is listed and the
+  // failure is still said: a partial section must not look complete.
+  const partial = describeStandup(facts({
+    direct: true,
+    merged: [{ label: 'ccc3333', title: 'fix(x): y (#12)', issueId: '#12', mergedAt: null, more: 0, issue: { id: '#12', state: 'Done' } }],
+    landedUnread: ['packages/b: could not read commits on origin/main: fatal: bad object'],
+  })).join('\n');
+  assert.match(partial, /^ {2}ccc3333 {2}fix\(x\): y \(#12\) {3}#12 Done\n {2}\(could not read what landed — packages\/b: could not read commits on origin\/main: fatal: bad object\)$/m);
+});
+
+test('on a direct repo the PR cell says so, with or without the GitHub CLI', () => {
+  const rows = (pr) => [{ issue: { id: '#12', state: 'In Progress' }, branch: 'feat/12-x', dirty: 0, commits: 1, lastCommit: daysAgo(1), pr, delivery: 'direct' }];
+  assert.match(describeStandup(facts({ rows: rows(null) })).join('\n'), /#12 {6}In Progress {3}direct {6}1 ahead/);
+  assert.match(describeStandup(facts({ rows: rows(PR_UNKNOWN) })).join('\n'), /#12 {6}In Progress {3}direct {6}1 ahead/);
+  // Somebody opened one by hand: evidence whatever the mode.
+  assert.match(describeStandup(facts({ rows: rows({ number: 30, state: 'OPEN' }) })).join('\n'), /#12 {6}In Progress {3}#30 open/);
+});
+
 // --- the command ------------------------------------------------------------------
 
 test('standup reports the board, and writes nothing', async () => {
@@ -365,4 +478,45 @@ test('standup runs without the GitHub CLI and says which half is missing', async
   assert.match(r.stdout, /could not read the tracker/);
   assert.doesNotMatch(r.stdout, /no open issues/);
   assert.match(r.stdout, /the board is unread/);
+});
+
+test('a direct project reports what landed on the base branch, and no PR column lies', async () => {
+  const { repo, dev } = await withStubGh({
+    config: { ...CONFIG, delivery: { mode: 'direct' } },
+    remote: true,
+  });
+  await git(repo, 'commit', '--allow-empty', '-m', 'feat(x): thing (#12)');
+  await git(repo, 'commit', '--allow-empty', '-m', 'chore(no-ticket): release');
+  await git(repo, 'push', 'origin', 'main');
+
+  const r = await dev(['standup', '--since', '7d']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /\nlanded since /);
+  assert.doesNotMatch(r.stdout, /merged since/);
+  assert.match(r.stdout, /^ {2}[0-9a-f]{7} {2}feat\(x\): thing \(#12\) {3}#12 In Progress$/m);
+  assert.match(r.stdout, /landed, but the ticket has not been reconciled — dev\.mjs sync --apply/);
+  assert.doesNotMatch(r.stdout, /release/, 'a ticketless commit is not listed');
+  assert.match(r.stdout, /#12 {6}In Progress {3}direct {6}/, 'no PR is expected here, and the cell says so');
+  assert.doesNotMatch(r.stdout, /none/);
+});
+
+test('a direct project whose base branch does not exist says so, not "nothing landed"', async () => {
+  const { dev } = await withStubGh({
+    config: { ...CONFIG, delivery: { mode: 'direct', base: 'nowhere' } },
+  });
+
+  const r = await dev(['standup', '--since', '7d']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /\nlanded since [^\n]*\n {2}\(could not read what landed — \.: no branch 'nowhere' here or on a remote\)\n/);
+  assert.doesNotMatch(r.stdout, /nothing landed/);
+});
+
+test('a pull-request project never reads the base branch log', async () => {
+  const { repo, dev } = await withStubGh();
+  await git(repo, 'commit', '--allow-empty', '-m', 'feat(x): landed by hand (#13)');
+
+  const r = await dev(['standup', '--since', '7d']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /\nmerged since /);
+  assert.doesNotMatch(r.stdout, /#13/, 'a commit is not what a pr project calls landed — sync --deep is');
 });

@@ -18,6 +18,8 @@
 import { rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
+import { LOG_SEP } from './sync.mjs';
+
 /** Arguments that would defeat a guarantee this module makes. */
 // `-n` is deliberately absent: it means `--dry-run` to `git push`, and blocking
 // a dry run in the name of not skipping hooks would be exactly backwards.
@@ -398,6 +400,55 @@ export function makeVcs({ run }) {
   }
 
   /**
+   * The ref that answers "has this landed", or null when nothing resolves.
+   *
+   * A remote-tracking ref first, `upstream` before `origin` — the order `sync`
+   * has always used for its slug: the local base branch can be stale, or hold
+   * commits nobody has pushed, and neither of those has landed. The local
+   * branch is the last resort rather than the first, and is right for a repo
+   * with no remote at all.
+   *
+   * Shared by `sync` and `standup` (#44), so "landed" means one thing.
+   */
+  async function baseRef(dir, base) {
+    for (const ref of [`upstream/${base}`, `origin/${base}`, base]) {
+      if (await refExists(dir, `${ref}^{commit}`)) return ref;
+    }
+    return null;
+  }
+
+  /**
+   * Commits on `ref` since `cutoff`, as the raw `<sha>\x1f<subject>` lines
+   * `landedCommits` in lib/sync.mjs parses — the format string lives beside
+   * its parser so the two cannot drift.
+   *
+   * `--no-merges` is load-bearing, not tidiness. GitHub's own merge commit is
+   * titled `Merge pull request #38 from …`, and on GitHub that reads as a
+   * perfectly well-formed issue ID — for a *pull request* number. Every merge
+   * would credit whatever issue happens to share that number.
+   *
+   * Unbounded unless the caller passes `limit`, and the bound is the caller's
+   * to state, not a default here. `sync` reconciles a whole window and must
+   * see every commit in it — a cap it never asked for silently dropped the
+   * oldest and reported them unchanged. `standup` runs inside the SessionStart
+   * hook's 3s ceiling and bounds the read itself, because a report lists a
+   * handful of tickets and a window is a window.
+   *
+   * @returns {Promise<{ok: true, log: string} | {ok: false, error: string}>}
+   */
+  async function landedLog(dir, ref, { cutoff, limit = null }) {
+    const r = await git(dir, [
+      'log', ref,
+      '--no-merges',
+      `--since=${cutoff}`,
+      ...(limit == null ? [] : ['-n', String(limit)]),
+      `--format=%H${LOG_SEP}%s`,
+    ]);
+    if (!r.ok) return { ok: false, error: r.stderr || `could not read commits on ${ref} in ${dir}` };
+    return { ok: true, log: r.stdout };
+  }
+
+  /**
    * When `ref` was last committed to, as ISO-8601, or null.
    *
    * `%cI` rather than `%ci`: an adapter that returned a locale-formatted date
@@ -549,6 +600,8 @@ export function makeVcs({ run }) {
     listWorktrees,
     listWorktreeEntries,
     commitsAhead,
+    baseRef,
+    landedLog,
     lastCommitAt,
     mainCheckout,
     isIgnored,

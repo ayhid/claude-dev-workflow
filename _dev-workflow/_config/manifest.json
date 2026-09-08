@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.20.1",
     "installDate": "2026-09-08T10:07:31.602Z",
-    "lastUpdated": "2026-09-08T10:08:00.562Z"
+    "lastUpdated": "2026-09-08T10:16:48.793Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -113,15 +113,15 @@
     },
     {
       "path": "_dev-workflow/lib/standup.mjs",
-      "sha256": "6482322b8421e57132460d574ca47885d7a946cfa91132edfa71c517a2afee62"
+      "sha256": "74ae798b18548c78d62fdfe4b29e823d2d717cf72741ae951e2ab138fc6da11e"
     },
     {
       "path": "_dev-workflow/lib/status.mjs",
-      "sha256": "38fd32bf2cb61870bf18b82098a512c437dfdfa5ff792056cd53fa8fb8083e2d"
+      "sha256": "7b728e94c02033155987b762b30e30d01459ac4076a60f92a332c28a1cb17d3f"
     },
     {
       "path": "_dev-workflow/lib/sync.mjs",
-      "sha256": "2da55697f8fe430cf99782cde38fbb6c32f61610b495bf4dde16919ab7a42e27"
+      "sha256": "6853d1b7f12988d5dfa980e2314d457764732999b853d42633ca57626bd7b336"
     },
     {
       "path": "_dev-workflow/lib/token.mjs",
@@ -137,7 +137,7 @@
     },
     {
       "path": "_dev-workflow/lib/vcs.mjs",
-      "sha256": "57ed77809dffdf0dd0500560b5d95d80abf46621d6650ebc9caaf8af75816c1d"
+      "sha256": "3f0d581832df8ce1cb22e80dbcab35c2c1ebdd5cc231dd4978b37eac00cc0c62"
     },
     {
       "path": "_dev-workflow/lib/youtrack.mjs",
@@ -213,7 +213,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/standup.mjs",
-      "sha256": "db093c7dec29f927a9c9192acd26ddecb1bb5f2e81dcefc3f2eec4e01654c8e2"
+      "sha256": "38dd082698f851ed620dfff8791f34d7ce9c4a212c08ae2ebd3406444561b96d"
     },
     {
       "path": "_dev-workflow/scripts/cmd/start.mjs",
@@ -221,11 +221,11 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/status.mjs",
-      "sha256": "f15cca4780e10d9c42a6426f4cad6fa0b522e805e7646290999efcfd1abe6556"
+      "sha256": "64d912dcd036c618ec50144b11c09a8e5cf8de0accade1baa979b39abc5494c1"
     },
     {
       "path": "_dev-workflow/scripts/cmd/sync.mjs",
-      "sha256": "bbe7419df1b34f73fa2f17abfc38b9526a8c7108299bc65c6f130fc6196180f8"
+      "sha256": "ea96732fe84f0cbd0d7aba69f251288983cbb191df75020e0f3034bf923810b2"
     },
     {
       "path": "_dev-workflow/scripts/cmd/update.mjs",
@@ -321,7 +321,7 @@
     },
     {
       "path": ".claude/skills/dev-standup/SKILL.md",
-      "sha256": "f6491aeec3c760f456d1f5de90145b3d028a327513f66f518df4ee6ab36b7426"
+      "sha256": "2a79262cfb84c501507c5bdc1585f766d98116811a93622e923fe613ebcff8ac"
     },
     {
       "path": ".claude/skills/dev-task/SKILL.md",

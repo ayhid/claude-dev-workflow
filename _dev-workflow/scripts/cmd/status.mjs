@@ -18,6 +18,7 @@ import { resolve } from 'node:path';
 
 import { PR_UNKNOWN, describeBoard, describeCheckout } from '../../lib/status.mjs';
 import { issueIdFromBranch } from '../../lib/branch.mjs';
+import { deliveryFor } from '../../lib/config.mjs';
 import { sh, shJson, has } from '../../lib/sh.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
 import { context, emitUpdateBanner, resolveRepo, takeValue, UserError } from './common.mjs';
@@ -45,7 +46,12 @@ export async function run(argv) {
   const main = await vcs.mainCheckout(root);
 
   const rows = await collect({ config, main, vcs, opts });
-  const withIssues = await withStates(provider, rows);
+  // Whether a PR is expected is a property of the repo the row is in, not of
+  // the project (#44): `repos[].delivery` lets a monorepo mix modes.
+  const withIssues = (await withStates(provider, rows)).map((row) => ({
+    ...row,
+    delivery: deliveryFor(config, repoPathFor(config, main, row.repoDir ?? row.path)).mode,
+  }));
 
   if (opts.all) {
     process.stdout.write(`${describeBoard(withIssues, { root: main }).join('\n')}\n`);
@@ -58,6 +64,7 @@ export async function run(argv) {
       issue: here.issue,
       pr: here.pr,
       dirty: here.dirty,
+      delivery: here.delivery,
       config,
     });
     process.stdout.write(`${lines.join('\n')}\n`);
@@ -122,7 +129,9 @@ export async function scanRepos({ config, vcs, dirs, cwd }) {
 
     const byBranch = listed === PR_UNKNOWN ? PR_UNKNOWN : prsByBranch(listed);
     for (const entry of await vcs.listWorktreeEntries(dir)) {
-      rows.push(await rowFor({ config, vcs, entry, cwd, prs: byBranch }));
+      // Tagged with the repo it was found in: a worktree's own path says which
+      // checkout it is, not which configured repo — and delivery is per repo.
+      rows.push({ ...(await rowFor({ config, vcs, entry, cwd, prs: byBranch })), repoDir: dir });
     }
   }
 
@@ -134,6 +143,28 @@ export function repoDirs(config, main) {
   const paths = (config.repos ?? []).map((r) => r.path).filter(Boolean);
   if (!paths.length) return [main];
   return paths.map((p) => (p === '.' ? main : resolve(main, p)));
+}
+
+/**
+ * The configured repo path that `dir` is, or is inside — `repoDirs` read the
+ * other way. `deliveryFor` and every other per-repo lookup take the configured
+ * path, and a row knows only where it is on disk.
+ *
+ * Containment, most specific first, the rule `resolveRepo` applies: a worktree
+ * sits *under* the repo it was cut from, and a project listing `.` has two
+ * answers for everything under a nested repo, of which the root is the
+ * fallback and not the match. A project with no `repos` is one repo at `.`.
+ */
+export function repoPathFor(config, main, dir) {
+  const paths = (config.repos ?? []).map((r) => r.path).filter(Boolean);
+  if (!paths.length) return '.';
+
+  const where = String(dir ?? '');
+  const dirOf = (p) => (p === '.' ? main : resolve(main, p));
+  const inside = paths
+    .filter((p) => where === dirOf(p) || where.startsWith(`${dirOf(p)}/`))
+    .sort((a, b) => dirOf(b).length - dirOf(a).length);
+  return inside[0] ?? paths[0];
 }
 
 async function rowFor({ config, vcs, entry, cwd, prs }) {

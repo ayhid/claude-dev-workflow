@@ -22,17 +22,31 @@
  * Without the GitHub CLI it still runs: the PR columns read `-`, the merged
  * section is empty, and it says so. "I cannot reach GitHub" is not a reason to
  * refuse to say what is checked out.
+ *
+ * The report is phrased in the delivery mode each repo actually uses (#44). A
+ * repo on `delivery.mode: direct` never opens a pull request, so its PR cell
+ * reads `direct` rather than a `none` that invites you to open one, and what
+ * landed is read off the base branch — the same evidence `sync` reads, through
+ * the same `vcs.landedLog`. A `pr` repo never pays for that read, and prints
+ * exactly what it always has.
  */
 import { issueIdFromBranch } from '../../lib/branch.mjs';
+import { deliveryBase, deliveryFor } from '../../lib/config.mjs';
 import { sh } from '../../lib/sh.mjs';
-import { describeStandup, inFlight, mergedSince } from '../../lib/standup.mjs';
+import { describeStandup, inFlight, landedSince, mergedSince } from '../../lib/standup.mjs';
 import { PR_UNKNOWN } from '../../lib/status.mjs';
-import { cutoffFrom, extractIssueIds, parseSince } from '../../lib/sync.mjs';
+import { cutoffFrom, extractIssueIds, landedCommits, parseSince } from '../../lib/sync.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
 import { context, emitUpdateBanner, resolveRepo, takeValue, UserError } from './common.mjs';
-import { repoDirs, scanRepos } from './status.mjs';
+import { repoDirs, repoPathFor, scanRepos } from './status.mjs';
 
 const USAGE = 'usage: dev.mjs standup [--since 1d] [--stale 7d] [--repo PATH]';
+
+// The most base-branch commits read per direct repo. This command runs inside
+// the SessionStart hook's 3s ceiling, and 200 non-merge commits in a window is
+// more than any report lists. The bound is stated here, not in `vcs.landedLog`,
+// because `sync` reads the same log and must see all of it.
+const LANDED_LIMIT = 200;
 
 export function parseArgs(argv) {
   const opts = { since: '1d', stale: '7d', repo: '' };
@@ -80,7 +94,14 @@ export async function run(argv) {
   // worktree, which carries a tracked copy of the config. Worktrees belong to
   // the main checkout — the trap `start` documents at its top.
   const main = await vcs.mainCheckout(root);
-  const base = config.branch?.base ?? 'main';
+  // Where a ticket branch forks from. Where it lands is a per-repo question —
+  // `repos[].delivery` — answered row by row below.
+  const forkBase = config.branch?.base ?? 'main';
+  const deliveryOf = (dir) => {
+    const path = repoPathFor(config, main, dir);
+    const d = deliveryFor(config, path);
+    return { path, mode: d.mode, base: deliveryBase(config, d) };
+  };
 
   // Both windows go through the reconciler's own parser, so `7d` means the same
   // thing in every command that takes one.
@@ -89,14 +110,18 @@ export async function run(argv) {
 
   const dirs = opts.repo ? [resolveRepo(config, main, opts.repo).dir] : repoDirs(config, main);
   const scanned = await scanRepos({ config, vcs, dirs, cwd: process.cwd() });
+  const tagged = scanned.rows.map((row) => {
+    const { mode, base } = deliveryOf(row.repoDir ?? row.path);
+    return { ...row, delivery: mode, base };
+  });
 
   const rows = [];
-  for (const row of inFlight(scanned.rows, { base })) {
+  for (const row of inFlight(tagged, { base: forkBase })) {
     // Two reads per branch, and only for branches that are in flight. Doing
     // this in `status` instead would put a git call per worktree behind a
     // command whose whole point is to answer instantly.
     const dir = row.path;
-    const ahead = row.branch ? await vcs.commitsAhead(dir, { base, branch: row.branch }) : null;
+    const ahead = row.branch ? await vcs.commitsAhead(dir, { base: row.base, branch: row.branch }) : null;
     rows.push({
       ...row,
       commits: ahead?.ok ? ahead.count : null,
@@ -106,11 +131,40 @@ export async function run(argv) {
 
   const merged = mergedSince(scanned.prs, { cutoff }).map((pr) => ({
     ...pr,
+    label: `#${pr.number}`,
     // The branch first, then the title: a ref cannot hold a `#`, so the two
     // carry the ID in different syntaxes and only one rule reads each.
     issueId:
       issueIdFromBranch(config, pr.headRefName) ?? extractIssueIds(pr.title, provider.syntax)[0] ?? null,
   }));
+
+  // What landed without a PR, read only where no PR is expected. At most three
+  // `rev-parse` and one bounded `git log` per direct repo, which is what keeps
+  // it inside the SessionStart hook's 3s ceiling; a pr repo pays nothing.
+  // `mergedSince` stays PR-only: a PR opened by hand on a direct repo is still
+  // evidence, and the two lists are simply concatenated.
+  //
+  // A read that fails is carried into the report, not dropped: the hook
+  // discards stderr, and a section that says "nothing landed" over a base
+  // branch that does not exist offers the wrong remedy for it.
+  let direct = false;
+  const landedUnread = [];
+  for (const dir of dirs) {
+    const { path, mode, base } = deliveryOf(dir);
+    if (mode !== 'direct') continue;
+    direct = true;
+    const ref = await vcs.baseRef(dir, base);
+    if (!ref) {
+      landedUnread.push(`${path}: no branch '${base}' here or on a remote`);
+      continue;
+    }
+    const log = await vcs.landedLog(dir, ref, { cutoff, limit: LANDED_LIMIT });
+    if (!log.ok) {
+      landedUnread.push(`${path}: could not read commits on ${ref}: ${log.error}`);
+      continue;
+    }
+    merged.push(...landedSince(landedCommits(log.log, { syntax: provider.syntax })));
+  }
 
   // One batched read for every ticket on the board, in flight or just merged.
   // Per issue here would be a process spawn plus a round trip each on a
@@ -137,6 +191,8 @@ export async function run(argv) {
     cutoff,
     staleAfter,
     prUnknown: scanned.prUnknown || rows.some((r) => r.pr === PR_UNKNOWN),
+    direct,
+    landedUnread,
   });
 
   process.stdout.write(`${lines.join('\n')}\n`);

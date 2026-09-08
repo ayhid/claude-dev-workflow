@@ -60,13 +60,13 @@ import {
   cutoffFrom,
   decide,
   extractIssueIds,
-  LOG_SEP,
   parseSince,
   renderComment,
   slugFromRemoteUrl,
   strongestEvidence,
   UNKNOWN,
 } from '../../lib/sync.mjs';
+import { makeVcs } from '../../lib/vcs.mjs';
 import { context, takeValue, UserError } from './common.mjs';
 
 export function parseArgs(argv) {
@@ -159,39 +159,20 @@ async function observePrs({ config, slug, prState, cutoff, syntax, rank, state, 
 }
 
 /**
- * The ref that answers "has this landed", or null when nothing resolves.
+ * Commits on the base branch, newer than the cutoff, as issue-ID observations.
  *
- * A remote-tracking ref first, and the same `upstream` then `origin` order
- * `slugFor` uses: the local base branch can be stale, or hold commits nobody
- * has pushed, and neither of those has landed. The local branch is the last
- * resort rather than the first, and is right for a repo with no remote at all.
+ * The read is `vcs.landedLog` — shared with `standup`, which reports the same
+ * commits as what landed (#44) — so the two never disagree about which commits
+ * exist, and the `--no-merges` that keeps a PR number from being read as an
+ * issue number is enforced in one place.
  */
-async function baseRefFor(dir, base) {
-  for (const ref of [`upstream/${base}`, `origin/${base}`, base]) {
-    const res = await sh('git', ['-C', dir, 'rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
-    if (res.ok) return ref;
-  }
-  return null;
-}
-
-/** Commits on the base branch, newer than the cutoff, as issue-ID observations. */
-async function observeCommits({ dir, ref, slug, cutoff, syntax, rank, state }) {
-  // `--no-merges` is load-bearing, not tidiness. GitHub's own merge commit is
-  // titled `Merge pull request #38 from …`, and on GitHub that reads as a
-  // perfectly well-formed issue ID — for a *pull request* number. Every merge
-  // would credit whatever issue happens to share that number.
-  const res = await sh('git', [
-    '-C', dir,
-    'log', ref,
-    '--no-merges',
-    `--since=${cutoff}`,
-    `--format=%H${LOG_SEP}%s`,
-  ]);
+async function observeCommits({ vcs, dir, ref, slug, cutoff, syntax, rank, state }) {
+  const res = await vcs.landedLog(dir, ref, { cutoff });
   if (!res.ok) {
-    process.stderr.write(`  could not read commits on ${ref}: ${res.stderr || `exit ${res.code}`}\n`);
+    process.stderr.write(`  could not read commits on ${ref}: ${res.error}\n`);
     return [];
   }
-  return commitObservations(res.stdout, {
+  return commitObservations(res.log, {
     syntax,
     rank,
     state,
@@ -204,6 +185,7 @@ export async function run(argv) {
   await requireGh();
 
   const { config, root, provider } = await context();
+  const vcs = makeVcs({ run: sh });
   // The ID shape comes from the provider, so a GitHub project scans PR titles
   // for `#123` rather than for a project key that does not exist there.
   const syntax = provider.syntax;
@@ -242,7 +224,7 @@ export async function run(argv) {
     // passes still work — but it is exactly the case that would otherwise look
     // like a clean run, so it is said out loud.
     const base = deliveryBase(config, deliveryFor(config, repoPath));
-    const baseRef = await baseRefFor(dir, base);
+    const baseRef = await vcs.baseRef(dir, base);
     process.stderr.write(
       baseRef
         ? `scanning ${repoPath} (${slug}) — PRs, and commits on ${baseRef}\n`
@@ -275,6 +257,7 @@ export async function run(argv) {
     if (baseRef) {
       observations.push(
         ...(await observeCommits({
+          vcs,
           dir,
           ref: baseRef,
           slug,

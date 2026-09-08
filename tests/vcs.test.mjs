@@ -229,3 +229,47 @@ test('an unmerged branch is kept and said so, not force-deleted', async () => {
   assert.ok(r.notes.some((n) => n.includes('kept')));
   assert.ok(!run.calls.some((c) => c.includes('branch -D')), 'never force-delete');
 });
+
+// --- what has landed (#44) ----------------------------------------------------------
+
+test('baseRef prefers a remote-tracking ref, and the local branch is the last resort', async () => {
+  // The local base can be stale or hold commits nobody pushed, and neither has
+  // landed. `upstream` before `origin`, the order `sync` has always used.
+  const run = fakeRun({ 'origin/main^{commit}': { stdout: 'abc' }, 'upstream/main^{commit}': { ok: false } });
+  assert.equal(await makeVcs({ run }).baseRef('/repo', 'main'), 'origin/main');
+  assert.deepEqual(run.calls, [
+    'git -C /repo rev-parse --verify --quiet upstream/main^{commit}',
+    'git -C /repo rev-parse --verify --quiet origin/main^{commit}',
+  ]);
+
+  // The fake matches by substring in insertion order, so the remote refs are
+  // named first or `main^{commit}` would answer for all three.
+  const local = fakeRun({ 'upstream/main': { ok: false }, 'origin/main': { ok: false }, 'main^{commit}': { stdout: 'abc' } });
+  assert.equal(await makeVcs({ run: local }).baseRef('/repo', 'main'), 'main');
+
+  const none = fakeRun({ '^{commit}': { ok: false } });
+  assert.equal(await makeVcs({ run: none }).baseRef('/repo', 'main'), null);
+});
+
+test('landedLog skips merges, keeps the sha/subject format the parser reads, and is unbounded unless the caller bounds it', async () => {
+  // No `-n` unless asked: `sync` reconciles a whole window and must read every
+  // commit in it, and a cap it never asked for silently dropped the oldest.
+  const run = fakeRun({ 'log origin/main': { stdout: 'aaa\x1ffeat: x (#1)\n' } });
+  const r = await makeVcs({ run }).landedLog('/repo', 'origin/main', { cutoff: '2026-08-20T00:00:00Z' });
+  assert.deepEqual(r, { ok: true, log: 'aaa\x1ffeat: x (#1)\n' });
+  assert.deepEqual(run.calls, [
+    'git -C /repo log origin/main --no-merges --since=2026-08-20T00:00:00Z --format=%H\x1f%s',
+  ]);
+
+  // The bound is the caller's: `standup` runs inside the SessionStart hook's
+  // 3s ceiling and says so.
+  const bounded = fakeRun({ 'log origin/main': { stdout: '' } });
+  await makeVcs({ run: bounded }).landedLog('/repo', 'origin/main', { cutoff: 'c', limit: 200 });
+  assert.deepEqual(bounded.calls, ['git -C /repo log origin/main --no-merges --since=c -n 200 --format=%H\x1f%s']);
+
+  const bad = fakeRun({ 'log origin/main': { ok: false, stderr: 'fatal: bad revision' } });
+  assert.deepEqual(await makeVcs({ run: bad }).landedLog('/repo', 'origin/main', { cutoff: 'c' }), {
+    ok: false,
+    error: 'fatal: bad revision',
+  });
+});
