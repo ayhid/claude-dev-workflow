@@ -344,6 +344,46 @@ test('status counts without spilling the detail', () => {
   assert.match(out, /next: +\[extract\]/);
 });
 
+// --- set aside by a verdict ---------------------------------------------------------
+
+const setAside = (ledger, ...calls) => ({
+  ...ledger,
+  verdicts: calls.map(([path, classification]) => ({ path, classification, justification: 'triage rule dated-name: x', mergeTarget: null })),
+});
+
+test('nextUnit never offers a source whose verdict is archive or delete, and says how many it skipped', () => {
+  let ledger = mergeSources(base(), [file('a.md', '1'), file('b.md', '2'), file('c.md', '3')]).ledger;
+  ledger = setAside(ledger, ['a.md', 'archive'], ['c.md', 'delete']);
+
+  const unit = nextUnit(ledger);
+  assert.equal(unit.phase, 'extract');
+  assert.equal(unit.detail.path, 'b.md');
+  assert.deepEqual(unit.detail.pending, ['b.md']);
+  assert.equal(unit.detail.remaining, 1);
+  assert.equal(unit.detail.skipped, 2);
+  assert.match(unit.what, /2 set aside/);
+});
+
+test('a keep or merge verdict does not set a source aside', () => {
+  let ledger = mergeSources(base(), [file('a.md', '1')]).ledger;
+  ledger = setAside(ledger, ['a.md', 'keep']);
+  assert.equal(nextUnit(ledger).detail.path, 'a.md');
+  assert.equal(nextUnit(ledger).detail.skipped, 0);
+});
+
+test('with every pending source set aside the reading is done, not stuck', () => {
+  let ledger = mergeSources(base(), [file('a.md', '1')]).ledger;
+  ledger = setAside(ledger, ['a.md', 'archive']);
+  assert.equal(nextUnit(ledger).phase, 'emit');
+});
+
+test('describeLedger shows how many sources are set aside', () => {
+  let ledger = mergeSources(base(), [file('a.md', '1'), file('b.md', '2')]).ledger;
+  ledger = setAside(ledger, ['a.md', 'archive']);
+  assert.match(describeLedger(ledger).join('\n'), /set aside: 1/);
+  assert.doesNotMatch(describeLedger(mergeSources(base(), [file('a.md', '1')]).ledger).join('\n'), /set aside/, 'nothing to say when none is');
+});
+
 // --- the map -----------------------------------------------------------------------
 
 test('the map announces that it is generated, and anchors every claim it can', () => {
@@ -762,4 +802,26 @@ test('a missing source that reappears unchanged is read again if it has claims, 
   const noClaims = { ...vanished, claims: vanished.claims.filter((c) => c.source !== 'docs/gone.md'), questions: [] };
   const backEmpty = mergeSources(noClaims, [file('README.md', '0'), file('docs/gone.md', '2')]).ledger;
   assert.equal(backEmpty.sources.find((s) => s.path === 'docs/gone.md').state, 'pending', 'nothing recorded for it, so it is read');
+});
+
+test('next reports how many documents a verdict set aside, and never offers one of them', async () => {
+  const { repo, dev } = await withDocs({ 'docs/validation-report-2025-12-20.md': '# Report\n\nOld.\n' });
+  await dev(['ingest', 'scan']);
+
+  const verdicts = join(repo, 'verdicts.json');
+  writeFileSync(verdicts, JSON.stringify([{ path: 'docs/validation-report-2025-12-20.md', classification: 'archive', justification: 'a record of a moment' }]));
+  const classified = await dev(['reorg', 'classify', `@${verdicts}`]);
+  assert.equal(classified.code, 0, classified.stderr);
+
+  const next = await dev(['ingest', 'next', '--all']);
+  assert.equal(next.code, 0, next.stderr);
+  assert.doesNotMatch(next.stdout, /validation-report/);
+  assert.match(next.stdout, /skipped: 1/);
+  assert.match(next.stdout, /pending \(2\)/);
+
+  const one = await dev(['ingest', 'next']);
+  assert.match(one.stdout, /skipped: 1/);
+
+  const status = await dev(['ingest']);
+  assert.match(status.stdout, /set aside: 1/);
 });
