@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.20.0",
     "installDate": "2026-09-08T09:32:49.350Z",
-    "lastUpdated": "2026-09-08T09:38:00.414Z"
+    "lastUpdated": "2026-09-08T09:39:03.681Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -53,7 +53,7 @@
     },
     {
       "path": "_dev-workflow/lib/config.mjs",
-      "sha256": "b13d3fd0577fd51a45325e119d0a3cfc13df8fcd96fddc3a8ef0226a2dd83c38"
+      "sha256": "2755000cb559dfe5d57d4069dedb8feab3dc682f595fac227cfda233ce368cbf"
     },
     {
       "path": "_dev-workflow/lib/docset.mjs",
@@ -137,7 +137,7 @@
     },
     {
       "path": "_dev-workflow/lib/youtrack.mjs",
-      "sha256": "3b2dc2d105663c87113238fb412bcb742530d49b1450228e6f74893343152568"
+      "sha256": "7002e39ae7053349c9f2afd189cba451f9d36839045a76f376be81fd9f67822b"
     },
     {
       "path": "_dev-workflow/scripts/cmd/abandon.mjs",
