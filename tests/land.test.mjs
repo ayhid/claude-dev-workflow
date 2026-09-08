@@ -274,21 +274,50 @@ test('a single-repo project still lands with no --repo', async () => {
   assert.match(r.stdout, /branch: +feat\/12-thing → main/);
 });
 
-test('standing on the base branch says where the work actually is', async () => {
+test('standing on the base branch with an ID lands the checkout that carries it', async () => {
   // The second command in #15's transcript: `--repo web` is answered by the repo
   // root, which is where worktree mode leaves the base checked out. "Nothing to
-  // land" was true and useless.
+  // land" was true and useless; naming the ticket now finds its worktree (#103).
   const { repo, dev } = await withStubGh({ repos: ['api', 'web'], config: PR_MODE });
 
   const r = await dev(['land', '#12', '--repo', 'web'], {}, { cwd: repo });
 
-  // Matched by shape rather than against the scaffold's own path: git reports
-  // the worktree resolved through symlinks, and the temporary directory on
-  // macOS is one.
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /branch: +feat\/12-thing → main/);
+  assert.match(r.stdout, /checkout: worktree/);
+});
+
+test('standing on the base branch with no ID still says there is nothing to land', async () => {
+  const { repo, dev } = await withStubGh({ repos: ['api', 'web'], config: PR_MODE });
+
+  const r = await dev(['land', '--repo', 'web'], {}, { cwd: repo });
+
   assert.equal(r.code, 1);
-  assert.match(r.stderr, /already on main/);
-  assert.match(r.stderr, /#12 is checked out in \S+\/web\/\.worktrees\/feat-12-thing/);
-  assert.match(r.stderr, /cd \S+\/web\/\.worktrees\/feat-12-thing/);
+  assert.match(r.stderr, /could not read an issue ID out of the branch "main"/);
+});
+
+test('land <ID> from the main checkout finds the worktree it is not standing in (#103)', async () => {
+  // The coordinator's case: `build --land` runs from the repo root, on main,
+  // and names the unit. The refusal above was right for a bare `land`; with an
+  // ID it was a dead end one lookup away.
+  const { repo, dev } = await withStubGh({ config: PR_MODE });
+
+  const r = await dev(['land', '#12'], {}, { cwd: repo });
+
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /branch: +feat\/12-thing → main/);
+  assert.match(r.stdout, /checkout: worktree/);
+  assert.match(r.stdout, /dry run/);
+});
+
+test('land <ID> for a branch nobody has mounted says to resume it rather than landing the root', async () => {
+  const { repo, dev } = await withStubGh({ config: PR_MODE });
+
+  const r = await dev(['land', '#13'], {}, { cwd: repo });
+
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /#13 is on branch fix\/13-other/);
+  assert.match(r.stderr, /resume #13/);
 });
 
 /**

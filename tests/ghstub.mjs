@@ -44,6 +44,69 @@ set -u
 printf '%s\\n' "$*" >> "$GH_LOG"
 [ "\${1:-}" = "--version" ] && { echo "gh version 2.40.0 (2024-01-01)"; exit 0; }
 [ "\${1:-}" = "auth" ] && exit 0
+
+# --- table mode (#103) ----------------------------------------------------------
+# With $GH_ISSUES set, the repository is whatever that JSON file says: a map of
+# number -> {number,title,body,state,stateReason,url,labels:[names],subIssues:[numbers]}.
+# Writes go back into the file, so a test reads the tracker's state where the
+# command left it. The legacy single-issue mode below is untouched.
+if [ -n "\${GH_ISSUES:-}" ] && [ -f "$GH_ISSUES" ]; then
+  T="$GH_ISSUES"
+  put() { tmp=$(mktemp); jq "$@" "$T" > "$tmp" && mv "$tmp" "$T"; }
+  view() { jq -c --arg n "$1" '.[$n] | {number,title,body,state,stateReason,url,labels:(.labels|map({name:.})),assignees:[],author:{login:"a"},createdAt:"2026-01-01T00:00:00Z",comments:[]}' "$T"; }
+  case "\${1:-} \${2:-}" in
+    "issue view")
+      jq -e --arg n "$3" '.[$n]' "$T" >/dev/null 2>&1 || { echo "GraphQL: Could not resolve to an Issue" >&2; exit 1; }
+      view "$3" ;;
+    "issue list")
+      limit=100
+      while [ $# -gt 0 ]; do [ "$1" = "--limit" ] && limit="$2"; shift; done
+      jq -c --argjson l "$limit" '[to_entries[].value | select(.state=="OPEN") | {number,title,url,state,stateReason,labels:(.labels|map({name:.}))}] | sort_by(-.number) | .[:$l]' "$T" ;;
+    "issue create")
+      body=$(cat)
+      title=""
+      while [ $# -gt 0 ]; do [ "$1" = "--title" ] && title="$2"; shift; done
+      n=$(jq -r '[keys[]|tonumber]|max+1' "$T")
+      put --arg n "$n" --arg t "$title" --arg b "$body" '.[$n]={number:($n|tonumber),title:$t,body:$b,state:"OPEN",stateReason:null,url:("https://github.com/o/r/issues/"+$n),labels:[],subIssues:[]}'
+      printf 'Creating issue in o/r\\n\\nhttps://github.com/o/r/issues/%s\\n' "$n" ;;
+    "issue edit")
+      n="$3"; add=""; remove=""
+      while [ $# -gt 0 ]; do
+        [ "$1" = "--add-label" ] && add="$2"
+        [ "$1" = "--remove-label" ] && remove="$remove $2"
+        shift
+      done
+      for l in $remove; do :; done
+      put --arg n "$n" --arg a "$add" --arg r "$remove" '.[$n].labels = ((.[$n].labels - ($r | split(" ") | map(select(. != "")))) + (if $a == "" then [] else [$a] end) | unique)'
+      ;;
+    "issue close")  put --arg n "$3" '.[$n].state="CLOSED" | .[$n].stateReason="COMPLETED"' ;;
+    "issue reopen") put --arg n "$3" '.[$n].state="OPEN" | .[$n].stateReason=null' ;;
+    "issue comment") cat >> "$GH_COMMENT" ;;
+    "label list") echo '[{"name":"status: in progress"},{"name":"status: in review"},{"name":"status: done"}]' ;;
+    "api graphql")
+      q="$*"
+      case "$q" in
+        *addSubIssue*)
+          p=$(printf '%s' "$q" | grep -o 'parentId=I_[0-9]*' | grep -o '[0-9]*$')
+          c=$(printf '%s' "$q" | grep -o 'childId=I_[0-9]*' | grep -o '[0-9]*$')
+          put --arg p "$p" --argjson c "$c" '.[$p].subIssues += [$c]'
+          echo '{"data":{"addSubIssue":{"issue":{}}}}' ;;
+        *subIssues*)
+          n=$(printf '%s' "$q" | grep -o 'number=[0-9]*' | grep -o '[0-9]*')
+          jq -c --arg n "$n" '. as $r | .[$n] as $p | {data:{repository:{issue:(if $p then {subIssues:{nodes:[ ($p.subIssues // [])[] | tostring | $r[.] | {number,title,url,body} ]}} else null end)}}}' "$T" ;;
+        *)
+          ns=$(printf '%s' "$q" | grep -o 'issue(number: [0-9]*)' | grep -o '[0-9][0-9]*' | paste -sd, -)
+          jq -c --argjson ns "[\${ns:-}]" '. as $r | {data:{repository:([ $ns[] | tostring | select($r[.]) | {key:("i"+.), value:($r[.] | {id:("I_"+(.number|tostring)),number,state,stateReason,labels:{nodes:(.labels|map({name:.}))}})} ] | from_entries)}}' "$T" ;;
+      esac ;;
+    "pr list")
+      want=""
+      while [ $# -gt 0 ]; do [ "$1" = "--state" ] && want="$2"; shift; done
+      if [ -n "$want" ] && [ -f "$GH_PRS.$want" ]; then cat "$GH_PRS.$want"; else cat "$GH_PRS"; fi ;;
+    "pr create") cat > /dev/null ;;
+    "pr view") printf '{"number":7,"url":"https://github.com/o/r/pull/7","title":"Half a thing","reviewRequests":[{"login":"octocat"}]}\\n' ;;
+  esac
+  exit 0
+fi
 if [ "\${GH_FAIL_EDIT:-}" = "1" ] && [ "\${2:-}" = "edit" ]; then
   echo "gh: the label could not be applied" >&2
   exit 1
@@ -185,7 +248,7 @@ export async function scaffold({ repos = null, remote = false } = {}) {
  * the same GitHub slug the stub answers for — `sync` reads `repos[].github`,
  * not the top-level one.
  */
-export async function withStubGh({ labels = '{"name":"status: in progress"}', prs = [], prsByState = {}, config = CONFIG, repos = null, remote = false } = {}) {
+export async function withStubGh({ labels = '{"name":"status: in progress"}', prs = [], prsByState = {}, config = CONFIG, repos = null, remote = false, issues = null } = {}) {
   const s = await scaffold({ repos, remote });
   const projectRoot = repos ? s.root : s.repo;
   const written = repos
@@ -209,7 +272,10 @@ export async function withStubGh({ labels = '{"name":"status: in progress"}', pr
     state: join(s.root, 'gh.state'),
     comment: join(s.root, 'gh.comment'),
     prs: join(s.root, 'gh.prs'),
+    issues: join(s.root, 'gh.issues'),
   };
+  // Table mode: the whole repository as a number -> issue map (see GH_STUB).
+  if (issues) writeFileSync(paths.issues, JSON.stringify(issues));
   writeFileSync(paths.log, '');
   writeFileSync(paths.state, labels);
   writeFileSync(paths.comment, '');
@@ -233,6 +299,7 @@ export async function withStubGh({ labels = '{"name":"status: in progress"}', pr
             GH_STATE: paths.state,
             GH_COMMENT: paths.comment,
             GH_PRS: paths.prs,
+            ...(issues ? { GH_ISSUES: paths.issues } : {}),
             ...extraEnv,
           },
         },
@@ -240,5 +307,12 @@ export async function withStubGh({ labels = '{"name":"status: in progress"}', pr
       );
     });
 
-  return { ...s, projectRoot, dev, read: (k) => readFileSync(paths[k], 'utf8') };
+  return {
+    ...s,
+    projectRoot,
+    dev,
+    read: (k) => readFileSync(paths[k], 'utf8'),
+    /** The table, parsed — what the tracker holds after the command ran. */
+    issues: () => JSON.parse(readFileSync(paths.issues, 'utf8')),
+  };
 }

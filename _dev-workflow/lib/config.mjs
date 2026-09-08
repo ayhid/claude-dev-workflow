@@ -41,6 +41,15 @@ export const DEFAULTS = {
   project: null,
   projectId: null,
   tokenOpRef: null,
+  youtrack: {
+    /**
+     * The link type `dev.mjs split` uses to make a work unit a subtask of its
+     * parent, and `build` reads children back through. YouTrack ships one
+     * called `Subtask`; an instance that renamed or localised it says so here,
+     * because the adapter will not guess a link type name (rule 2).
+     */
+    subtaskLinkType: 'Subtask',
+  },
   language: 'English',
   states: {
     start: 'In Progress',

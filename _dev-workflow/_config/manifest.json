@@ -1,8 +1,8 @@
 {
   "installation": {
-    "version": "1.18.5",
-    "installDate": "2026-08-31T20:48:47.144Z",
-    "lastUpdated": "2026-09-06T21:25:21.454Z"
+    "version": "1.20.0",
+    "installDate": "2026-09-08T09:24:31.524Z",
+    "lastUpdated": "2026-09-08T09:25:11.691Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -25,7 +25,7 @@
     },
     {
       "path": "_dev-workflow/hooks/check-commit-ticket.sh",
-      "sha256": "b5d99c3c7302be4aa82b6dc2edb16cba120277c0d2b29276f4e4c49624056d99"
+      "sha256": "beb28b7b2e1554e219b8df6a70ab0e65aaeabb7d884df5802e7e580880b840b6"
     },
     {
       "path": "_dev-workflow/hooks/session-standup.mjs",
@@ -49,7 +49,7 @@
     },
     {
       "path": "_dev-workflow/lib/config.mjs",
-      "sha256": "5089e22c2e93b83146a397e0113aad5903222fd5681a13ac880d1331e54604d3"
+      "sha256": "3fc174a5fd1c21dc27dcd38418658f1ac8d578683e37c14703652ec99b64a297"
     },
     {
       "path": "_dev-workflow/lib/docset.mjs",
@@ -57,7 +57,7 @@
     },
     {
       "path": "_dev-workflow/lib/github.mjs",
-      "sha256": "36854d97054bde7010d8b8e0e869e89e385e122b56369bf821a20efd4641906d"
+      "sha256": "d99cc6126975de63a4bff4f6e728858b320939b8fcec8728a72bc98767113d76"
     },
     {
       "path": "_dev-workflow/lib/ingest.mjs",
@@ -120,6 +120,10 @@
       "sha256": "c33017f7fa70d0f0df55941b7ddcf0bb6a912bd65bef66970c104225928dcc20"
     },
     {
+      "path": "_dev-workflow/lib/units.mjs",
+      "sha256": "50c5300137d7c4d298aba5ddf894d48b76efe806c0fc044db9d9a7ad7c4d9a1c"
+    },
+    {
       "path": "_dev-workflow/lib/updatecheck.mjs",
       "sha256": "df809c31167ef457f734019387ad27f1a01e3c48869c4f94477f795e259840e6"
     },
@@ -129,7 +133,7 @@
     },
     {
       "path": "_dev-workflow/lib/youtrack.mjs",
-      "sha256": "c80a3be74826666eddf44010ec8f09874cdf849b93d0564c84455ce4030a2b62"
+      "sha256": "3b2dc2d105663c87113238fb412bcb742530d49b1450228e6f74893343152568"
     },
     {
       "path": "_dev-workflow/scripts/cmd/abandon.mjs",
@@ -142,6 +146,10 @@
     {
       "path": "_dev-workflow/scripts/cmd/assess.mjs",
       "sha256": "5bd564d04415fce99462a3c74865bc02d5170c6badd0cd9b350ce76cb8924f63"
+    },
+    {
+      "path": "_dev-workflow/scripts/cmd/build.mjs",
+      "sha256": "f00299038509dbeda4b4ff2482d9d557a40d56d6a9c926e9be732b4dcdfa4e2e"
     },
     {
       "path": "_dev-workflow/scripts/cmd/common.mjs",
@@ -161,7 +169,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/fetch.mjs",
-      "sha256": "0da1ba719db58701ce96e1c631a595c8f8ffc29b9c898b2035ff1fd5abc8ad99"
+      "sha256": "4d0e6e290d6910125cab76e6925c0efb980c57d3defd0e85b1e6d432a39cb22f"
     },
     {
       "path": "_dev-workflow/scripts/cmd/ingest.mjs",
@@ -169,7 +177,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/land.mjs",
-      "sha256": "8d6316d5eff2d576e8fd65a30ae0c2548199690117744ed21d1e94422f04a0eb"
+      "sha256": "d1e6b13cb6e6307147ea83c9da294dfe849868b9a69e189dd94749bb8ee3fa0a"
     },
     {
       "path": "_dev-workflow/scripts/cmd/note.mjs",
@@ -192,12 +200,16 @@
       "sha256": "5e686ff4de2267f08c6191c40fcf24ad4f98dfb6bdbfe832dd127265015d58ed"
     },
     {
+      "path": "_dev-workflow/scripts/cmd/split.mjs",
+      "sha256": "6582a09c064117f3a820d6b08e4040205e7da4a4bd718f5720ed78fa46b60043"
+    },
+    {
       "path": "_dev-workflow/scripts/cmd/standup.mjs",
       "sha256": "db093c7dec29f927a9c9192acd26ddecb1bb5f2e81dcefc3f2eec4e01654c8e2"
     },
     {
       "path": "_dev-workflow/scripts/cmd/start.mjs",
-      "sha256": "2cb309f13c12f6ad10e2c5bbb241ba13f9e571a141c808fcbea1f6af24372420"
+      "sha256": "5a95beca4975e783f8fa40f97f0ebd121b6718cc66dc61fb4487c3dd00cdad07"
     },
     {
       "path": "_dev-workflow/scripts/cmd/status.mjs",
@@ -213,11 +225,11 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/version.mjs",
-      "sha256": "85fa82ce216be95f2469ae8c77e80cba3a8d452d60c83e6af0abb924837b77ae"
+      "sha256": "e16bf0fdbd51bf918174a4e7a08cbd3f367793e0acf0622371486a5bbf785997"
     },
     {
       "path": "_dev-workflow/scripts/dev.mjs",
-      "sha256": "ebdd5a363e83dfee00b7218353ba043565b5f563c0f90b393ebd20c0147eb3d8"
+      "sha256": "8a5c85065f2fcbbd3c0ba8b467f7ddeaa9ed35e0bc11606dbfd614933281e30f"
     },
     {
       "path": ".claude/agents/dev-reader.md",

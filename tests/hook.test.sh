@@ -82,6 +82,16 @@ run_case 'rejects a bad subject despite a good body' 2 'git commit -m "add endpo
 
 feat(api): thing (ABC-1)"'
 
+# --- hook bypass ------------------------------------------------------------------
+run_case 'rejects --no-verify on a commit' 2 'git commit --no-verify -m "feat(api): add endpoint (ABC-1)"'
+run_case 'rejects -n on a commit' 2 'git commit -n -m "feat(api): add endpoint (ABC-1)"'
+run_case 'rejects --no-verify on an editor commit' 2 'git commit --no-verify'
+run_case 'rejects --no-verify after the message' 2 'git commit -m "feat(api): add endpoint (ABC-1)" --no-verify'
+run_case 'ignores --no-verify on a push' 0 'git push --no-verify'
+run_case 'a message mentioning -n is not a bypass' 0 'git commit -m "fix(cli): handle the -n flag (ABC-1)"'
+run_case 'ignores -n on a push (dry run)' 0 'git push -n origin main'
+run_case 'lets a disabled hook through even with --no-verify' 0 'git commit --no-verify -m "x"' "$CFG_HOOKS_OFF"
+
 # --- the escape hatch ---------------------------------------------------------
 run_case 'accepts the default escape hatch'     0 'git commit -m "chore(no-ticket): bump deps"'
 run_case 'accepts a configured escape hatch'    0 'git commit -m "chore(skip): bump deps"' "$CFG_ESCAPE"

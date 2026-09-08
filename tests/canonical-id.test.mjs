@@ -88,14 +88,16 @@ test('resume: the id it reports is the id the branch reads back as', async () =>
   assert.match(r.stdout, /^issue:\s+#12 —/m);
 });
 
-test('land: even a refusal names the ticket the one way', async () => {
-  // Run from the repo root, which in worktree mode is the base branch — the
-  // refusal that says where the work actually is.
+test('land: run from the repo root, the ticket is named the one way and its worktree is found', async () => {
+  // Run from the repo root, which in worktree mode is the base branch. This
+  // used to be the refusal that said where the work was; since #103 the ID
+  // locates the checkout, and the plan it prints spells the ticket canonically.
   const s = await withStubGh();
   const r = await s.dev(['land', '12']);
 
-  assert.notEqual(r.code, 0);
-  assert.match(r.stderr, /#12 is checked out in/);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /issue: +#12 —/);
+  assert.match(r.stdout, /checkout: worktree/);
 });
 
 // This one passes with or without the change, and is kept for saying so: the

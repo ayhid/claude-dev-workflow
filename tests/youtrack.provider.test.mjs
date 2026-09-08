@@ -18,6 +18,7 @@ const CONFIG = {
   baseUrl: 'https://acme.invalid',
   project: 'ABC',
   projectId: '0-1',
+  youtrack: { subtaskLinkType: 'Subtask' },
   states: { start: 'In Progress', review: 'In Review', done: 'Done', ladder: [] },
 };
 
@@ -25,11 +26,15 @@ const CONFIG = {
  * A fake YouTrack holding real state, so a write is observable by the next
  * read — which is the only way to test the read-back rule honestly.
  */
-function fakeYouTrack({ fail = false } = {}) {
+function fakeYouTrack({ fail = false, linkSilently = false } = {}) {
   const issues = new Map([
     ['ABC-1', { state: 'In Progress', summary: 'First', description: 'A body' }],
     ['ABC-2', { state: 'In Review', summary: 'Second', description: '' }],
   ]);
+  // Subtask links, parent -> children. `linkSilently` models invariant 1: the
+  // commands API answering 200 for a link it did not make.
+  const subtasks = new Map();
+  let nextNumber = 9;
 
   const fetchImpl = async (url, init = {}) => {
     if (fail) return new Response('upstream exploded', { status: 500 });
@@ -52,11 +57,37 @@ function fakeYouTrack({ fail = false } = {}) {
           { name: 'Estimation', value: { minutes: 90 } },
         ],
         comments: [{ text: 'a comment', created: 1735689600000, author: { login: 'someone' } }],
+        links: [
+          {
+            direction: 'OUTWARD',
+            linkType: { name: 'Subtask' },
+            // Newest first, deliberately: the adapter is what must sort.
+            issues: [...(subtasks.get(id) ?? [])].reverse().map((c) => ({
+              idReadable: c,
+              summary: issues.get(c)?.summary,
+              description: issues.get(c)?.description,
+            })),
+          },
+          // The same type inward — what a child sees — must never count as a child.
+          {
+            direction: 'INWARD',
+            linkType: { name: 'Subtask' },
+            issues: [...subtasks.entries()].filter(([, kids]) => kids.includes(id)).map(([p]) => ({ idReadable: p, summary: issues.get(p)?.summary })),
+          },
+        ],
       };
     };
 
     if (init.method === 'POST' && path === 'api/commands') {
       const body = JSON.parse(init.body);
+      const link = /^subtask of (\S+)$/.exec(body.query);
+      if (link) {
+        const child = body.issues[0].idReadable;
+        if (!linkSilently && issues.has(link[1]) && issues.has(child)) {
+          subtasks.set(link[1], [...(subtasks.get(link[1]) ?? []), child]);
+        }
+        return json({});
+      }
       const m = /^State (?:\{(.+)\}|(\S+))$/.exec(body.query);
       const wanted = m?.[1] ?? m?.[2];
       const id = body.issues[0].idReadable;
@@ -70,8 +101,10 @@ function fakeYouTrack({ fail = false } = {}) {
 
     if (init.method === 'POST' && /^api\/issues\/[^/]+\/comments$/.test(path)) return json({ id: 'c-1' });
     if (init.method === 'POST' && path === 'api/issues') {
-      issues.set('ABC-9', { state: 'In Progress', summary: 'New', description: '' });
-      return json({ idReadable: 'ABC-9' });
+      const body = JSON.parse(init.body);
+      const id = `ABC-${nextNumber++}`;
+      issues.set(id, { state: 'In Progress', summary: body.summary ?? 'New', description: body.description ?? '' });
+      return json({ idReadable: id });
     }
 
     if (path === 'api/users/me') return json({ login: 'ayoub' });
@@ -93,20 +126,20 @@ function fakeYouTrack({ fail = false } = {}) {
     return json({ error: `unhandled ${path}` }, 404);
   };
 
-  return { fetchImpl, issues };
+  return { fetchImpl, issues, subtasks };
 }
 
-const build = ({ fail = false } = {}) => {
+const build = ({ fail = false, linkSilently = false, config = CONFIG } = {}) => {
   const warnings = [];
-  const { fetchImpl } = fakeYouTrack({ fail });
+  const { fetchImpl, subtasks } = fakeYouTrack({ fail, linkSilently });
   const r = createYouTrackProvider({
-    config: CONFIG,
+    config,
     fetch: fetchImpl,
     onWarn: (m) => warnings.push(m),
     env: { YOUTRACK_TOKEN: 'test-token' },
   });
   assert.ok(r.ok, r.error);
-  return { provider: r.provider, warnings };
+  return { provider: r.provider, warnings, subtasks };
 };
 
 // The adapter resolves its token through lib/token.mjs, which reads the real
@@ -309,4 +342,51 @@ test('setState succeeds when the ticket is already on the target state', async (
   const r = await provider.setState('ABC-1', 'start');
   assert.equal(r.ok, true, r.error);
   assert.equal(r.state, 'In Progress');
+});
+
+// --- subtasks (#103) -------------------------------------------------------------
+
+test('createChild links with "subtask of <PARENT>" on the child and reads the parent back', async () => {
+  const { provider, subtasks } = build();
+  const r = await provider.createChild({ parent: 'ABC-1', summary: 'A unit', description: 'Depends on: ABC-2' });
+  assert.ok(r.ok, r.error);
+  assert.equal(r.id, 'ABC-9');
+  assert.deepEqual(r.warnings, []);
+  assert.deepEqual(subtasks.get('ABC-1'), ['ABC-9']);
+});
+
+test('a 200 that linked nothing is a warning naming the parent, not a silent success (invariant 1)', async () => {
+  const { provider } = build({ linkSilently: true });
+  const r = await provider.createChild({ parent: 'ABC-1', summary: 'A unit', description: '' });
+  assert.ok(r.ok, r.error);
+  assert.equal(r.id, 'ABC-9');
+  assert.equal(r.warnings.length, 1);
+  assert.match(r.warnings[0], /ABC-9/);
+  assert.match(r.warnings[0], /ABC-1/);
+  assert.match(r.warnings[0], /200/);
+});
+
+test('children follows the outward link only, sorted, with the body', async () => {
+  const { provider } = build();
+  await provider.createChild({ parent: 'ABC-1', summary: 'Second', description: 'Depends on: ABC-9' });
+  await provider.createChild({ parent: 'ABC-1', summary: 'First', description: '' });
+
+  const parent = await provider.children('ABC-1');
+  assert.deepEqual(
+    parent.data.map((c) => [c.id, c.title, c.body]),
+    [['ABC-9', 'Second', 'Depends on: ABC-9'], ['ABC-10', 'First', '']],
+  );
+  assert.equal(parent.data[0].url, 'https://acme.invalid/issue/ABC-9');
+
+  const child = await provider.children('ABC-9');
+  assert.deepEqual(child.data, [], 'the inward link is the parent, not a child');
+});
+
+test('rule 2: no configured link type is an error naming the key, not a guess', async () => {
+  const { youtrack, ...rest } = CONFIG;
+  void youtrack;
+  const { provider } = build({ config: rest });
+  const r = await provider.children('ABC-1');
+  assert.equal(r.ok, false);
+  assert.match(r.error, /youtrack\.subtaskLinkType/);
 });

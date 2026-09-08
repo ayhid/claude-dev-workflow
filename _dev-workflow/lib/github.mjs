@@ -224,14 +224,18 @@ export function createGitHubProvider({ config, run = sh, onWarn }) {
    */
   const GRAPHQL_BATCH = 50;
 
-  /** The GraphQL selection matching exactly what `stateOf` and `driftOf` read. */
-  const ISSUE_GQL = 'number state stateReason labels(first: 100) { nodes { name } }';
+  /**
+   * The GraphQL selection matching exactly what `stateOf` and `driftOf` read,
+   * plus the node id — the only handle the sub-issue mutation accepts.
+   */
+  const ISSUE_GQL = 'id number state stateReason labels(first: 100) { nodes { name } }';
 
   /**
    * One GraphQL issue node in the shape the `--json` reads produce, so
    * `stateOf` and `driftOf` never learn there are two transports.
    */
   const fromGraphql = (node) => ({
+    nodeId: node.id,
     number: node.number,
     state: node.state,
     stateReason: node.stateReason,
@@ -653,6 +657,92 @@ export function createGitHubProvider({ config, run = sh, onWarn }) {
         ok: false,
         error: `the issue may have been created, but gh printed no usable URL: ${r.stdout.slice(0, 200)}`,
       };
+    },
+
+    /**
+     * The sub-issues of `id`, sorted by number.
+     *
+     * GraphQL rather than REST: `subIssues` hangs off the issue node the batched
+     * read already queries, and it answers title, url and body in one request —
+     * `build` parses the body for the dependency line, so a per-child `issue
+     * view` would be one spawn per unit on every board.
+     */
+    async children(id) {
+      const n = numberOf(id);
+      if (!n) return { ok: false, error: `"${id}" is not a GitHub issue reference` };
+      const gate = await ensureGh();
+      if (!gate.ok) return gate;
+
+      const [owner, name] = repo.split('/');
+      const r = await call([
+        'api', 'graphql',
+        '-f', `owner=${owner}`,
+        '-f', `name=${name}`,
+        '-F', `number=${n}`,
+        '-f',
+        'query=query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { subIssues(first: 100) { nodes { number title url body } } } } }',
+      ]);
+
+      let issue = null;
+      try {
+        issue = JSON.parse(r.stdout || 'null')?.data?.repository?.issue ?? null;
+      } catch {
+        issue = null;
+      }
+      if (!issue) {
+        return { ok: false, error: `could not read the sub-issues of ${id}: ${r.stderr || `gh exited ${r.code}`}` };
+      }
+
+      const rows = (issue.subIssues?.nodes ?? [])
+        .filter(Boolean)
+        .map((c) => ({
+          id: `#${c.number}`,
+          title: c.title ?? '',
+          url: c.url ?? `https://github.com/${repo}/issues/${c.number}`,
+          body: c.body ?? '',
+        }))
+        .sort((a, b) => Number(numberOf(a.id)) - Number(numberOf(b.id)));
+      return { ok: true, data: rows };
+    },
+
+    /**
+     * File an issue and make it a sub-issue of `parent`.
+     *
+     * Same shape as `create`, and the same rule about what may fail: the issue
+     * exists after the first call, so a link that does not take is a warning
+     * naming the parent, never an error that loses the new number. Rule 3 —
+     * the link is read back through `children`, and a mutation that returned
+     * without listing the child is reported as not linked.
+     */
+    async createChild({ parent, summary, description, type, priority }) {
+      const created = await provider.create({ summary, description, type, priority });
+      if (!created.ok) return created;
+      const warnings = [...(created.warnings ?? [])];
+      const notLinked = (why) => {
+        warnings.push(`created ${created.id}, but could not make it a sub-issue of ${parent}: ${why} — link it by hand`);
+        return { ok: true, id: created.id, url: created.url, warnings };
+      };
+
+      const nodes = await listByNumber([parent, created.id]);
+      const parentNode = nodes.ok ? nodes.byNumber.get(String(numberOf(parent)))?.nodeId : null;
+      const childNode = nodes.ok ? nodes.byNumber.get(String(numberOf(created.id)))?.nodeId : null;
+      if (!parentNode || !childNode) return notLinked(nodes.ok ? 'could not read the node ids' : nodes.error);
+
+      const link = await call([
+        'api', 'graphql',
+        '-f', `parentId=${parentNode}`,
+        '-f', `childId=${childNode}`,
+        '-f',
+        'query=mutation($parentId: ID!, $childId: ID!) { addSubIssue(input: {issueId: $parentId, subIssueId: $childId}) { issue { number } } }',
+      ]);
+      if (!link.ok) return notLinked(link.stderr || `gh exited ${link.code}`);
+
+      const listed = await provider.children(parent);
+      if (!listed.ok) return notLinked(`could not read the parent back: ${listed.error}`);
+      if (!listed.data.some((c) => c.id === created.id)) {
+        return notLinked('the mutation returned, but the parent does not list it');
+      }
+      return { ok: true, id: created.id, url: created.url, warnings };
     },
   };
 

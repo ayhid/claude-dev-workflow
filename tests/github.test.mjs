@@ -36,11 +36,19 @@ const CONFIG = {
 };
 
 /** A fake `gh` holding real state, so a write is visible to the next read. */
-function fakeGh({ fail = false, labels = ['status: in progress', 'status: review', 'status: done'] } = {}) {
+function fakeGh({ fail = false, linkFails = false, labels = ['status: in progress', 'status: review', 'status: done'] } = {}) {
   const issues = new Map([
     [1, { number: 1, title: 'First', body: 'A body', state: 'OPEN', stateReason: null, labels: [{ name: 'status: in progress' }], assignees: [{ login: 'ayoub' }], author: { login: 'ayoub' }, createdAt: '2025-01-01T00:00:00Z', comments: [{ author: { login: 'x' }, body: 'hi', createdAt: '2025-01-02T00:00:00Z' }], url: 'https://github.com/acme/api/issues/1' }],
     [2, { number: 2, title: 'Second', body: '', state: 'OPEN', stateReason: null, labels: [{ name: 'status: review' }], assignees: [], author: { login: 'b' }, createdAt: '2025-01-01T00:00:00Z', comments: [], url: 'https://github.com/acme/api/issues/2' }],
   ]);
+
+  // Sub-issue links, parent number -> child numbers, and the node ids the
+  // mutation needs. Node ids are opaque on the real API, so any stable string
+  // will do here; what matters is that the adapter asks for them by number and
+  // passes them back unchanged.
+  const subIssues = new Map();
+  const nodeId = (n) => `I_${n}`;
+  let nextNumber = 9;
 
   const calls = [];
   const run = async (cmd, args, opts = {}) => {
@@ -59,6 +67,31 @@ function fakeGh({ fail = false, labels = ['status: in progress', 'status: review
     // issues that do, with `gh` exiting non-zero for the whole response.
     if (args[0] === 'api' && args[1] === 'graphql') {
       const query = args.find((a) => String(a).startsWith('query=')) ?? '';
+      const arg = (name) => args.find((a) => String(a).startsWith(`${name}=`))?.slice(name.length + 1);
+
+      // The sub-issue mutation: node ids in, a link recorded.
+      if (query.includes('addSubIssue')) {
+        if (linkFails) return { ok: false, code: 1, stdout: '', stderr: 'gh: sub-issues are not enabled' };
+        const parent = Number(String(arg('parentId')).replace(/^I_/, ''));
+        const child = Number(String(arg('childId')).replace(/^I_/, ''));
+        if (!issues.has(parent) || !issues.has(child)) return { ok: false, code: 1, stdout: '', stderr: 'not found' };
+        subIssues.set(parent, [...(subIssues.get(parent) ?? []), child]);
+        return out({ data: { addSubIssue: { issue: { number: parent } } } });
+      }
+
+      // The sub-issue listing, by number.
+      if (query.includes('subIssues')) {
+        const n = Number(arg('number'));
+        const i = issues.get(n);
+        if (!i) return { ok: false, code: 1, stdout: JSON.stringify({ data: { repository: { issue: null } } }), stderr: 'not found' };
+        // Newest first, deliberately: the adapter is what must sort.
+        const nodes = [...(subIssues.get(n) ?? [])].reverse().map((c) => {
+          const ci = issues.get(c);
+          return { number: ci.number, title: ci.title, url: ci.url, body: ci.body };
+        });
+        return out({ data: { repository: { issue: { subIssues: { nodes } } } } });
+      }
+
       const asked = [...String(query).matchAll(/issue\(number: (\d+)\)/g)].map((m) => Number(m[1]));
       const repository = {};
       const errors = [];
@@ -68,6 +101,7 @@ function fakeGh({ fail = false, labels = ['status: in progress', 'status: review
         // explicit null alias plus a NOT_FOUND, not as an absent key.
         if (!i) { repository[`i${n}`] = null; errors.push({ type: 'NOT_FOUND', path: ['repository', `i${n}`] }); continue; }
         repository[`i${n}`] = {
+          id: nodeId(n),
           number: i.number,
           state: i.state,
           stateReason: i.stateReason,
@@ -121,22 +155,23 @@ function fakeGh({ fail = false, labels = ['status: in progress', 'status: review
       }
       if (args[1] === 'comment') return out('');
       if (args[1] === 'create') {
-        issues.set(9, { number: 9, title: args[args.indexOf('--title') + 1], body: opts.input ?? '', state: 'OPEN', stateReason: null, labels: [], assignees: [], author: { login: 'ayoub' }, createdAt: '2025-01-03T00:00:00Z', comments: [], url: 'https://github.com/acme/api/issues/9' });
-        return out('Creating issue in acme/api\n\nhttps://github.com/acme/api/issues/9');
+        const number = nextNumber++;
+        issues.set(number, { number, title: args[args.indexOf('--title') + 1], body: opts.input ?? '', state: 'OPEN', stateReason: null, labels: [], assignees: [], author: { login: 'ayoub' }, createdAt: '2025-01-03T00:00:00Z', comments: [], url: `https://github.com/acme/api/issues/${number}` });
+        return out(`Creating issue in acme/api\n\nhttps://github.com/acme/api/issues/${number}`);
       }
     }
     return { ok: false, code: 1, stdout: '', stderr: `unhandled: gh ${args.join(' ')}` };
   };
 
-  return { run, calls, issues };
+  return { run, calls, issues, subIssues };
 }
 
 const build = (opts = {}) => {
   const warnings = [];
-  const { run, calls, issues } = fakeGh(opts);
+  const { run, calls, issues, subIssues } = fakeGh(opts);
   const r = createGitHubProvider({ config: opts.config ?? CONFIG, run, onWarn: (m) => warnings.push(m) });
   assert.ok(r.ok, r.error);
-  return { provider: r.provider, warnings, calls, issues };
+  return { provider: r.provider, warnings, calls, issues, subIssues };
 };
 
 let lastWarnings = [];
@@ -554,4 +589,53 @@ test('an unparseable id is refused rather than guessed at', async () => {
   assert.equal(r.ok, false);
   assert.match(r.error, /#123/);
   assert.equal(await provider.getState('not-an-id'), UNKNOWN);
+});
+
+// --- sub-issues (#103) -----------------------------------------------------------
+
+test('createChild files through the same argv as create, then links by node id', async () => {
+  const { provider, calls, subIssues } = build();
+  const r = await provider.createChild({ parent: '#1', summary: 'A unit', description: 'body' });
+  assert.ok(r.ok, r.error);
+  assert.equal(r.id, '#9');
+  assert.deepEqual(r.warnings, []);
+  assert.deepEqual(subIssues.get(1), [9]);
+
+  const mutation = calls.find((c) => c.args.some((a) => String(a).includes('addSubIssue')));
+  assert.ok(mutation, 'the link goes through the GraphQL mutation');
+  assert.ok(mutation.args.includes('parentId=I_1'), 'the parent node id, read by number');
+  assert.ok(mutation.args.includes('childId=I_9'), 'the child node id, read by number');
+  // No REST database-id round trip: one batched read answers both node ids.
+  assert.ok(!calls.some((c) => c.args[0] === 'api' && /issues\/\d+$/.test(c.args[1] ?? '')));
+});
+
+test('a link that fails leaves the new issue with a warning naming the parent, not an error', async () => {
+  const { provider } = build({ linkFails: true });
+  const r = await provider.createChild({ parent: '#1', summary: 'A unit', description: '' });
+  assert.ok(r.ok, r.error);
+  assert.equal(r.id, '#9');
+  assert.equal(r.warnings.length, 1);
+  assert.match(r.warnings[0], /#9/);
+  assert.match(r.warnings[0], /#1/);
+  assert.match(r.warnings[0], /by hand/);
+});
+
+test('children sorts by number and carries the body build parses', async () => {
+  const { provider } = build();
+  await provider.createChild({ parent: '#1', summary: 'Second', description: 'Depends on: #9' });
+  await provider.createChild({ parent: '#1', summary: 'First', description: '' });
+  const r = await provider.children('#1');
+  assert.ok(r.ok, r.error);
+  assert.deepEqual(
+    r.data.map((c) => [c.id, c.title, c.body]),
+    [['#9', 'Second', 'Depends on: #9'], ['#10', 'First', '']],
+  );
+  assert.equal(r.data[0].url, 'https://github.com/acme/api/issues/9');
+});
+
+test('children of an unknown number reports rather than answering an empty list', async () => {
+  const { provider } = build();
+  const r = await provider.children('#404');
+  assert.equal(r.ok, false);
+  assert.match(r.error, /#404/);
 });

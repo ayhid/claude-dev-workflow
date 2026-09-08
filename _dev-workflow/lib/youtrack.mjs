@@ -431,6 +431,20 @@ export function createYouTrackProvider({ config, fetch: fetchImpl, onWarn }) {
 
   const call = (token, path, opts = {}) => request(baseUrl, token, path, { ...opts, fetchImpl });
 
+  /**
+   * The link type that makes one issue a subtask of another — configuration,
+   * not a literal (rule 2). `lib/config.mjs` defaults it to YouTrack's built-in
+   * `Subtask`; a config built without the defaults must say so itself.
+   */
+  const subtaskLinkType = () => {
+    const name = config?.youtrack?.subtaskLinkType;
+    if (typeof name === 'string' && name.trim()) return { ok: true, name: name.trim() };
+    return {
+      ok: false,
+      error: 'no youtrack.subtaskLinkType configured — set it to the link type that means "subtask of" on this instance (the built-in one is "Subtask")',
+    };
+  };
+
   const provider = {
     name: 'youtrack',
     // What an ID looks like here. Callers that scan free text — the reconciler
@@ -749,6 +763,76 @@ export function createYouTrackProvider({ config, fetch: fetchImpl, onWarn }) {
         if (lastError) warnings.push(lastError);
 
         return { ok: true, id, url: `${baseUrl}/issue/${id}`, warnings };
+      });
+    },
+
+    /**
+     * The subtasks of `id`, sorted by ID.
+     *
+     * Read off the issue's links, filtered on the configured link type name and
+     * the outward direction — on the built-in `Subtask` type, the parent is the
+     * source ("parent for") and the child the target ("subtask of"). The name is
+     * configuration rather than a literal (rule 2): a localised or customised
+     * instance renames link types the way #14 saw it rename `State`.
+     */
+    async children(id) {
+      const linkType = subtaskLinkType();
+      if (!linkType.ok) return linkType;
+
+      return withToken(async (token) => {
+        const r = await call(token, `api/issues/${id}`, {
+          params: { fields: 'idReadable,links(direction,linkType(name),issues(idReadable,summary,description))' },
+        });
+        if (!r.ok) return { ok: false, error: `could not read the subtasks of ${id}: ${r.error}` };
+
+        const rows = (r.data?.links ?? [])
+          .filter((l) => l?.direction === 'OUTWARD' && l?.linkType?.name === linkType.name)
+          .flatMap((l) => l.issues ?? [])
+          .map((i) => ({
+            id: i.idReadable,
+            title: i.summary ?? '',
+            url: `${baseUrl}/issue/${i.idReadable}`,
+            body: i.description ?? '',
+          }))
+          .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+        return { ok: true, data: rows };
+      });
+    },
+
+    /**
+     * Create an issue and make it a subtask of `parent`.
+     *
+     * The link is a second command on the new issue, and invariant 1 applies
+     * to it in full: the commands API answers 200 whether or not it linked. So
+     * the parent's subtasks are read back, and a child the parent does not
+     * list is a warning naming both — never an error, since the issue exists
+     * and losing its ID would be the worse outcome.
+     */
+    async createChild({ parent, summary, description, type, priority }) {
+      const linkType = subtaskLinkType();
+      if (!linkType.ok) return linkType;
+
+      const created = await provider.create({ summary, description, type, priority });
+      if (!created.ok) return created;
+      const warnings = [...(created.warnings ?? [])];
+      const notLinked = (why) => {
+        warnings.push(`created ${created.id}, but could not make it a subtask of ${parent}: ${why} — link it by hand`);
+        return { ok: true, id: created.id, url: created.url, warnings };
+      };
+
+      return withToken(async (token) => {
+        const c = await call(token, 'api/commands', {
+          method: 'POST',
+          body: { query: `subtask of ${parent}`, issues: [{ idReadable: created.id }] },
+        });
+        if (!c.ok) return notLinked(c.error);
+
+        const listed = await provider.children(parent);
+        if (!listed.ok) return notLinked(`could not read the parent back: ${listed.error}`);
+        if (!listed.data.some((child) => child.id === created.id)) {
+          return notLinked('the command returned 200, but the parent does not list it');
+        }
+        return { ok: true, id: created.id, url: created.url, warnings };
       });
     },
 

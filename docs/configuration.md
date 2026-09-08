@@ -10,6 +10,7 @@ Sections below are named after the config blocks themselves, so a key you are lo
 editor has a heading with the same name here.
 
 - [The minimum](#the-minimum)
+- [`youtrack` — subtasks](#youtrack--subtasks)
 - [`language` — ticket prose](#language--ticket-prose)
 - [`states` — the ladder](#states--the-ladder)
 - [`branch` — names, worktrees](#branch--names-worktrees)
@@ -86,6 +87,17 @@ Three things follow, and the tool tells you about each rather than guessing:
 Closing an issue as *not planned* puts it off the ladder, so declined work is never reported as
 shipped. Note that GitHub closes issues itself when a PR says `Fixes #12`, which means an issue can
 reach *done* without ever passing through *review*.
+
+## `youtrack` — subtasks
+
+```json
+"youtrack": { "subtaskLinkType": "Subtask" }
+```
+
+The link type `dev.mjs split` uses to make a work unit a subtask of its parent issue, and that
+`dev.mjs build` follows back to list them. YouTrack ships one called `Subtask` (`parent for` /
+`subtask of`); an instance that renamed or localised it says so here, because the adapter will not
+guess a link type name. GitHub projects have no equivalent key: a sub-issue is a sub-issue.
 
 ## `language` — ticket prose
 
@@ -581,6 +593,7 @@ Useful for one-off runs against another instance, and for CI. There is no GitHub
   "baseUrl": "https://acme.youtrack.cloud",
   "project": "ABC",
   "tokenOpRef": "op://Private/youtrack/credential",
+  "youtrack": { "subtaskLinkType": "Subtask" },
   "language": "English",
   "states": {
     "start": "In Progress",

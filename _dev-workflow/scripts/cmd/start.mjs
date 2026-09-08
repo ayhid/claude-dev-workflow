@@ -53,6 +53,29 @@ export async function run(args) {
   const configured = resolveRepo(config, root, opts.repo);
   const vcs = makeVcs({ run: sh });
 
+  const started = await startIssue({ config, provider, vcs, configured, id, ...opts });
+  process.stdout.write(`${started.lines.join('\n')}\n`);
+  return started.code;
+}
+
+/**
+ * Everything `start` does after its arguments are parsed, as a function.
+ *
+ * Exported for `build --start` (#103), which mounts one worktree per ready
+ * unit: calling `run` per unit would build a provider per unit, and each one
+ * pays the `gh` preflight and the label check again. Sharing one provider and
+ * one vcs, and going through the same code, is what keeps a unit's checkout
+ * indistinguishable from a ticket's.
+ *
+ * `base` overrides the configured fork point when given — `build` passes the
+ * remote-tracking base after a fetch so a later wave forks from what has
+ * actually landed, not from a local branch nothing moved.
+ *
+ * @returns {Promise<{lines: string[], code: number, dir: string|null, branch: string, moved: boolean}>}
+ */
+export async function startIssue({ config, provider, vcs, configured, id, type: wantedType, mode: wantedMode, print = false, base: wantedBase = null }) {
+  const opts = { type: wantedType, mode: wantedMode, print };
+
   // Started from inside an existing worktree, the config walk resolves the root
   // to that worktree — it carries a tracked copy of the config file. Branches
   // and worktrees belong to the main checkout, so normalise before touching git.
@@ -75,7 +98,7 @@ export async function run(args) {
   const branch = rendered.branch;
 
   const mode = opts.mode ?? config.branch?.mode ?? 'worktree';
-  const base = config.branch?.base ?? 'main';
+  const base = wantedBase ?? config.branch?.base ?? 'main';
   const worktreePath = worktreePathFor(config, { repoDir: repo.dir, branch });
   const workDir = mode === 'worktree' ? worktreePath : repo.dir;
 
@@ -100,8 +123,7 @@ export async function run(args) {
 
   if (opts.print) {
     L.push('', '(--print: nothing was created)');
-    process.stdout.write(`${L.join('\n')}\n`);
-    return 0;
+    return { lines: L, code: 0, dir: null, branch, moved: false };
   }
 
   const started = await vcs.startWork({ dir: repo.dir, branch, base, mode, worktreePath });
@@ -127,6 +149,5 @@ export async function run(args) {
   L.push(moved.ok ? `state:    ${moved.state}` : `state:    NOT MOVED — ${moved.error}`);
 
   L.push('', `cd ${started.dir}`);
-  process.stdout.write(`${L.join('\n')}\n`);
-  return moved.ok ? 0 : 1;
+  return { lines: L, code: moved.ok ? 0 : 1, dir: started.dir, branch, moved: moved.ok };
 }

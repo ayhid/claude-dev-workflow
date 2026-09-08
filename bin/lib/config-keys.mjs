@@ -143,6 +143,15 @@ export const CONFIG_KEYS = [
     default: () => 'Done',
   },
   {
+    key: 'youtrack.subtaskLinkType',
+    message: 'YouTrack link type that makes an issue a subtask of another (dev.mjs split / build)',
+    type: 'text',
+    // GitHub has one way to nest an issue and no name for it; only YouTrack
+    // lets an instance rename the link type, so only YouTrack is asked.
+    appliesTo: (config) => proposeProvider({ existing: config }) === 'youtrack',
+    default: () => 'Subtask',
+  },
+  {
     key: 'states.ladder',
     message: 'The states this project moves through, first to last (comma-separated)',
     type: 'text',
