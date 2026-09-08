@@ -1,9 +1,12 @@
 /**
- * Create an issue, or check for duplicates before doing so.
+ * Create an issue in the shape the project asks for, or read that shape, or
+ * check for duplicates.
  *
- *   dev.mjs create "<summary>" "<description>|@FILE" [TYPE] [PRIORITY] [--allow-duplicate]
- *   dev.mjs create --dup-check "<keywords>"
- *   dev.mjs create [--allow-duplicate] -- "<summary>" ...
+ *   dev.mjs create "<summary>" "<description>|@FILE" [TYPE] [PRIORITY] [--allow-duplicate] [--template NAME]
+ *   dev.mjs create --dup-check "<keywords>"     report only, always exit 0
+ *   dev.mjs create --templates                  list the repo's issue templates
+ *   dev.mjs create --template <NAME|TYPE>       print that template, or the shipped default for a type
+ *   dev.mjs create [--allow-duplicate] [--template NAME] -- "<summary>" ...
  *
  * `--` ends the flags. A summary is free text, and one that begins with a
  * dash — a bug titled after the flag that is broken — is exactly what this
@@ -13,6 +16,28 @@
  * directly; every confirmation and warning goes to stderr. Type and Priority
  * are best-effort — the issue existing matters more than its fields, and losing
  * the ID to a field error would be the worse outcome.
+ *
+ * ## The issue template is a hard input (#36)
+ *
+ * `gh issue create --body-file -` bypasses `.github/ISSUE_TEMPLATE/` by
+ * construction, so this command reads the template itself — the checkout
+ * first, the tracker's API when the checkout has none and the backend can
+ * (`capabilities.issueTemplates`), the shipped default for TYPE when the repo
+ * has none — and refuses a body that does not satisfy it, naming each missing
+ * section. Which one applied is on stderr on every create:
+ *
+ *   dev create: template: <name> (repo checkout | repo via API | shipped default for Bug)
+ *
+ * A repo template is satisfied in full and has no bypass flag; a shipped
+ * default requires `## Acceptance criteria` non-empty and warns about the
+ * rest. The reasoning is in lib/issuetemplate.mjs. Several repo templates
+ * need `--template <name>`: picking one from the issue type would be the
+ * inference rule 2 forbids. The template's `labels:` go on top of the type
+ * label and its `title:` prefixes the summary.
+ *
+ * Order: resolve the template, validate the body (local), scan for
+ * duplicates, write. A body the template refuses is never scanned, and
+ * nothing is written before both have passed.
  *
  * ## The duplicate scan runs here, on every file (#47)
  *
@@ -38,6 +63,15 @@
  * Exit codes: 1 is usage or a failed write (thrown, like every command); 2 is
  * "refused as a duplicate", so a caller can tell the two apart.
  */
+import {
+  applyTemplate,
+  defaultTemplateFor,
+  describeSource,
+  discoverTemplates,
+  renderTemplate,
+  selectTemplate,
+  validateBody,
+} from '../../lib/issuetemplate.mjs';
 import { context, readArg, takeValue, UserError } from './common.mjs';
 
 /**
@@ -151,7 +185,7 @@ export function renderCandidates(rows) {
 }
 
 export function parseArgs(args) {
-  const opts = { allowDuplicate: false };
+  const opts = { allowDuplicate: false, templates: false };
   const rest = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -159,6 +193,8 @@ export function parseArgs(args) {
       rest.push(...args.slice(i + 1));
       break;
     } else if (a === '--allow-duplicate') opts.allowDuplicate = true;
+    else if (a === '--templates') opts.templates = true;
+    else if (a === '--template') opts.template = takeValue(args, ++i, a);
     else if (a === '--dup-check') opts.dupCheck = takeValue(args, ++i, a);
     else if (a.startsWith('-')) {
       throw new UserError(`unknown flag ${a} — a summary or description that starts with a dash goes after \`--\``);
@@ -168,9 +204,56 @@ export function parseArgs(args) {
 }
 
 const USAGE =
-  'usage: dev.mjs create "<summary>" "<description>|@FILE" [TYPE] [PRIORITY] [--allow-duplicate]\n' +
+  'usage: dev.mjs create "<summary>" "<description>|@FILE" [TYPE] [PRIORITY] [--allow-duplicate] [--template NAME]\n' +
   '       dev.mjs create --dup-check "<keywords>"\n' +
+  '       dev.mjs create --templates\n' +
+  '       dev.mjs create --template <NAME|TYPE>\n' +
   '       (a summary that starts with a dash goes after --)';
+
+const issueTypesOf = (config) => config.issueTypes ?? [];
+const configuredType = (config, name) =>
+  issueTypesOf(config).find((t) => t.toLowerCase() === String(name).trim().toLowerCase());
+
+/** `--templates`: what the repo offers, `filename<TAB>name` per line. */
+async function listTemplates({ config, root, provider }) {
+  const d = await discoverTemplates({ root, provider });
+  if (!d.ok) throw new UserError(d.error);
+  if (!d.templates.length) {
+    process.stdout.write(
+      `no repository issue templates — shipped defaults apply, by type: ${issueTypesOf(config).join(', ')}\n`,
+    );
+    return 0;
+  }
+  process.stderr.write(`dev create: ${d.templates.length} template(s), ${describeSource(d.source)}\n`);
+  process.stdout.write(`${d.templates.map((t) => `${t.filename}\t${t.name}`).join('\n')}\n`);
+  return 0;
+}
+
+/**
+ * `--template X` alone: a repo template by name, verbatim, or the shipped
+ * default for a configured issue type — so a skill reads the sections it
+ * must fill rather than carrying them.
+ */
+async function printTemplate({ config, root, provider }, name) {
+  const d = await discoverTemplates({ root, provider });
+  if (!d.ok) throw new UserError(d.error);
+  const repo = d.templates.length ? selectTemplate({ templates: d.templates, source: d.source, name }) : null;
+  if (repo?.ok) {
+    process.stderr.write(`dev create: template: ${repo.template.name} (${describeSource(repo.source)})\n`);
+    process.stdout.write(renderTemplate(repo.template));
+    return 0;
+  }
+  const type = configuredType(config, name);
+  if (type) {
+    process.stderr.write(`dev create: template: shipped default for ${type}\n`);
+    process.stdout.write(renderTemplate(defaultTemplateFor(type)));
+    return 0;
+  }
+  const names = d.templates.map((t) => t.filename).join(', ') || '(none)';
+  throw new UserError(
+    `"${name}" is neither a repository issue template (${names}) nor a configured issue type (${issueTypesOf(config).join(', ')})`,
+  );
+}
 
 export async function run(args) {
   const { opts, rest } = parseArgs(args);
@@ -182,18 +265,20 @@ export async function run(args) {
     process.stdout.write(renderCandidates(r.data));
     return 0;
   }
+  if (opts.templates) return listTemplates(await context());
+  if (opts.template !== undefined && rest.length === 0) return printTemplate(await context(), opts.template);
 
-  const [summary, rawDescription, type = 'Bug', priority = ''] = rest;
+  const [rawSummary, rawDescription, type = 'Bug', priority = ''] = rest;
   // Whether the caller *chose* a type, as opposed to falling into the default.
   // Only an explicit one is worth warning about when the backend has no types:
   // warning about our own default would fire on every create.
   const typeWasGiven = rest[2] !== undefined;
   // Trimmed: '   ' is truthy, and would reach the scan as an empty query,
   // which a search backend reads as "no filter" and matches everything.
-  if (!summary?.trim() || rawDescription === undefined) throw new UserError(USAGE);
+  if (!rawSummary?.trim() || rawDescription === undefined) throw new UserError(USAGE);
 
   const description = readArg(rawDescription, 'description file');
-  const { provider } = await context();
+  const { config, root, provider } = await context();
 
   // Capabilities, not the provider name: a backend that cannot store a field
   // should say so once here rather than have every caller learn which ones can.
@@ -201,9 +286,32 @@ export async function run(args) {
     process.stderr.write(`dev create: ${w}\n`);
   }
 
+  // The template, then the body against it — before any network beyond
+  // discovery, and before the scan: a body the project refuses is not a
+  // candidate for anything.
+  const found = await discoverTemplates({ root, provider });
+  if (!found.ok) throw new UserError(found.error);
+  const picked = selectTemplate({ templates: found.templates, source: found.source, name: opts.template, type });
+  if (!picked.ok) throw new UserError(picked.error);
+  const { template, source } = picked;
+  const where = describeSource(source, template, configuredType(config, type) ?? type);
+  process.stderr.write(`dev create: template: ${template.name} (${where})\n`);
+
+  const check = validateBody(description, template, { source });
+  if (!check.ok) {
+    const hint = source === 'default' ? `--template ${configuredType(config, type) ?? type}` : `--template ${template.filename}`;
+    throw new UserError(
+      `the body does not satisfy issue template "${template.name}" (${where}) — missing: ` +
+        `${check.missing.map((m) => `## ${m}`).join(', ')}. Read it with: dev.mjs create ${hint}`,
+    );
+  }
+  for (const w of check.warnings) process.stderr.write(`dev create: ${w}\n`);
+
+  const { summary, labels } = applyTemplate(template, rawSummary);
+
   // The scan, before the write. Skipped — never refused — when it cannot run:
   // the check may not become a new way for filing to fail.
-  const keywords = dupKeywords(summary).join(' ');
+  const keywords = dupKeywords(rawSummary).join(' ');
   const scan = await findDuplicates(provider, keywords);
   if (!scan.ok) {
     process.stderr.write(`dev create: duplicate scan skipped — ${scan.error}\n`);
@@ -226,6 +334,7 @@ export async function run(args) {
     description,
     type: provider.capabilities.types ? type : undefined,
     priority: provider.capabilities.priorities ? priority : undefined,
+    labels,
   });
   if (!r.ok) throw new UserError(r.error);
 
