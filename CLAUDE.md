@@ -277,6 +277,12 @@ places for the seventh to be forgotten.
    no git. The corollary binds `land`: it writes the tracker *before* it removes the worktree,
    because a working directory that has just been deleted belongs to no repository and resolves
    back to itself.
+6. **A close made elsewhere is recorded when `sync` observes it, through the same writer.** Under
+   `pr` delivery the move to Done happens in CI, whose log is discarded, so every local cycle
+   stayed open (#48); `observeClose` on the wrapper appends the row — only when the local log holds
+   an open cycle, dated at the PR's `mergedAt`, `observed: true` as its last key so command-made
+   rows stay byte-identical — on every `sync` run, dry or not, because a ticket already Done has
+   nothing to apply.
 
 ## Security properties to preserve
 

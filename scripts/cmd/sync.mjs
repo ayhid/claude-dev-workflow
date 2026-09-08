@@ -38,12 +38,21 @@
  * a PR or a landed commit since `--since`, so a strand older than that needs one
  * wider run.
  *
+ * One thing is written on every run, dry or not: a close this machine did not
+ * make is recorded in the local metrics log when it is observed here (#48).
+ * Under `delivery.mode: pr` the move to Done happens in CI, whose log is thrown
+ * away with the runner, and a ticket already Done reads `ahead` — there is
+ * nothing to apply, so gating the observation on `--apply` would make it
+ * unreachable. The log records what was read, which is metrics rule 1; the
+ * tracker is untouched, and that is the line a dry run keeps.
+ *
  * The decision rules live in lib/sync.mjs and are unit-tested; this file is the
  * I/O around them. It is the one command that drives external tools (gh, git)
  * rather than plain HTTP.
  */
 import { issueIdFromBranch } from '../../lib/branch.mjs';
 import { deliveryBase, deliveryFor, ladderOf, rankOf } from '../../lib/config.mjs';
+import { canonicalId } from '../../lib/issueid.mjs';
 import { has, sh, shJson } from '../../lib/sh.mjs';
 import {
   byIssueNumber,
@@ -141,7 +150,10 @@ async function observePrs({ config, slug, prState, cutoff, syntax, rank, state, 
       if (commits.ok) ids.push(...extractIssueIds(commits.stdout, syntax));
     }
 
-    for (const id of new Set(ids)) observations.push({ id, rank, state, url: pr.url });
+    // When it happened, for the metrics log: a merged PR knows, an open one
+    // does not, and the fold carries the field only when it is there.
+    const at = pr.mergedAt ?? null;
+    for (const id of new Set(ids)) observations.push({ id, rank, state, url: pr.url, at });
   }
   return observations;
 }
@@ -281,7 +293,13 @@ export async function run(argv) {
     );
   }
 
-  const evidence = strongestEvidence(observations);
+  // One spelling before the fold. A PR title names an issue as `owner/repo#48`
+  // as legitimately as `#48`, and the regex keeps the whole match — so without
+  // this the two spellings were two rows in the table, two keys in the tracker
+  // read, and an id the metrics log could never join to its start.
+  const evidence = strongestEvidence(
+    observations.map((o) => ({ ...o, id: canonicalId(config, o.id) })),
+  );
   if (evidence.size === 0) {
     process.stdout.write(
       // The ID shape, not the project key: `config.project` is a YouTrack key
@@ -309,8 +327,9 @@ export async function run(argv) {
 
   const planned = [];
   const repairs = [];
+  let observed = 0;
   for (const id of ids) {
-    const { rank: targetRank, state: targetState, url } = evidence.get(id);
+    const { rank: targetRank, state: targetState, url, at = null } = evidence.get(id);
     const current = states.get(id) ?? UNKNOWN;
     const { action, why } = decide({
       current,
@@ -332,6 +351,20 @@ export async function run(argv) {
       const shown = action === 'unreadable' ? targetState : '-';
       process.stdout.write(`${row(id, action === 'unreadable' ? '?' : current, shown, why)}\n`);
     }
+
+    // A ticket at or past the target was closed by something other than this
+    // machine — CI, a colleague, the tracker itself at merge. The wrapper
+    // decides whether that closes a cycle the local log holds open, and is
+    // absent when metrics are off. `move` is not observed: the write below
+    // records it as every command transition is recorded.
+    if (action === 'ahead' || action === 'repair') {
+      const seen = await provider.observeClose?.(id, { state: current, at: at ?? new Date() });
+      if (seen?.recorded) observed += 1;
+    }
+  }
+
+  if (observed > 0) {
+    process.stdout.write(`\n${observed} close(s) made elsewhere recorded in the local transition log.\n`);
   }
 
   if (planned.length === 0 && repairs.length === 0) {

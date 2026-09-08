@@ -314,6 +314,9 @@ touches the network.
 - **`criteria`** is the one thing the tool cannot observe. `/dev-done` passes
   `--criteria first-pass` or `--criteria reworked` on the close; with no flag the field is `null`,
   meaning nobody said, rather than `false`.
+- **`observed: true`**, always the last key, marks a close this machine did not make: under `pr`
+  delivery the ticket is moved to Done by CI at merge, and `sync` records the close when it reads
+  it — dated at the PR's merge time, only for a ticket whose `start` is in this log, and once.
 
 Abandoned tickets are recorded exactly like finished ones — a log that counts only successes
 answers a question nobody asked.

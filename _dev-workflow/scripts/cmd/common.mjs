@@ -10,6 +10,7 @@ import { loadConfig } from '../../lib/config.mjs';
 import { readManifest } from '../../lib/manifest.mjs';
 import {
   closeEvent,
+  currentCycle,
   metricsEnabled,
   metricsFileOf,
   parseLog,
@@ -163,15 +164,73 @@ export function withMetrics(
       }
       return result;
     },
+
+    /**
+     * A close this machine did not make, recorded as if it had seen it (#48).
+     *
+     * Under `delivery.mode: pr` the move to Done happens in CI, whose log is
+     * discarded with the runner; `land` moves the ticket to `In Review`, which
+     * is not a rung. So every locally started cycle stayed open for ever, and
+     * the two fields the log exists to produce were never once computed.
+     * `sync` is the one local process that learns of the close — it reads the
+     * ticket and reports `ahead` — and this is the second door into the same
+     * writer `setState` uses, rather than a second writer.
+     *
+     * Only when the local log holds an open cycle for the ticket. A ticket
+     * nobody started here would get a row with `elapsedMs: null` — the exact
+     * shape of the three unrepairable rows — and, with no start to close the
+     * cycle, would get it again on every run. Idempotent by construction: after
+     * the append the cycle is closed and the next look finds nothing open.
+     *
+     * `at` is when it happened (the PR's `mergedAt`), not when it was noticed.
+     * Same rule as `setState`: this never fails the command it rides on.
+     *
+     * @param {string} id
+     * @param {{state: ?string, at?: Date|string|null}} seen
+     * @returns {Promise<{recorded: boolean}>}
+     */
+    async observeClose(id, { state, at = null } = {}) {
+      const role = roleOf(config, state);
+      if (role !== 'done' && role !== 'abandon') return { recorded: false };
+
+      const when = at instanceof Date ? at : new Date(at ?? NaN);
+      const dated = Number.isNaN(when.getTime()) ? now() : when;
+
+      try {
+        const path = await logPath();
+        if (!existsSync(path)) return { recorded: false };
+        const { events } = parseLog(readFileSync(path, 'utf8'));
+        if (!currentCycle(events, id).some((e) => e.event === 'start')) return { recorded: false };
+
+        const recorded = record({
+          path,
+          config,
+          provider,
+          id,
+          state,
+          criteria: null,
+          at: dated,
+          observed: true,
+        });
+        return { recorded };
+      } catch (err) {
+        process.stderr.write(`dev: could not record the observed close of ${id}: ${err.message}\n`);
+        return { recorded: false };
+      }
+    },
   };
 }
 
-/** Append one event, or say on stderr why it could not be appended. */
-function record({ path, config, provider, id, state, criteria, at }) {
+/**
+ * Append one event, or say on stderr why it could not be appended.
+ *
+ * @returns {boolean} whether a line was written
+ */
+function record({ path, config, provider, id, state, criteria, at, observed = false }) {
   const role = roleOf(config, state);
   // A transition to something the project has no rung for — parked in Blocked,
   // moved by hand — is not an event this log has an opinion about.
-  if (!role) return;
+  if (!role) return false;
 
   try {
     const existed = existsSync(path);
@@ -181,7 +240,7 @@ function record({ path, config, provider, id, state, criteria, at }) {
     const line =
       role === 'start'
         ? renderEvent({ role, id, state, at, provider: provider.name })
-        : closeEvent({ events, role, id, state, at, provider: provider.name, criteria });
+        : closeEvent({ events, role, id, state, at, provider: provider.name, criteria, observed });
 
     // A write this process was killed halfway through leaves a line with no
     // newline on it. Appending straight onto that would join the two into one
@@ -200,8 +259,12 @@ function record({ path, config, provider, id, state, criteria, at }) {
           'Add it to .gitignore: every developer appends to it, so a shared copy conflicts on merge.\n',
       );
     }
+    return true;
   } catch (err) {
-    process.stderr.write(`dev: could not record the transition of ${id}: ${err.message}\n`);
+    process.stderr.write(
+      `dev: could not record the ${observed ? 'observed close' : 'transition'} of ${id}: ${err.message}\n`,
+    );
+    return false;
   }
 }
 

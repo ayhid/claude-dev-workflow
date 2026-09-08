@@ -236,3 +236,116 @@ test('the checkout is resolved once, however many transitions there are', async 
 
   assert.equal(calls, 1);
 });
+
+/**
+ * A close made somewhere else, recorded here (#48).
+ *
+ * Under `delivery.mode: pr` the move to Done happens in CI, whose log is
+ * thrown away with the runner. `sync` is the one local process that learns of
+ * it, and `observeClose` is the second door into the same writer `setState`
+ * uses — one append, one format, one place to fail safely.
+ */
+const startRow = (id, at) =>
+  `${JSON.stringify({ at: at.toISOString(), event: 'start', id, state: 'In Progress', provider: 'github' })}\n`;
+
+/** The provider `sync` holds: nothing it reads here moves a ticket. */
+const readOnlyProvider = { name: 'github', setState: async () => ({ ok: true, state: 'Done' }) };
+
+test('an observed close goes through the same writer, dated when it happened', async () => {
+  const { main } = metricsFixture();
+  const began = new Date('2026-08-30T10:00:00.000Z');
+  const mergedAt = new Date('2026-08-31T10:00:00.000Z');
+  writeFileSync(join(main, LOG), startRow('#1', began));
+
+  const provider = withMetrics(readOnlyProvider, {
+    config: CONFIG,
+    root: main,
+    mainCheckout: async (dir) => dir,
+    now: () => new Date('2026-09-08T09:00:00.000Z'),
+  });
+  const r = await provider.observeClose('#1', { state: 'Done', at: mergedAt });
+
+  assert.deepEqual(r, { recorded: true });
+  const [, close] = readFileSync(join(main, LOG), 'utf8').trim().split('\n');
+  assert.equal(
+    close,
+    '{"at":"2026-08-31T10:00:00.000Z","event":"done","id":"#1","state":"Done","provider":"github",' +
+      '"elapsedMs":86400000,"starts":1,"criteria":null,"observed":true}',
+    'the merge time, not the time sync ran; and observed is the last key',
+  );
+});
+
+test('an observed close is recorded once — the second look finds the cycle closed', async () => {
+  const { main } = metricsFixture();
+  writeFileSync(join(main, LOG), startRow('#1', new Date('2026-08-30T10:00:00.000Z')));
+
+  const provider = withMetrics(readOnlyProvider, { config: CONFIG, root: main, mainCheckout: async (d) => d });
+  assert.deepEqual(await provider.observeClose('#1', { state: 'Done', at: new Date() }), { recorded: true });
+  const after = readFileSync(join(main, LOG), 'utf8');
+
+  assert.deepEqual(await provider.observeClose('#1', { state: 'Done', at: new Date() }), { recorded: false });
+  assert.equal(readFileSync(join(main, LOG), 'utf8'), after, 'nothing appended the second time');
+});
+
+test('a close nobody started here is not observed', async () => {
+  // A null-elapsed row is the #28/#29/#33 shape, and with no start to close
+  // the cycle it would be appended again on every run.
+  const { main } = metricsFixture();
+  writeFileSync(join(main, LOG), startRow('#2', new Date('2026-08-30T10:00:00.000Z')));
+
+  const provider = withMetrics(readOnlyProvider, { config: CONFIG, root: main, mainCheckout: async (d) => d });
+  assert.deepEqual(await provider.observeClose('#1', { state: 'Done', at: new Date() }), { recorded: false });
+  assert.equal(readFileSync(join(main, LOG), 'utf8'), startRow('#2', new Date('2026-08-30T10:00:00.000Z')));
+});
+
+test('a project with no log yet does not get one from an observation', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'metrics-observe-'));
+  const provider = withMetrics(readOnlyProvider, { config: CONFIG, root: tmp, mainCheckout: async (d) => d });
+  assert.deepEqual(await provider.observeClose('#1', { state: 'Done', at: new Date() }), { recorded: false });
+  assert.equal(existsSync(join(tmp, LOG)), false);
+});
+
+test('only a closing state is observed', async () => {
+  // `In Review` is not a rung, and `sync` reads `ahead` for it too.
+  const { main } = metricsFixture();
+  writeFileSync(join(main, LOG), startRow('#1', new Date('2026-08-30T10:00:00.000Z')));
+  const before = readFileSync(join(main, LOG), 'utf8');
+
+  const provider = withMetrics(readOnlyProvider, { config: CONFIG, root: main, mainCheckout: async (d) => d });
+  for (const state of ['In Review', 'In Progress', 'Blocked', null]) {
+    assert.deepEqual(await provider.observeClose('#1', { state, at: new Date() }), { recorded: false }, String(state));
+  }
+  assert.equal(readFileSync(join(main, LOG), 'utf8'), before);
+});
+
+test('an abandon seen elsewhere is a close too', async () => {
+  const { main } = metricsFixture();
+  writeFileSync(join(main, LOG), startRow('#1', new Date('2026-08-30T10:00:00.000Z')));
+
+  const provider = withMetrics(readOnlyProvider, { config: CONFIG, root: main, mainCheckout: async (d) => d });
+  assert.deepEqual(await provider.observeClose('#1', { state: 'Backlog', at: new Date() }), { recorded: true });
+  const row = JSON.parse(readFileSync(join(main, LOG), 'utf8').trim().split('\n').at(-1));
+  assert.deepEqual([row.event, row.starts, row.observed], ['abandon', 1, true]);
+});
+
+test('an observation never throws, even when the log path is a directory', async () => {
+  // Metrics rule 2, from the other door: `sync` must finish its report whether
+  // or not the log can be read.
+  const tmp = mkdtempSync(join(tmpdir(), 'metrics-observe-'));
+  mkdirSync(join(tmp, LOG));
+  const said = [];
+  const write = process.stderr.write;
+  process.stderr.write = (s) => (said.push(String(s)), true);
+  try {
+    const provider = withMetrics(readOnlyProvider, { config: CONFIG, root: tmp, mainCheckout: async (d) => d });
+    assert.deepEqual(await provider.observeClose('#1', { state: 'Done', at: new Date() }), { recorded: false });
+  } finally {
+    process.stderr.write = write;
+  }
+  assert.match(said.join(''), /could not record the observed close of #1/);
+});
+
+test('with metrics off there is no observer to call', () => {
+  const provider = withMetrics(readOnlyProvider, { config: { ...CONFIG, metrics: false }, root: '/nowhere' });
+  assert.equal(provider.observeClose, undefined, 'callers use provider.observeClose?.()');
+});
