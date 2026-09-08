@@ -12,6 +12,24 @@
  *                                the mapping onto the target set; writes migration-plan.md
  *   dev.mjs reorg rewrite [--dry-run] [--force] [--ignore-inconsistencies] [--repo PATH]
  *                                assemble docs-reorganized/ and migration-report.md
+ *   dev.mjs reorg triage [--print]   every lifecycle rule with the documents it covers; --print an answers template
+ *   dev.mjs reorg triage @answers.json   {rules: {id: lifecycle}, paths: {path: lifecycle}} → archive verdicts
+ *   dev.mjs reorg adrs [--dry-run] [--force]   one proposed ADR per intent claim, under reorg/decisions/
+ *
+ * `triage` is bulk classification by rule, before the reading rather than after
+ * it: a confirmed-historical rule records an ordinary `archive` verdict per
+ * path through `addVerdicts`, and `ingest next` then never offers those
+ * documents. There is no second store — a triage answer *is* a verdict.
+ *
+ * `adrs` reads the existing numbers from the project's real decisions
+ * directory (`docs.decisionsDir`) so an accepted proposal never collides, but
+ * writes only under `reorg/decisions/`: the immutability hook guards the real
+ * directory, and a proposal is exactly the kind of record it must not guard.
+ * It is also the kind of record a person edits — the options are theirs to
+ * fill in — so the sha256 of every file written goes in the ledger under
+ * `adrsWritten`, the way `rewrite` keeps `rewritten`, and a file that no longer
+ * matches is refused rather than overwritten or removed. `--force` is the user
+ * saying the edit is theirs to lose.
  *
  * Phase 3 writes under `_dev-workflow/artifacts/reorg/` — beside the ledger's
  * directory, inside the payload root, so the installer's delete pass never
@@ -27,21 +45,23 @@
  * a document that has never been scanned is not classifying anything.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-
-import { extname } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { dirname, extname, join, resolve } from 'node:path';
 
 import { sh } from '../../lib/sh.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
 import { parseArchitecture } from '../../lib/architecture.mjs';
+import { parseAdrFilename } from '../../lib/adr.mjs';
+import { applyTriage, proposeTriage, renderTriage } from '../../lib/doclife.mjs';
 import {
   addInconsistencies,
   addPairs,
   addVerdicts,
   DEFAULT_SIMILARITY_THRESHOLD,
   describeReorg,
+  describeVerdicts,
   mappingGate,
+  proposedAdrs,
   renderMigrationPlan,
   renderMigrationReport,
   renderRewrittenDoc,
@@ -59,6 +79,7 @@ export const REORG_DIR = join('_dev-workflow', 'artifacts', 'reorg');
 const PLAN = 'migration-plan.md';
 const REPORT = 'migration-report.md';
 const STAGED = 'docs-reorganized';
+const DECISIONS = 'decisions';
 
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
 const label = (word) => `${word}:`.padEnd(15);
@@ -77,7 +98,14 @@ const USAGE = `usage: dev.mjs reorg <verb>
   map --architecture <file> <@file> [--ignore-inconsistencies]
                      record the mapping onto the target set and write migration-plan.md
   rewrite [--dry-run] [--force] [--ignore-inconsistencies] [--repo PATH]
-                     assemble the staged tree under docs-reorganized/ and write migration-report.md`;
+                     assemble the staged tree under docs-reorganized/ and write migration-report.md
+  triage [--print]   every lifecycle rule with the documents it covers, and writes nothing;
+                     --print prints an answers template as JSON
+  triage <@file>     {rules: {id: lifecycle}, paths: {path: lifecycle}} — a confirmed historical rule
+                     records an archive verdict per path; an unanswered rule is counted, not applied
+  adrs [--dry-run] [--force]
+                     one proposed ADR per intent claim under decisions/, numbered after docs.decisionsDir;
+                     a proposal edited by hand is refused, and --force overwrites or removes it`;
 
 const ledgerPath = (root) => join(root, ARTIFACT_DIR, LEDGER);
 
@@ -388,7 +416,174 @@ export async function run(argv) {
     return refused ? 1 : 0;
   }
 
+  if (verb === 'triage') return triage({ root, rest });
+  if (verb === 'adrs') return adrs({ config, root, rest });
+
   throw new UserError(`unknown verb '${verb}'\n\n${USAGE}`);
+}
+
+/** The sources triage can still say something about: not gone, not excluded, not generated. */
+const TRIAGEABLE = ['pending', 'read'];
+
+/**
+ * Lifecycle triage by rule. Bare: print the proposal. `--print`: the same as
+ * an answers template, every rule pre-filled with what it proposes, so
+ * confirming is editing a file rather than typing it. `@file`: record.
+ */
+function triage({ root, rest }) {
+  const ledger = requireLedger(root);
+  const candidates = (ledger.sources ?? []).filter((s) => TRIAGEABLE.includes(s.state)).map((s) => s.path);
+  const groups = proposeTriage(candidates);
+
+  const answersArgs = rest.filter((a) => a.startsWith('@'));
+  if (answersArgs.length > 1) {
+    throw new UserError(`one answers file at a time — got ${answersArgs.join(' and ')}\n\n${USAGE}`);
+  }
+  const [answersArg] = answersArgs;
+  const flags = rest.filter((a) => !a.startsWith('@'));
+  for (const flag of flags) {
+    if (flag !== '--print') throw new UserError(`unknown argument '${flag}'\n\n${USAGE}`);
+  }
+
+  if (!answersArg) {
+    if (flags.includes('--print')) {
+      const rules = Object.fromEntries(groups.map((g) => [g.rule, g.lifecycle]));
+      process.stdout.write(`${JSON.stringify({ rules, paths: {} }, null, 2)}\n`);
+      return 0;
+    }
+    const L = [`${candidates.length} document(s) triaged by ${groups.length} rule(s) — proposed, nothing recorded`, ''];
+    L.push(...renderTriage(groups));
+    L.push('', 'Confirm or correct each rule, then: dev.mjs reorg triage @answers.json   (dev.mjs reorg triage --print writes the template)');
+    process.stdout.write(`${L.join('\n')}\n`);
+    return 0;
+  }
+
+  const answers = readJson(answersArg, 'triage', 'answers');
+  if (typeof answers !== 'object' || answers === null || Array.isArray(answers)) {
+    throw new UserError('the answers file must be a JSON object: {"rules": {"<rule id>": "<lifecycle>"}, "paths": {"<path>": "<lifecycle>"}}');
+  }
+  const applied = applyTriage(groups, answers);
+  if (!applied.ok) throw new UserError(applied.error);
+
+  const result = addVerdicts(ledger, applied.verdicts);
+  if (!result.ok) throw new UserError(result.error);
+  saveLedger(root, result.ledger);
+
+  const L = [`dev reorg: ${result.added.length} verdict(s) recorded`];
+  for (const a of applied.applied) L.push(`  ${a.rule}: ${a.lifecycle} (${a.count} document${a.count === 1 ? '' : 's'})`);
+  if (applied.overridden) L.push(`  ${applied.overridden} path answer(s) took precedence over their rule`);
+  if (applied.skipped.length) {
+    L.push(`  unanswered: ${applied.skipped.map((s) => `${s.rule} (${s.count})`).join(', ')} — counted, not applied`);
+  }
+  L.push('verdicts:', ...describeVerdicts(result.ledger));
+  process.stdout.write(`${L.join('\n')}\n`);
+  return 0;
+}
+
+/**
+ * Intent claims as proposed decision records, under `reorg/decisions/`.
+ *
+ * The existing numbers come from the project's real decisions directory —
+ * read here, since `lib/reorg.mjs` stays fs-free — and nothing is ever
+ * written there. A file in the proposed directory that matches the ADR
+ * pattern and is not among what would be written now has no proposal behind
+ * it any more (its claim went stale or was excluded, or the real directory
+ * grew and the numbering moved) and is removed and named: a proposal nobody
+ * can trace to a live claim is exactly the kind of record that gets accepted
+ * by mistake.
+ *
+ * Both the removal and the write are refused for a file whose bytes are not
+ * what this tool last wrote — edited by hand since, or never written by it —
+ * unless `--force`. The rule and the mechanism are `rewrite`'s: a proposal is
+ * meant to be edited, and an edit lost to a re-run is exactly the silent
+ * overwrite the manifest refuses everywhere else in this tool.
+ */
+function adrs({ config, root, rest }) {
+  let dryRun = false;
+  let force = false;
+  for (const arg of rest) {
+    if (arg === '--dry-run') dryRun = true;
+    else if (arg === '--force') force = true;
+    else throw new UserError(`unknown argument '${arg}'\n\n${USAGE}`);
+  }
+
+  const ledger = requireLedger(root);
+  const realDir = resolve(root, config.docs?.decisionsDir ?? 'docs/decisions');
+  const existingNumbers = existsSync(realDir) ? readdirSync(realDir).filter((n) => parseAdrFilename(n)) : [];
+  const { adrs: proposed, stale } = proposedAdrs(ledger, { existingNumbers });
+
+  const rel = join(REORG_DIR, DECISIONS);
+  const dir = join(root, rel);
+  const L = [];
+
+  if (!proposed.length) {
+    L.push(`dev reorg: no intent claims to propose as decisions${stale.length ? ` (${stale.length} stale)` : ''} — nothing written`);
+  }
+
+  const written = { ...(ledger.adrsWritten ?? {}) };
+  let wrote = false;
+  let refused = 0;
+  const notOurs = '(edited by hand since it was written, or never written by this tool';
+
+  const keep = new Set(proposed.map((a) => a.file));
+  const present = existsSync(dir) ? readdirSync(dir).filter((n) => parseAdrFilename(n)) : [];
+  for (const name of present.sort()) {
+    if (keep.has(name)) continue;
+    const relName = join(rel, name);
+    if (sha256(readFileSync(join(dir, name), 'utf8')) !== written[name] && !force) {
+      L.push(`${label('refused')}${relName}   ${notOurs} — --force removes it)`);
+      refused++;
+      continue;
+    }
+    if (dryRun) {
+      L.push(`${label('would remove')}${relName}   (no proposal by that name from this ledger)`);
+      continue;
+    }
+    unlinkSync(join(dir, name));
+    delete written[name];
+    wrote = true;
+    L.push(`${label('removed')}${relName}   (no proposal by that name from this ledger)`);
+  }
+
+  for (const a of proposed) {
+    const abs = join(dir, a.file);
+    const relName = join(rel, a.file);
+    const before = existsSync(abs) ? readFileSync(abs, 'utf8') : null;
+    // Already what we would write: nothing to lose, whatever the ledger
+    // remembers — so the hash is (re)recorded rather than the file refused.
+    if (before === a.text) {
+      if (written[a.file] !== sha256(a.text)) {
+        written[a.file] = sha256(a.text);
+        wrote = true;
+      }
+      L.push(`${label('unchanged')}${relName}   (${a.claimId})`);
+      continue;
+    }
+    if (before !== null && sha256(before) !== written[a.file] && !force) {
+      L.push(`${label('refused')}${relName}   ${notOurs} — --force overwrites it)`);
+      refused++;
+      continue;
+    }
+    if (dryRun) {
+      L.push(`${label('would write')}${relName}   (${a.claimId})`);
+      continue;
+    }
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(abs, a.text);
+    written[a.file] = sha256(a.text);
+    wrote = true;
+    L.push(`${label(before === null ? 'created' : 'rewritten')}${relName}   (${a.claimId})`);
+  }
+  if (!dryRun && wrote) saveLedger(root, { ...ledger, adrsWritten: written });
+
+  if (proposed.length) {
+    L.push('', `${proposed.length} proposed ADR(s) numbered after ${config.docs?.decisionsDir ?? 'docs/decisions'} (next: ${String(proposed[0].number).padStart(4, '0')})${dryRun ? ' — dry run, nothing written' : ''}`);
+  }
+  if (stale.length) L.push(`${stale.length} stale intent claim(s) not proposed: ${stale.map((c) => c.id).join(', ')} — re-read their sources first`);
+  if (proposed.length) L.push('Accept one with /dev-adr — it is copied into the real directory there, never here.');
+  if (refused) L.push(`${refused} refused — edited by hand since written, or never written by this tool. --force overwrites or removes them.`);
+  process.stdout.write(`${L.join('\n')}\n`);
+  return refused ? 1 : 0;
 }
 
 /** The architecture file, parsed by the format its extension names. */

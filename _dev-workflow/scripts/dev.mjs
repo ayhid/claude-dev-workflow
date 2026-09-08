@@ -45,7 +45,7 @@ const USAGE = `usage: dev.mjs <command> [args]
   build  <PARENT-ID> [--start] [--land [--apply]] [--repo PATH]   the units' board; mount or land what is ready
   assess [--repo PATH] [--json]         greenfield or brownfield, proposed from signals
   ingest [scan|next|read|enrich|record|answer|emit]   absorb existing documentation, in steps
-  reorg  [classify|shortlist|detect|resolve|map|rewrite]   from ingest's ledger to a staged, reorganised draft
+  reorg  [triage|classify|shortlist|detect|resolve|map|rewrite|adrs]   from ingest's ledger to a staged, reorganised draft
   docs   [init|record|render|check]     scaffold and render the documentation skeleton
   adr    [new|accept|reject|supersede|list|index]  architecture decision records
   standup [--since 1d] [--stale 7d] [--repo PATH]

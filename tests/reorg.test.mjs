@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { emptyLedger, mergeSources, setEnrichment } from '../lib/ingest.mjs';
+import { addClaims, emptyLedger, mergeSources, setEnrichment } from '../lib/ingest.mjs';
 import {
   addInconsistencies,
   addPairs,
@@ -18,6 +18,7 @@ import {
   describeReorg,
   describeVerdicts,
   mappingGate,
+  proposedAdrs,
   renderMigrationPlan,
   renderRewrittenDoc,
   resolveInconsistency,
@@ -635,6 +636,63 @@ test('frontmatter strings are quoted, so a title with a colon or a leading # sur
   assert.match(out, /\n# Ops: the runbook\n/);
 });
 
+// --- intent claims as proposed ADRs -------------------------------------------------
+
+const withIntentClaims = () => {
+  const ledger = withSources('README.md', 'docs/design.md');
+  const r = addClaims(
+    ledger,
+    [
+      { text: 'Postgres was chosen for the JSON support. Mongo lost on operational familiarity.', kind: 'intent', source: 'docs/design.md', topic: 'storage' },
+      { text: 'The hook is registered', kind: 'observable', anchor: 'x:1', source: 'README.md', topic: 't' },
+      { text: 'Worktrees are the default so a ticket never disturbs open work', kind: 'intent', source: 'README.md', topic: 'git' },
+    ],
+    { now: NOW },
+  );
+  assert.ok(r.ok, r.error);
+  return r.ledger;
+};
+
+test('proposedAdrs renders one proposed record per non-stale intent claim, numbered after the existing records, byte-stably', () => {
+  let ledger = withIntentClaims();
+  ledger = { ...ledger, claims: ledger.claims.map((c) => (c.id === 'c3' ? { ...c, status: 'stale' } : c)) };
+
+  const { adrs, stale } = proposedAdrs(ledger, { existingNumbers: ['0001-a.md', 7] });
+  assert.deepEqual(adrs.map((a) => [a.number, a.claimId, a.source]), [[8, 'c1', 'docs/design.md']]);
+  assert.match(adrs[0].file, /^0008-postgres-was-chosen/);
+  assert.deepEqual(stale.map((c) => c.id), ['c3']);
+
+  const text = adrs[0].text;
+  assert.match(text, /^# 0008\. Postgres was chosen for the JSON support\.\n/, 'the title is the first sentence');
+  assert.match(text, /- Status: proposed\n- Date: 2026-08-28\n/, 'dated from recordedAt, never the clock');
+  assert.match(text, /## Context\n\n.*c1.*docs\/design\.md/);
+  assert.match(text, /> Postgres was chosen for the JSON support\. Mongo lost on operational familiarity\./);
+  assert.match(text, /## Options considered\n\n- \*\*<option>\*\*/, 'the options are for /dev-adr to fill in');
+  assert.equal(proposedAdrs(ledger, { existingNumbers: [7] }).adrs[0].text, text);
+});
+
+test('proposedAdrs numbers from 1 with no existing records, in claim order, and caps a long title', () => {
+  const ledger = addClaims(withSources('a.md'), [{ text: `${'word '.repeat(40)}and then some more`, kind: 'intent', source: 'a.md' }], { now: NOW }).ledger;
+  const { adrs } = proposedAdrs(withIntentClaims(), { existingNumbers: [] });
+  assert.deepEqual(adrs.map((a) => [a.number, a.claimId]), [[1, 'c1'], [2, 'c3']]);
+  const [long] = proposedAdrs(ledger, { existingNumbers: [] }).adrs;
+  const title = /^# 0001\. (.*)$/m.exec(long.text)[1];
+  assert.ok(title.length <= 100, `${title.length} chars`);
+  assert.match(title, /…$/);
+});
+
+test('a live claim keeps its number when an earlier intent claim goes stale or is excluded', () => {
+  const full = proposedAdrs(withIntentClaims(), { existingNumbers: [7] });
+  assert.deepEqual(full.adrs.map((a) => [a.number, a.claimId]), [[8, 'c1'], [9, 'c3']]);
+
+  for (const status of ['stale', 'excluded']) {
+    const ledger = { ...withIntentClaims(), claims: withIntentClaims().claims.map((c) => (c.id === 'c1' ? { ...c, status } : c)) };
+    const { adrs } = proposedAdrs(ledger, { existingNumbers: [7] });
+    assert.deepEqual(adrs.map((a) => [a.number, a.claimId]), [[9, 'c3']], `c3 stays 0009 when c1 is ${status}`);
+    assert.equal(adrs[0].text, full.adrs[1].text, 'and its record is byte-identical');
+  }
+});
+
 // --- through the real CLI ----------------------------------------------------------
 
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -1083,4 +1141,217 @@ test('rewrite takes --repo like scan does, and refuses an unknown flag', async (
   const bad = await dev(['reorg', 'rewrite', '--nope']);
   assert.notEqual(bad.code, 0);
   assert.match(bad.stderr, /--nope/);
+});
+
+// --- triage: rules, not files ------------------------------------------------------
+
+const HISTORICAL_DOCS = {
+  'docs/reports/validation-2025-12-20.md': '# Validation\n\nold\n',
+  'docs/stories/login.md': '# Login\n\nas a user\n',
+};
+
+test('triage prints every rule with its count, and writes nothing', async () => {
+  const { repo, dev } = await withDocs(HISTORICAL_DOCS);
+  await dev(['ingest', 'scan']);
+  const before = readFileSync(LEDGER(repo), 'utf8');
+
+  const r = await dev(['reorg', 'triage']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /readme .*1 document/);
+  assert.match(r.stdout, /dated-name .*1 document/);
+  assert.match(r.stdout, /stories-dir .*1 document/);
+  assert.match(r.stdout, /default-reference .*1 document/);
+  assert.match(r.stdout, /docs\/stories\/login\.md/);
+  assert.equal(readFileSync(LEDGER(repo), 'utf8'), before);
+
+  const printed = await dev(['reorg', 'triage', '--print']);
+  assert.equal(printed.code, 0, printed.stderr);
+  assert.deepEqual(JSON.parse(printed.stdout), {
+    rules: { readme: 'reference', 'dated-name': 'historical', 'stories-dir': 'historical', 'default-reference': 'reference' },
+    paths: {},
+  });
+  assert.equal(readFileSync(LEDGER(repo), 'utf8'), before);
+});
+
+test('triage @answers records an archive verdict per confirmed-historical path naming the rule; the unanswered are counted, an unknown rule is refused', async () => {
+  const { repo, dev } = await withDocs(HISTORICAL_DOCS);
+  await dev(['ingest', 'scan']);
+
+  const answers = join(repo, 'answers.json');
+  writeFileSync(answers, JSON.stringify({ rules: { 'dated-name': 'historical' } }));
+  const r = await dev(['reorg', 'triage', `@${answers}`]);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /1 verdict\(s\) recorded/);
+  assert.match(r.stdout, /unanswered: .*readme.*stories-dir.*default-reference/s);
+  assert.match(r.stdout, /archive: 1/);
+
+  const [verdict] = readLedger(repo).verdicts;
+  assert.equal(verdict.path, 'docs/reports/validation-2025-12-20.md');
+  assert.equal(verdict.classification, 'archive');
+  assert.match(verdict.justification, /^triage rule dated-name: /);
+
+  const before = readLedger(repo);
+  writeFileSync(answers, JSON.stringify({ rules: { bogus: 'historical', 'stories-dir': 'historical' } }));
+  const bad = await dev(['reorg', 'triage', `@${answers}`]);
+  assert.notEqual(bad.code, 0);
+  assert.match(bad.stderr, /bogus/);
+  assert.deepEqual(readLedger(repo), before, 'a refused batch writes nothing');
+});
+
+test('triage only ever touches pending and read sources, and a read document stays read', async () => {
+  const { repo, dev } = await withDocs(HISTORICAL_DOCS);
+  await dev(['ingest', 'scan']);
+  await dev(['ingest', 'read', 'docs/stories/login.md']);
+
+  const answers = join(repo, 'answers.json');
+  writeFileSync(answers, JSON.stringify({ rules: { 'stories-dir': 'historical' } }));
+  const r = await dev(['reorg', 'triage', `@${answers}`]);
+  assert.equal(r.code, 0, r.stderr);
+  const ledger = readLedger(repo);
+  assert.equal(ledger.sources.find((s) => s.path === 'docs/stories/login.md').state, 'read');
+  assert.equal(ledger.verdicts.length, 1);
+});
+
+// --- adrs: intent claims as proposed records ---------------------------------------
+
+const DECISIONS = (repo) => join(REORG(repo), 'decisions');
+
+async function withIntent(files = {}) {
+  const s = await withDocs(files);
+  await s.dev(['ingest', 'scan']);
+  const claims = join(s.repo, 'claims.json');
+  writeFileSync(
+    claims,
+    JSON.stringify({
+      claims: [
+        { text: 'Postgres was chosen for the JSON support. Mongo lost on operational familiarity.', kind: 'intent', source: 'docs/design.md', topic: 'storage' },
+        { text: 'The service talks to Postgres', kind: 'observable', anchor: 'README.md:3', source: 'README.md', topic: 'storage' },
+        { text: 'Worktrees are the default so a ticket never disturbs open work', kind: 'intent', source: 'README.md', topic: 'git' },
+      ],
+    }),
+  );
+  const r = await s.dev(['ingest', 'record', `@${claims}`]);
+  assert.equal(r.code, 0, r.stderr);
+  return s;
+}
+
+test('adrs writes one proposed ADR per intent claim under artifacts/reorg/decisions, numbered after the real decisions directory, byte-identical on a re-run', async () => {
+  const s = await withIntent({ 'docs/decisions/0004-existing.md': '# 0004. Existing\n\n- Status: accepted\n- Date: 2026-01-01\n' });
+  const before = readTree(s.repo);
+
+  const dry = await s.dev(['reorg', 'adrs', '--dry-run']);
+  assert.equal(dry.code, 0, dry.stderr);
+  assert.match(dry.stdout, /would write.*0005-postgres-was-chosen/);
+  assert.match(dry.stdout, /would write.*0006-worktrees-are-the-default/);
+  assert.ok(!existsSync(DECISIONS(s.repo)), '--dry-run writes nothing');
+
+  const first = await s.dev(['reorg', 'adrs']);
+  assert.equal(first.code, 0, first.stderr);
+  assert.match(first.stdout, /2 proposed ADR\(s\)/);
+  const files = readdirSync(DECISIONS(s.repo)).sort();
+  assert.equal(files.length, 2);
+  assert.match(files[0], /^0005-postgres-was-chosen/);
+  assert.match(files[1], /^0006-worktrees-are-the-default/);
+
+  const text = readFileSync(join(DECISIONS(s.repo), files[0]), 'utf8');
+  assert.match(text, /^# 0005\. Postgres was chosen for the JSON support\.\n/);
+  assert.match(text, /- Status: proposed\n- Date: \d{4}-\d{2}-\d{2}\n/);
+  assert.match(text, /## Context\n\n.*c1.*docs\/design\.md/);
+  assert.match(text, /> Postgres was chosen for the JSON support\. Mongo lost/);
+
+  const again = await s.dev(['reorg', 'adrs']);
+  assert.equal(again.code, 0, again.stderr);
+  assert.match(again.stdout, /unchanged.*0005-postgres-was-chosen/);
+  assert.equal(readFileSync(join(DECISIONS(s.repo), files[0]), 'utf8'), text);
+  assert.deepEqual(readdirSync(DECISIONS(s.repo)).sort(), files);
+
+  assert.deepEqual(readTree(s.repo), before, 'the project itself, docs/decisions included, is untouched');
+});
+
+test('adrs removes a proposed record whose claim is gone or stale, and says so', async () => {
+  const s = await withIntent();
+  await s.dev(['reorg', 'adrs']);
+  const files = readdirSync(DECISIONS(s.repo)).sort();
+  assert.equal(files.length, 2);
+  writeFileSync(join(DECISIONS(s.repo), '0099-left-over.md'), '# 0099. Left over\n\n- Status: proposed\n- Date: 2026-01-01\n');
+
+  const ledger = readLedger(s.repo);
+  ledger.claims = ledger.claims.map((c) => (c.id === 'c3' ? { ...c, status: 'stale' } : c));
+  writeFileSync(LEDGER(s.repo), JSON.stringify(ledger, null, 2));
+
+  const r = await s.dev(['reorg', 'adrs']);
+  assert.equal(r.code, 1, 'a refusal is an exit 1, as rewrite has it');
+  assert.match(r.stdout, /removed.*0002-worktrees-are-the-default/, 'a file this tool wrote and nobody touched is removed');
+  assert.match(r.stdout, /refused.*0099-left-over\.md.*never written by this tool/, 'a file it never wrote is not its to delete');
+  assert.match(r.stdout, /1 stale intent claim\(s\) not proposed: c3/);
+  assert.deepEqual(readdirSync(DECISIONS(s.repo)).sort(), [files[0], '0099-left-over.md']);
+
+  const forced = await s.dev(['reorg', 'adrs', '--force']);
+  assert.equal(forced.code, 0, forced.stderr);
+  assert.match(forced.stdout, /removed.*0099-left-over\.md/);
+  assert.deepEqual(readdirSync(DECISIONS(s.repo)).sort(), [files[0]]);
+});
+
+test('adrs refuses to overwrite or remove a proposal edited by hand, records what it wrote, and --force is the user saying the edit is theirs to lose', async () => {
+  const s = await withIntent();
+  await s.dev(['reorg', 'adrs']);
+  const [first, second] = readdirSync(DECISIONS(s.repo)).sort();
+  assert.equal(Object.keys(readLedger(s.repo).adrsWritten ?? {}).length, 2, 'the hash of every proposal written is recorded');
+
+  const edited = `${readFileSync(join(DECISIONS(s.repo), first), 'utf8')}\n- **Mongo** — rejected: nobody here runs it.\n`;
+  writeFileSync(join(DECISIONS(s.repo), first), edited);
+
+  const again = await s.dev(['reorg', 'adrs']);
+  assert.equal(again.code, 1);
+  assert.match(again.stdout, new RegExp(`refused.*${first}.*edited by hand`));
+  assert.match(again.stdout, new RegExp(`unchanged.*${second}`));
+  assert.equal(readFileSync(join(DECISIONS(s.repo), first), 'utf8'), edited, 'the edit survives');
+
+  const ledger = readLedger(s.repo);
+  ledger.claims = ledger.claims.map((c) => (c.id === 'c1' ? { ...c, status: 'stale' } : c));
+  writeFileSync(LEDGER(s.repo), JSON.stringify(ledger, null, 2));
+  const stale = await s.dev(['reorg', 'adrs']);
+  assert.equal(stale.code, 1);
+  assert.match(stale.stdout, new RegExp(`refused.*${first}.*edited by hand`), 'a stale claim does not make an edited proposal deletable');
+  assert.ok(existsSync(join(DECISIONS(s.repo), first)));
+
+  const dry = await s.dev(['reorg', 'adrs', '--dry-run', '--force']);
+  assert.equal(dry.code, 0, dry.stderr);
+  assert.match(dry.stdout, new RegExp(`would remove.*${first}`));
+  assert.ok(existsSync(join(DECISIONS(s.repo), first)), '--dry-run removes nothing, even forced');
+
+  const forced = await s.dev(['reorg', 'adrs', '--force']);
+  assert.equal(forced.code, 0, forced.stderr);
+  assert.match(forced.stdout, new RegExp(`removed.*${first}`));
+  assert.deepEqual(readdirSync(DECISIONS(s.repo)).sort(), [second]);
+  assert.deepEqual(Object.keys(readLedger(s.repo).adrsWritten), [second], 'a removed file is forgotten');
+});
+
+test('triage refuses a second @file rather than silently using the first, and a ledger with no sources triages nothing', async () => {
+  const { repo, dev } = await withDocs(HISTORICAL_DOCS);
+  await dev(['ingest', 'scan']);
+  const answers = join(repo, 'answers.json');
+  writeFileSync(answers, JSON.stringify({ rules: { 'dated-name': 'historical' } }));
+  const before = readFileSync(LEDGER(repo), 'utf8');
+
+  const two = await dev(['reorg', 'triage', `@${answers}`, '@other.json']);
+  assert.notEqual(two.code, 0);
+  assert.match(two.stderr, /other\.json/);
+  assert.equal(readFileSync(LEDGER(repo), 'utf8'), before, 'nothing recorded');
+
+  const ledger = JSON.parse(before);
+  delete ledger.sources;
+  writeFileSync(LEDGER(repo), JSON.stringify(ledger, null, 2));
+  const none = await dev(['reorg', 'triage']);
+  assert.equal(none.code, 0, none.stderr);
+  assert.match(none.stdout, /0 document\(s\) triaged by 0 rule\(s\)/);
+});
+
+test('adrs with no intent claims writes nothing and says why', async () => {
+  const { repo, dev } = await withDocs();
+  await dev(['ingest', 'scan']);
+  const r = await dev(['reorg', 'adrs']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /no intent claims/);
+  assert.ok(!existsSync(DECISIONS(repo)));
 });

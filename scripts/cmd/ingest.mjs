@@ -138,6 +138,9 @@ export async function run(argv) {
           `  left:  ${after} document(s) after this one`,
         );
       }
+      // Set aside by a verdict, never silently: the number is the only trace
+      // this output leaves of documents the reading will not touch.
+      if (unit.detail.skipped) L.push(`  skipped: ${unit.detail.skipped} (archive or delete verdict)`);
     }
     if (unit.detail?.questions) {
       L.push('');
