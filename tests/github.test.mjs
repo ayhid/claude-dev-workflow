@@ -36,7 +36,7 @@ const CONFIG = {
 };
 
 /** A fake `gh` holding real state, so a write is visible to the next read. */
-function fakeGh({ fail = false, linkFails = false, labels = ['status: in progress', 'status: review', 'status: done'] } = {}) {
+function fakeGh({ fail = false, linkFails = false, labels = ['status: in progress', 'status: review', 'status: done'], templates = null } = {}) {
   const issues = new Map([
     [1, { number: 1, title: 'First', body: 'A body', state: 'OPEN', stateReason: null, labels: [{ name: 'status: in progress' }], assignees: [{ login: 'ayoub' }], author: { login: 'ayoub' }, createdAt: '2025-01-01T00:00:00Z', comments: [{ author: { login: 'x' }, body: 'hi', createdAt: '2025-01-02T00:00:00Z' }], url: 'https://github.com/acme/api/issues/1' }],
     [2, { number: 2, title: 'Second', body: '', state: 'OPEN', stateReason: null, labels: [{ name: 'status: review' }], assignees: [], author: { login: 'b' }, createdAt: '2025-01-01T00:00:00Z', comments: [], url: 'https://github.com/acme/api/issues/2' }],
@@ -61,6 +61,17 @@ function fakeGh({ fail = false, linkFails = false, labels = ['status: in progres
     if (fail) return fail0;
 
     if (args[0] === 'api' && args[1] === 'user') return out('ayoub');
+
+    // The contents API, as `templates()` drives it: a directory listing, then
+    // one call per file answering base64. A repository without the directory
+    // is a 404 on the listing, which is what the real one says.
+    if (args[0] === 'api' && String(args[1]).startsWith('repos/acme/api/contents/.github/ISSUE_TEMPLATE')) {
+      const rest = String(args[1]).slice('repos/acme/api/contents/.github/ISSUE_TEMPLATE'.length).replace(/^\//, '');
+      if (!templates) return { ok: false, code: 1, stdout: '', stderr: 'gh: Not Found (HTTP 404)' };
+      if (!rest) return out(Object.keys(templates).map((name) => ({ name, path: `.github/ISSUE_TEMPLATE/${name}`, type: 'file' })));
+      if (!(rest in templates)) return { ok: false, code: 1, stdout: '', stderr: 'gh: Not Found (HTTP 404)' };
+      return out({ name: rest, encoding: 'base64', content: Buffer.from(templates[rest]).toString('base64') });
+    }
 
     // The batched read. Answers by exact number, and — like the real API —
     // reports a number that does not exist as an `errors` entry alongside the
@@ -156,7 +167,9 @@ function fakeGh({ fail = false, linkFails = false, labels = ['status: in progres
       if (args[1] === 'comment') return out('');
       if (args[1] === 'create') {
         const number = nextNumber++;
-        issues.set(number, { number, title: args[args.indexOf('--title') + 1], body: opts.input ?? '', state: 'OPEN', stateReason: null, labels: [], assignees: [], author: { login: 'ayoub' }, createdAt: '2025-01-03T00:00:00Z', comments: [], url: `https://github.com/acme/api/issues/${number}` });
+        const created = [];
+        for (let k = 0; k < args.length; k += 1) if (args[k] === '--label') created.push({ name: args[k + 1] });
+        issues.set(number, { number, title: args[args.indexOf('--title') + 1], body: opts.input ?? '', state: 'OPEN', stateReason: null, labels: created, assignees: [], author: { login: 'ayoub' }, createdAt: '2025-01-03T00:00:00Z', comments: [], url: `https://github.com/acme/api/issues/${number}` });
         return out(`Creating issue in acme/api\n\nhttps://github.com/acme/api/issues/${number}`);
       }
     }
@@ -519,6 +532,70 @@ test('create warns rather than failing when a type has no label', async () => {
   const r = await provider.create({ summary: 'T', description: 'B', type: 'Bug' });
   assert.ok(r.ok);
   assert.match(r.warnings.join(' '), /no GitHub label mapped for type "Bug"/);
+});
+
+test('create passes template labels after the type label, one --label each', async () => {
+  const config = { ...CONFIG, github: { ...CONFIG.github, labels: { ...CONFIG.github.labels, type: { Bug: 'kind: bug' } } } };
+  const { provider, calls, issues } = build({ config });
+  const r = await provider.create({ summary: 'T', description: 'B', type: 'Bug', labels: ['needs-triage', 'area: export'] });
+  assert.ok(r.ok, r.error);
+  const c = calls.find((x) => x.args[1] === 'create');
+  const labels = c.args.filter((_, i) => c.args[i - 1] === '--label');
+  assert.deepEqual(labels, ['kind: bug', 'needs-triage', 'area: export']);
+  assert.deepEqual(issues.get(9).labels.map((l) => l.name), ['kind: bug', 'needs-triage', 'area: export']);
+});
+
+test('create without labels sends no --label at all', async () => {
+  const { provider, calls } = build();
+  await provider.create({ summary: 'T', description: 'B' });
+  const c = calls.find((x) => x.args[1] === 'create');
+  assert.ok(!c.args.includes('--label'));
+});
+
+test('a failed create surfaces what gh said', async () => {
+  const run = async (cmd, args) => {
+    if (args[0] === '--version') return { ok: true, code: 0, stdout: 'gh version 2.40.0 (2024-01-01)', stderr: '' };
+    if (args[0] === 'auth') return { ok: true, code: 0, stdout: '', stderr: '' };
+    return { ok: false, code: 1, stdout: '', stderr: "could not add label: 'nope' not found" };
+  };
+  const r = createGitHubProvider({ config: CONFIG, run });
+  const c = await r.provider.create({ summary: 'T', description: 'B', labels: ['nope'] });
+  assert.equal(c.ok, false);
+  assert.match(c.error, /'nope' not found/, 'stderr from a write is never swallowed');
+});
+
+// --- templates ----------------------------------------------------------------
+
+test('issueTemplates is declared', () => {
+  const { provider } = build();
+  assert.equal(provider.capabilities.issueTemplates, true);
+});
+
+test('templates() answers an empty list for a repository without the directory', async () => {
+  const { provider } = build();
+  const r = await provider.templates();
+  assert.ok(r.ok, r.error);
+  assert.deepEqual(r.data, []);
+});
+
+test('templates() lists the directory and decodes each file, in name order', async () => {
+  const { provider, calls } = build({ templates: { 'zeta.md': '## Z\n', 'alpha.yml': 'name: A\nbody: []\n', 'config.yml': 'blank_issues_enabled: false\n', 'README.txt': 'no' } });
+  const r = await provider.templates();
+  assert.ok(r.ok, r.error);
+  assert.deepEqual(r.data, [
+    { filename: 'alpha.yml', text: 'name: A\nbody: []\n' },
+    { filename: 'config.yml', text: 'blank_issues_enabled: false\n' },
+    { filename: 'zeta.md', text: '## Z\n' },
+  ], 'raw text, sorted; what is and is not a template is lib/issuetemplate.mjs\'s call');
+  const fetched = calls.filter((c) => c.args[0] === 'api' && /ISSUE_TEMPLATE\//.test(c.args[1])).map((c) => c.args[1]);
+  assert.equal(fetched.length, 3, 'one fetch per template-shaped file, none for README.txt');
+});
+
+test('a failing transport makes templates() report rather than answer empty', async () => {
+  const { provider } = build({ fail: true });
+  const r = await provider.templates();
+  assert.equal(r.ok, false, 'an unreachable tracker is not a repository without templates');
+  assert.match(r.error, /exploded/);
 });
 
 test('priorities are declared unsupported rather than silently dropped', () => {

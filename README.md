@@ -409,6 +409,9 @@ Each command below is prefixed with `node _dev-workflow/scripts/dev.mjs`.
 | `create --dup-check "slug 500 router"` | open issues matching keywords; reports only, never files (exits 1 only when the search itself cannot run) | HTTP only |
 | `create "Summary" @/tmp/body.md Bug Major` | scans open issues for a duplicate first, then files the issue and prints the new ID on stdout | HTTP only |
 | `create "Summary" @/tmp/body.md --allow-duplicate` | files even though the scan matched, and says what it matched | HTTP only |
+| `create "Summary" @/tmp/body.md Bug --template bug_report.md` | names which of several repo templates the body must satisfy | HTTP only |
+| `create --templates` | the repository's issue templates, filename and name | HTTP only |
+| `create --template bug_report.md` \| `--template Bug` | prints a repo template verbatim, or the shipped default for a configured issue type | HTTP only |
 | `start ABC-22 [--type T] [--mode worktree\|branch] [--repo PATH]` | branch or worktree, ticket to in progress | HTTP + git |
 | `start ABC-22 --print` | just shows the name and path | git |
 | `resume [ABC-22]` | worktree back, uncommitted files and commits so far, ticket caught up | HTTP + git |
@@ -437,6 +440,16 @@ Each command below is prefixed with `node _dev-workflow/scripts/dev.mjs`.
 keywords it prints the candidates, exits `2` and files nothing, and `--allow-duplicate` is the one
 flag that overrides it. A backend that cannot search, or a search that fails, warns and files — the
 check is never a new way for filing to fail.
+
+`create` also respects the repository's issue template, which piping a body into `gh issue create`
+otherwise bypasses. It reads `.github/ISSUE_TEMPLATE/` from the checkout, falls back to the
+tracker's API when the checkout has none, and to a shipped default per issue type when the
+repository has none — and says which on stderr every time. A body missing a repo template's
+section is refused with the section named and nothing filed; there is no bypass flag, because a
+template that does not fit is a template to fix. The shipped defaults require only
+`## Acceptance criteria`, non-empty, and warn about the rest. With several repo templates,
+`--template <name>` picks one — it is never inferred from the type. The template's `labels:` are
+applied on top of the type label and its `title:` prefixes the summary.
 
 `config`, `fetch`, `update` and `create` are plain HTTP. `start`, `resume`, `abandon`, `land`,
 `standup` and `sync` additionally drive `git`, and `land`, `standup` and `sync` the GitHub CLI —

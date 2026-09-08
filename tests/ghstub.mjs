@@ -47,6 +47,34 @@ printf '%s\\n' "$*" >> "$GH_LOG"
 [ "\${1:-}" = "--version" ] && { echo "gh version 2.40.0 (2024-01-01)"; exit 0; }
 [ "\${1:-}" = "auth" ] && exit 0
 
+# The contents API, as \`templates()\` drives it, in both modes: a directory
+# listing of \`$GH_TEMPLATES\`, then one call per file answering base64. Unset,
+# the repository has no such directory, and that is a 404 — the words the real
+# \`gh api\` prints, since the adapter reads them.
+case "\${1:-} \${2:-}" in
+  "api repos/"*)
+    d="\${GH_TEMPLATES:-}"
+    f="\${2#repos/o/r/contents/.github/ISSUE_TEMPLATE}"
+    f="\${f#/}"
+    if [ -z "$d" ] || [ ! -d "$d" ]; then echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi
+    if [ -z "$f" ]; then
+      first=1
+      printf '['
+      for p in "$d"/*; do
+        [ -f "$p" ] || continue
+        n=$(basename "$p")
+        [ "$first" = 1 ] || printf ','
+        first=0
+        printf '{"name":"%s","path":".github/ISSUE_TEMPLATE/%s","type":"file"}' "$n" "$n"
+      done
+      printf ']\\n'
+    else
+      [ -f "$d/$f" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+      printf '{"name":"%s","encoding":"base64","content":"%s"}\\n' "$f" "$(base64 < "$d/$f" | tr -d '\\n')"
+    fi
+    exit 0 ;;
+esac
+
 # --- table mode (#103) ----------------------------------------------------------
 # With $GH_ISSUES set, the repository is whatever that JSON file says: a map of
 # number -> {number,title,body,state,stateReason,url,labels:[names],subIssues:[numbers]}.
@@ -298,7 +326,7 @@ export async function scaffold({ repos = null, remote = false } = {}) {
  * the same GitHub slug the stub answers for — `sync` reads `repos[].github`,
  * not the top-level one.
  */
-export async function withStubGh({ labels = '{"name":"status: in progress"}', prs = [], prsByState = {}, config = CONFIG, repos = null, remote = false, issues = null } = {}) {
+export async function withStubGh({ labels = '{"name":"status: in progress"}', prs = [], prsByState = {}, config = CONFIG, repos = null, remote = false, issues = null, templates = null } = {}) {
   const s = await scaffold({ repos, remote });
   const projectRoot = repos ? s.root : s.repo;
   const written = repos
@@ -324,7 +352,14 @@ export async function withStubGh({ labels = '{"name":"status: in progress"}', pr
     prs: join(s.root, 'gh.prs'),
     issues: join(s.root, 'gh.issues'),
     created: join(s.root, 'gh.created'),
+    templates: join(s.root, 'gh.templates'),
   };
+  // The repository's `.github/ISSUE_TEMPLATE/` as the API reports it: a map of
+  // filename -> text. Absent, the listing is a 404.
+  if (templates) {
+    mkdirSync(paths.templates, { recursive: true });
+    for (const [name, text] of Object.entries(templates)) writeFileSync(join(paths.templates, name), text);
+  }
   // Table mode: the whole repository as a number -> issue map (see GH_STUB).
   if (issues) writeFileSync(paths.issues, JSON.stringify(issues));
   writeFileSync(paths.log, '');
@@ -352,6 +387,7 @@ export async function withStubGh({ labels = '{"name":"status: in progress"}', pr
             GH_COMMENT: paths.comment,
             GH_PRS: paths.prs,
             ...(issues ? { GH_ISSUES: paths.issues } : {}),
+            ...(templates ? { GH_TEMPLATES: paths.templates } : {}),
             GH_CREATED: paths.created,
             ...extraEnv,
           },
