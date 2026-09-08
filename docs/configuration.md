@@ -56,7 +56,9 @@ successful transition would then be reported as a failure. So the names are conf
 ```
 
 Both default to the English name when absent, so a config that predates the keys behaves exactly
-as before. The wizard proposes the project's real state and user fields and asks; an express
+as before. A name that is present but blank, or one name given for both fields, is refused when
+the adapter is built, naming the key — a blank one would read every issue as unknown, and a shared
+one would render the state as the assignee, neither with a word of warning. The wizard proposes the project's real state and user fields and asks; an express
 `--update` writes the defaults and prints what it added. The field is never selected by its type —
 a project can drive its ladder from an ordinary enum field, and a guess that is usually right is
 silently wrong on the instances where it is not. `Type` and `Priority` are still read by their

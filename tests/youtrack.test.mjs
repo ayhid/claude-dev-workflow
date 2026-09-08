@@ -192,3 +192,23 @@ test('getState reads the configured state field', async () => {
   stubFetch(() => ({ body: { customFields: [{ name: 'État', value: { name: 'En cours' } }] } }));
   assert.equal(await getState('https://a.cloud', 't', 'ABC-1', { stateField: 'État' }), 'En cours');
 });
+
+test('#58: fieldNames passes a present-but-blank name through rather than defaulting it', () => {
+  // The provider refuses a blank name by key; the resolver must not hide it
+  // behind the English default first. `null` is JSON for "no answer" and
+  // reads as absent.
+  assert.equal(fieldNames({ youtrack: { stateField: '' } }).state, '');
+  assert.equal(fieldNames({ youtrack: { assigneeField: '' } }).assignee, '');
+  assert.deepEqual(fieldNames({ youtrack: { stateField: null, assigneeField: null } }), {
+    state: 'State',
+    assignee: 'Assignee',
+  });
+});
+
+test('#58: commandFor braces a multi-word field name', () => {
+  // The field is now a configured name, and YouTrack's command syntax braces
+  // a field name containing a space the same way it braces a value.
+  assert.equal(commandFor({ 'État du ticket': 'En revue' }), '{État du ticket} En revue');
+  assert.equal(commandFor({ 'État du ticket': 'En revue' }, { braceTrailing: true }), '{État du ticket} {En revue}');
+  assert.equal(commandFor({ État: 'En revue' }), 'État En revue', 'a single-word name is never braced');
+});

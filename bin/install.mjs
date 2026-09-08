@@ -734,16 +734,24 @@ async function configureYouTrack() {
   // call them State and Assignee (#58 — the one behind #14 says `État`). The
   // live project proposes the field whose type says what it is; the answer is
   // the user's, and it is what the adapter reads from then on.
-  const askField = async (what, discovered, previous, fallback) =>
+  const askField = async (what, discovered, previous, fallback, { differsFrom = null } = {}) =>
     bail(
       await p.text({
         message: `Name of the ${what} field on this instance`,
         initialValue: discovered ?? previous ?? fallback,
-        validate: (v) => (v?.trim() ? undefined : 'Required.'),
+        validate: (v) => {
+          if (!v?.trim()) return 'Required.';
+          // One name for both fields reads the assignee out of the state field
+          // and renders a state as a person — the adapter refuses it too.
+          if (differsFrom && v.trim().toLowerCase() === differsFrom.toLowerCase()) return `That is the ${differsFrom} field.`;
+          return undefined;
+        },
       }),
     ).trim();
   const stateField = await askField('State', fields?.stateFields?.[0], existing?.youtrack?.stateField, 'State');
-  const assigneeField = await askField('Assignee', fields?.userFields?.[0], existing?.youtrack?.assigneeField, 'Assignee');
+  const assigneeField = await askField('Assignee', fields?.userFields?.[0], existing?.youtrack?.assigneeField, 'Assignee', {
+    differsFrom: stateField,
+  });
 
   if (fields) {
     stateValues = (fields.data[stateField] ?? []).map((v) => v.name);
@@ -759,7 +767,13 @@ async function configureYouTrack() {
       project,
       ...(projectId ? { projectId } : {}),
       ...(tokenOpRef ? { tokenOpRef } : {}),
-      youtrack: { stateField, assigneeField },
+      // The link type is not asked here; a name the project already gave it
+      // rides along so a reconfigure keeps it, as it keeps the two fields.
+      youtrack: {
+        ...(existing?.youtrack?.subtaskLinkType ? { subtaskLinkType: existing.youtrack.subtaskLinkType } : {}),
+        stateField,
+        assigneeField,
+      },
     },
     stateValues,
     ladder: stateValues.length ? stateValues : (existing?.states?.ladder ?? []),

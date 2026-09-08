@@ -116,6 +116,16 @@ test('#58: a YouTrack wizard run names the state and assignee fields, English by
   assert.equal(localised.youtrack.stateField, 'État');
   assert.equal(localised.youtrack.assigneeField, 'Responsable');
   assert.equal(localised.youtrack.subtaskLinkType, 'Subtask', 'written in the one youtrack block, beside the link type');
+
+  // A link type the project had already named survives a reconfigure, the
+  // same way the two field names do: the wizard hands it back through
+  // `identity.youtrack`, and buildConfig writes what it was handed.
+  const kept = buildConfig(
+    youtrackAnswers({
+      identity: { ...youtrackAnswers().identity, youtrack: { subtaskLinkType: 'Sous-tâche', stateField: 'État', assigneeField: 'Responsable' } },
+    }),
+  );
+  assert.deepEqual(kept.youtrack, { subtaskLinkType: 'Sous-tâche', stateField: 'État', assigneeField: 'Responsable' });
   assert.equal(buildConfig(githubAnswers()).youtrack, undefined, 'GitHub has no such field');
 });
 

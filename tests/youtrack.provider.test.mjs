@@ -558,3 +558,28 @@ test('#58: normalizeIssue takes the field names it should read', () => {
   assert.equal(i.assignee, 'ayoub');
   assert.deepEqual(i.fields, [{ name: 'State', value: 'not this one' }]);
 });
+
+test('#58: a blank field name is refused at construction, naming the key', () => {
+  // Present-but-empty is not absent. `|| 'State'` would quietly read the
+  // English default through a blank key and reproduce the very bug — UNKNOWN
+  // before and after — with nothing naming the key that caused it (rule 2).
+  for (const [key, over] of [
+    ['stateField', { stateField: '' }],
+    ['assigneeField', { assigneeField: '   ' }],
+  ]) {
+    const config = { ...CONFIG, youtrack: { ...CONFIG.youtrack, ...over } };
+    const r = createYouTrackProvider({ config, fetch: async () => new Response('{}'), onWarn: () => {} });
+    assert.equal(r.ok, false, `${key} blank must be refused`);
+    assert.match(r.error, new RegExp(`youtrack\\.${key}`));
+  }
+});
+
+test('#58: the state and assignee field names must differ', () => {
+  // Two names for one field would read the assignee out of the state field
+  // and render a rendered state as a person, with no warning anywhere.
+  const config = { ...CONFIG, youtrack: { ...CONFIG.youtrack, stateField: 'Statut', assigneeField: 'statut' } };
+  const r = createYouTrackProvider({ config, fetch: async () => new Response('{}'), onWarn: () => {} });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /youtrack\.stateField/);
+  assert.match(r.error, /youtrack\.assigneeField/);
+});

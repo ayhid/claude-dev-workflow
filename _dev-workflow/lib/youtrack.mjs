@@ -39,15 +39,46 @@ const TIMEOUT_MS = 15_000;
  * most instances and be silently wrong on the ones that drive the ladder from
  * an ordinary enum, which is the guess provider rule 2 forbids.
  *
+ * Absent (or JSON `null`) means the default. A name that is present but blank
+ * is passed through as it is: `||` would read the English default through an
+ * empty key and reproduce the bug with nothing naming the key, so the
+ * provider refuses it at construction instead — see `checkFieldNames`.
+ *
  * @param {object} [config]
  * @returns {{state: string, assignee: string}}
  */
 export function fieldNames(config) {
   const yt = config?.youtrack ?? {};
   return {
-    state: yt.stateField || 'State',
-    assignee: yt.assigneeField || 'Assignee',
+    state: yt.stateField ?? 'State',
+    assignee: yt.assigneeField ?? 'Assignee',
   };
+}
+
+/**
+ * Why a config's field names cannot be used, or null when they can.
+ *
+ * Rule 2 at construction rather than at the first read, as the GitHub adapter
+ * does for its labels: a blank name would read UNKNOWN on every issue with
+ * nothing pointing at the key, and one name for both fields would render a
+ * state as the assignee — a wrong issue view with no warning anywhere.
+ *
+ * @param {{state: string, assignee: string}} names
+ * @returns {string|null}
+ */
+export function checkFieldNames({ state, assignee }) {
+  for (const [key, value] of [
+    ['youtrack.stateField', state],
+    ['youtrack.assigneeField', assignee],
+  ]) {
+    if (!String(value).trim()) {
+      return `"${key}" is blank — name the field as this instance calls it, or remove the key for the English default (run /dev-init)`;
+    }
+  }
+  if (sameState(state, assignee)) {
+    return `"youtrack.stateField" and "youtrack.assigneeField" both say "${state}" — the state and the assignee are two different fields (run /dev-init)`;
+  }
+  return null;
 }
 
 /** The custom field called `name` on a raw issue, or undefined. */
@@ -97,7 +128,9 @@ export function commandFor(pairs, { braceTrailing = false } = {}) {
   return entries
     .map(([field, value], i) => {
       const trailing = i === entries.length - 1;
-      return `${field} ${trailing && !braceTrailing ? String(value) : brace(value)}`;
+      // The field is a configured name since #58, and a multi-word one is
+      // braced the way a value is — `{État du ticket} En revue`.
+      return `${brace(field)} ${trailing && !braceTrailing ? String(value) : brace(value)}`;
     })
     .join(' ');
 }
@@ -462,6 +495,11 @@ export function createYouTrackProvider({ config, fetch: fetchImpl, onWarn }) {
     };
   }
 
+  // Resolved once, here, from config (#58). Nothing below names a field itself.
+  const names = fieldNames(config);
+  const namesError = checkFieldNames(names);
+  if (namesError) return { ok: false, error: namesError };
+
   // Resolved lazily: the installer's own probes need a provider before a token
   // is necessarily available, and `config` alone cannot tell us.
   let tokenPromise = null;
@@ -490,8 +528,6 @@ export function createYouTrackProvider({ config, fetch: fetchImpl, onWarn }) {
     };
   };
 
-  // Resolved once, here, from config (#58). Nothing below names a field itself.
-  const names = fieldNames(config);
   const stateOf = (issue) => fieldByName(issue, names.state)?.value?.name ?? UNKNOWN;
 
   const provider = {
