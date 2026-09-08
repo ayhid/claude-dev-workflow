@@ -49,6 +49,14 @@ export const DEFAULTS = {
      * because the adapter will not guess a link type name (rule 2).
      */
     subtaskLinkType: 'Subtask',
+    /**
+     * The display names of the State and Assignee fields. The adapter reads
+     * both by name, and a localised instance calls them something else —
+     * `État`, `Responsable` (#58). English is the documented default, never a
+     * guess from the field's type.
+     */
+    stateField: 'State',
+    assigneeField: 'Assignee',
   },
   language: 'English',
   states: {

@@ -6,6 +6,7 @@ import {
   brace,
   commandFor,
   commandVariants,
+  fieldNames,
   getState,
   request,
 } from '../lib/youtrack.mjs';
@@ -162,4 +163,32 @@ test('getState returns unknown rather than throwing when the read fails', async 
 test('getState returns unknown when the issue has no State field', async () => {
   stubFetch(() => ({ body: { customFields: [{ name: 'Type', value: { name: 'Bug' } }] } }));
   assert.equal(await getState('https://a.cloud', 't', 'ABC-1'), 'unknown');
+});
+
+// --- #58: the field name is config, and every read goes through it ------------
+
+test('fieldNames defaults to the English names and reads youtrack.* when set', () => {
+  assert.deepEqual(fieldNames(undefined), { state: 'State', assignee: 'Assignee' });
+  assert.deepEqual(fieldNames({ youtrack: {} }), { state: 'State', assignee: 'Assignee' });
+  assert.deepEqual(fieldNames({ youtrack: { stateField: 'État', assigneeField: 'Responsable' } }), {
+    state: 'État',
+    assignee: 'Responsable',
+  });
+});
+
+test('applyCommand reads back through the configured state field', async () => {
+  stubFetch((url, init) => {
+    if (init?.method === 'POST') return { status: 200, body: {} };
+    return { body: { customFields: [{ name: 'État', value: { name: 'En revue' } }] } };
+  });
+  const miss = await applyCommand('https://a.cloud', 't', 'ABC-1', 'État En revue');
+  assert.equal(miss.state, 'unknown', 'the English default misses a localised field');
+
+  const hit = await applyCommand('https://a.cloud', 't', 'ABC-1', 'État En revue', undefined, { stateField: 'État' });
+  assert.equal(hit.state, 'En revue');
+});
+
+test('getState reads the configured state field', async () => {
+  stubFetch(() => ({ body: { customFields: [{ name: 'État', value: { name: 'En cours' } }] } }));
+  assert.equal(await getState('https://a.cloud', 't', 'ABC-1', { stateField: 'État' }), 'En cours');
 });

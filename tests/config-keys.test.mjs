@@ -245,3 +245,22 @@ test('a value is reported in the shape it was written', () => {
   assert.equal(describeValue(['A', 'B']), 'A, B');
   assert.equal(describeValue('suffix'), 'suffix');
 });
+
+test('#58: the YouTrack field names are asked of YouTrack projects only, and default to the English names', () => {
+  // A localised instance calls its state field `État`; the adapter reads it by
+  // name, so the name is config. GitHub has no such field and must not be asked.
+  const github = missingConfigKeys({ provider: 'github', github: { repo: 'acme/api' } }).map((e) => e.key);
+  assert.ok(!github.includes('youtrack.stateField'));
+  assert.ok(!github.includes('youtrack.assigneeField'));
+
+  const config = { provider: 'youtrack', baseUrl: 'https://acme.youtrack.cloud', project: 'ABC' };
+  const youtrack = missingConfigKeys(config);
+  const keys = youtrack.map((e) => e.key);
+  assert.ok(keys.includes('youtrack.stateField'));
+  assert.ok(keys.includes('youtrack.assigneeField'));
+
+  for (const entry of youtrack) setConfigKey(config, entry.key, defaultForKey(entry, config));
+  assert.equal(config.youtrack.stateField, 'State');
+  assert.equal(config.youtrack.assigneeField, 'Assignee');
+  assert.equal(config.youtrack.subtaskLinkType, 'Subtask', 'and the keys beside them are still added');
+});

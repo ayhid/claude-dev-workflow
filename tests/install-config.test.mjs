@@ -101,6 +101,24 @@ test('a YouTrack wizard run produces a config the YouTrack adapter accepts', () 
   assert.equal(r.provider.name, 'youtrack');
 });
 
+test('#58: a YouTrack wizard run names the state and assignee fields, English by default', () => {
+  // Written unconditionally, which is what lets the registry add them to an
+  // existing config on an express update without re-asking anything else.
+  const config = buildConfig(youtrackAnswers());
+  assert.equal(config.youtrack.stateField, 'State');
+  assert.equal(config.youtrack.assigneeField, 'Assignee');
+
+  const localised = buildConfig(
+    youtrackAnswers({
+      identity: { ...youtrackAnswers().identity, youtrack: { stateField: 'État', assigneeField: 'Responsable' } },
+    }),
+  );
+  assert.equal(localised.youtrack.stateField, 'État');
+  assert.equal(localised.youtrack.assigneeField, 'Responsable');
+  assert.equal(localised.youtrack.subtaskLinkType, 'Subtask', 'written in the one youtrack block, beside the link type');
+  assert.equal(buildConfig(githubAnswers()).youtrack, undefined, 'GitHub has no such field');
+});
+
 test('the ladder reaches the config verbatim, first rung included', () => {
   // The first rung is what an issue carrying no ladder label *is*, so dropping
   // it would report every untouched issue as started.

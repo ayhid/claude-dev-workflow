@@ -18,7 +18,7 @@
  * @param {object} answers
  * @param {'youtrack'|'github'} answers.provider
  * @param {object} answers.identity
- *   `{baseUrl, project, projectId?, tokenOpRef?}` for YouTrack,
+ *   `{baseUrl, project, projectId?, tokenOpRef?, youtrack?: {stateField, assigneeField}}` for YouTrack,
  *   `{github: {repo, labels, type?}}` for GitHub. Spread verbatim.
  * @param {{start: string, review: string, done: string, abandon: ?string, ladder: string[]}} answers.states
  * @returns {object} the config, ready to `JSON.stringify`
@@ -75,10 +75,21 @@ export function buildConfig({
     // which tracker it is for even when every other key happens to match.
     provider,
     ...resolvedIdentity,
-    // The link type `split` nests work units with. Written unconditionally for
-    // a YouTrack project so it sits in the config-keys registry (only keys the
-    // wizard always writes may), and never for GitHub, which has no such name.
-    ...(github ? {} : { youtrack: { subtaskLinkType: 'Subtask' } }),
+    // The names this instance gives to things the adapter must call by name:
+    // the link type `split` nests work units with, and the fields the state
+    // and assignee are read from — a localised instance says `État`, not
+    // `State` (#58). Written unconditionally for a YouTrack project so the
+    // three sit in the config-keys registry (only keys the wizard always
+    // writes may), and never for GitHub, which has no such names.
+    ...(github
+      ? {}
+      : {
+          youtrack: {
+            subtaskLinkType: identity?.youtrack?.subtaskLinkType || 'Subtask',
+            stateField: identity?.youtrack?.stateField || 'State',
+            assigneeField: identity?.youtrack?.assigneeField || 'Assignee',
+          },
+        }),
     language,
     states: {
       start: states.start,

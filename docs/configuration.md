@@ -46,6 +46,22 @@ What is required depends on the tracker, so there is no single answer.
 project's real field values. `tokenOpRef` is optional — without it the token comes from
 `$YOUTRACK_TOKEN`.
 
+The adapter reads an issue's state and assignee by the **display name** of the custom field, and
+a localised instance does not call them `State` and `Assignee` — a French one says `État` and
+`Responsable`. A miss reads as unknown, and since a write is judged by the state *changing*, every
+successful transition would then be reported as a failure. So the names are configuration:
+
+```json
+"youtrack": { "stateField": "État", "assigneeField": "Responsable" }
+```
+
+Both default to the English name when absent, so a config that predates the keys behaves exactly
+as before. The wizard proposes the project's real state and user fields and asks; an express
+`--update` writes the defaults and prints what it added. The field is never selected by its type —
+a project can drive its ladder from an ordinary enum field, and a guess that is usually right is
+silently wrong on the instances where it is not. `Type` and `Priority` are still read by their
+English names.
+
 ### GitHub Issues
 
 Authentication is the [GitHub CLI](https://cli.github.com) you already have — there is no token to
@@ -595,7 +611,7 @@ Useful for one-off runs against another instance, and for CI. There is no GitHub
   "baseUrl": "https://acme.youtrack.cloud",
   "project": "ABC",
   "tokenOpRef": "op://Private/youtrack/credential",
-  "youtrack": { "subtaskLinkType": "Subtask" },
+  "youtrack": { "subtaskLinkType": "Subtask", "stateField": "State", "assigneeField": "Assignee" },
   "language": "English",
   "states": {
     "start": "In Progress",
