@@ -10,11 +10,13 @@
  * the reason: every test here needs `$HOME` pointed somewhere temporary, and a
  * resolver that read the real one could only be tested by mutating it globally.
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 
 import {
   AGENTS_DIR,
@@ -171,4 +173,78 @@ test('and it is spelled there, so the sweep above is not vacuous', () => {
   const text = readFileSync(join(REPO_ROOT, 'lib', 'manifest.mjs'), 'utf8');
   assert.ok(LITERAL.test(text) || JOINED.test(text));
   assert.equal(GLOBAL_PAYLOAD_DIR, '.claude/dev-workflow');
+});
+
+// --- AC8: `dev.mjs config` reports the mode and the roots it resolved --------
+
+/** Run `dev.mjs config` in `cwd` with `env` layered over a minimal one. */
+function devConfig(cwd, env = {}) {
+  const r = spawnSync(process.execPath, [join(REPO_ROOT, 'scripts', 'dev.mjs'), 'config'], {
+    cwd,
+    encoding: 'utf8',
+    // No banner: it reaches the network, and this asserts on stdout.
+    env: { PATH: process.env.PATH, DEV_WORKFLOW_NO_BANNER: '1', ...env },
+  });
+  return { code: r.status, stdout: r.stdout, stderr: r.stderr };
+}
+
+/** A scratch project carrying `config` as its `.dev-workflow.json`. */
+function project(config) {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'dw-mode-')));
+  writeFileSync(join(dir, '.dev-workflow.json'), JSON.stringify(config, null, 2));
+  scratch.push(dir);
+  return dir;
+}
+const scratch = [];
+after(() => {
+  for (const dir of scratch) rmSync(dir, { recursive: true, force: true });
+});
+
+test('dev.mjs config prints local and the project-relative roots', () => {
+  const dir = project({ provider: 'github', github: { repo: 'acme/api' } });
+  const r = devConfig(dir, { HOME: '/tmp/nowhere' });
+
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /install:\s+local/);
+  assert.match(r.stdout, new RegExp(`payload:\\s+${dir}/_dev-workflow`));
+  assert.match(r.stdout, new RegExp(`skills:\\s+${dir}/\\.claude/skills`));
+});
+
+test('dev.mjs config prints global and the machine root it resolved', () => {
+  const dir = project({ provider: 'github', github: { repo: 'acme/api' }, install: { mode: 'global' } });
+  const home = realpathSync(mkdtempSync(join(tmpdir(), 'dw-home-')));
+  scratch.push(home);
+  const r = devConfig(dir, { HOME: home });
+
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /install:\s+global/);
+  assert.match(r.stdout, new RegExp(`payload:\\s+${home}/\\.claude/dev-workflow`));
+  // The skills stay in the project in both modes.
+  assert.match(r.stdout, new RegExp(`skills:\\s+${dir}/\\.claude/skills`));
+});
+
+test('dev.mjs config --json carries the mode, defaulted for a config that predates it', () => {
+  const dir = project({ provider: 'github', github: { repo: 'acme/api' } });
+  const r = devConfig(dir, { HOME: '/tmp/nowhere' });
+  assert.equal(r.code, 0, r.stderr);
+
+  const json = spawnSync(process.execPath, [join(REPO_ROOT, 'scripts', 'dev.mjs'), 'config', '--json'], {
+    cwd: dir,
+    encoding: 'utf8',
+    env: { PATH: process.env.PATH, DEV_WORKFLOW_NO_BANNER: '1', HOME: '/tmp/nowhere' },
+  });
+  assert.equal(json.status, 0, json.stderr);
+  assert.equal(JSON.parse(json.stdout).install.mode, 'local');
+});
+
+test('a mode nothing can resolve is diagnosed, not a crash', () => {
+  // `config` is the first command a session runs to find out whether the
+  // project is set up at all. It has to survive a config that is not.
+  const dir = project({ provider: 'github', github: { repo: 'acme/api' }, install: { mode: 'globl' } });
+  const r = devConfig(dir, { HOME: '/tmp/nowhere' });
+
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /provider:\s+github/, 'everything it does know still prints');
+  assert.match(r.stderr, /globl/);
+  assert.match(r.stderr, /local or global/);
 });

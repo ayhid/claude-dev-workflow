@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.20.1",
     "installDate": "2026-09-08T10:07:31.602Z",
-    "lastUpdated": "2026-09-08T20:35:46.796Z"
+    "lastUpdated": "2026-09-08T20:39:55.350Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -53,7 +53,7 @@
     },
     {
       "path": "_dev-workflow/lib/config.mjs",
-      "sha256": "2755000cb559dfe5d57d4069dedb8feab3dc682f595fac227cfda233ce368cbf"
+      "sha256": "5c795a8dfbdad58fb43fb519e4fa35596a7b916392b4fccd1dd0afb8c6ff6127"
     },
     {
       "path": "_dev-workflow/lib/doclife.mjs",
@@ -169,7 +169,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/config.mjs",
-      "sha256": "34fdb0f3d4826fc6fe438c6466185649e6fe8493528c8acb409a8c9163f93803"
+      "sha256": "1617b8cfc88e87a0dda577ddc8633530dec58f58364635aefb53581a27fa4561"
     },
     {
       "path": "_dev-workflow/scripts/cmd/create.mjs",

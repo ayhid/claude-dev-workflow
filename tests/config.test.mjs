@@ -18,6 +18,7 @@ import {
   projectRootFor,
   rankOf,
 } from '../lib/config.mjs';
+import { resolveInstallRoots } from '../lib/manifest.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const scratch = () => mkdtempSync(join(tmpdir(), 'ytcfg-'));
@@ -366,4 +367,50 @@ test('a key this version does not know is ignored, without a warning (#101)', ()
     console.warn = originalWarn;
   }
   assert.deepEqual(warnings, []);
+});
+
+// --- install.mode: which install shape this project is on (#129) -------------
+//
+// The mode decides where every later command finds `dev.mjs`, so it is read
+// from the config file rather than inferred from whether `_dev-workflow/`
+// happens to exist — a directory that is absent for a dozen reasons.
+
+test('install.mode defaults to local, which is what every existing project is', () => {
+  assert.equal(DEFAULTS.install.mode, 'local');
+  // A config written before this key existed keeps behaving exactly as it did.
+  const older = deepMerge(DEFAULTS, { baseUrl: 'https://a.cloud', project: 'ABC' });
+  assert.equal(older.install.mode, 'local');
+});
+
+test('a project that says global keeps it through the merge', () => {
+  const cfg = deepMerge(DEFAULTS, { install: { mode: 'global' } });
+  assert.equal(cfg.install.mode, 'global');
+});
+
+test('formatConfig prints the mode and both resolved roots', () => {
+  const cfg = deepMerge(DEFAULTS, { install: { mode: 'global' } });
+  const roots = resolveInstallRoots({ projectDir: '/tmp/proj', mode: 'global', env: { HOME: '/tmp/home' } });
+  const out = formatConfig(cfg, '/tmp/proj/.dev-workflow.json', '', roots);
+
+  assert.match(out, /install:\s+global/);
+  assert.match(out, /payload:\s+\/tmp\/home\/\.claude\/dev-workflow/);
+  assert.match(out, /skills:\s+\/tmp\/proj\/\.claude\/skills/);
+});
+
+test('formatConfig prints the local roots too — the mode is never left implicit', () => {
+  const cfg = deepMerge(DEFAULTS, {});
+  const roots = resolveInstallRoots({ projectDir: '/tmp/proj', mode: 'local', env: { HOME: '/tmp/home' } });
+  const out = formatConfig(cfg, '/tmp/proj/.dev-workflow.json', '', roots);
+
+  assert.match(out, /install:\s+local/);
+  assert.match(out, /payload:\s+\/tmp\/proj\/_dev-workflow/);
+  assert.match(out, /skills:\s+\/tmp\/proj\/\.claude\/skills/);
+});
+
+test('formatConfig is still callable without roots — it does no IO of its own', () => {
+  // The caller resolves them, the same way it reads the notes file: this
+  // function is pure and is called from tests with no filesystem.
+  const out = formatConfig(deepMerge(DEFAULTS, {}), null);
+  assert.match(out, /install:\s+local/);
+  assert.doesNotMatch(out, /payload:/);
 });
