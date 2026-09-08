@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createYouTrackProvider, normalizeIssue } from '../lib/youtrack.mjs';
+import { createYouTrackProvider, fieldNames, normalizeIssue } from '../lib/youtrack.mjs';
 import { UNKNOWN } from '../lib/sync.mjs';
 import { runContractSuite } from './provider.contract.mjs';
 
@@ -389,4 +389,197 @@ test('rule 2: no configured link type is an error naming the key, not a guess', 
   const r = await provider.children('ABC-1');
   assert.equal(r.ok, false);
   assert.match(r.error, /youtrack\.subtaskLinkType/);
+});
+
+// --- #58: an instance whose *field* is localised, not just its values ----------
+//
+// #14's instance did not only report `En revue` for the state: the field itself
+// is called `État`. Every read that looks a field up by the English name misses,
+// returns UNKNOWN, and `setState` — which judges a write by the state changing —
+// then sees UNKNOWN before and UNKNOWN after and reports every successful move
+// as a failure. The field name is config, never a guess (rule 2), and every read
+// goes through one accessor so an eighth call site cannot spell it again.
+
+const LOCALISED_CONFIG = {
+  ...CONFIG,
+  youtrack: { ...CONFIG.youtrack, stateField: 'État', assigneeField: 'Responsable' },
+};
+
+/**
+ * A YouTrack whose State field is `État` and whose Assignee is `Responsable`.
+ *
+ * Same shape as `fakeYouTrack`, but the commands API only understands
+ * `État X` — which is exactly what a localised instance does with `State X`:
+ * it does not know the field, and the read-back is what catches it.
+ */
+function localisedYouTrack() {
+  const issues = new Map([
+    ['ABC-1', { state: 'In Progress', summary: 'First' }],
+    ['ABC-2', { state: 'In Review', summary: 'Second' }],
+  ]);
+  const commands = [];
+
+  const asIssue = (id) => {
+    const i = issues.get(id);
+    if (!i) return null;
+    return {
+      idReadable: id,
+      summary: i.summary,
+      description: '',
+      customFields: [
+        { name: 'État', value: { name: i.state } },
+        { name: 'Responsable', value: { login: 'ayoub', fullName: 'Ayoub' } },
+        { name: 'Priorité', value: { name: 'Majeure' } },
+      ],
+      comments: [],
+    };
+  };
+
+  const fetchImpl = async (url, init = {}) => {
+    const u = new URL(url);
+    const path = u.pathname.replace(/^\//, '');
+    const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
+
+    if (init.method === 'POST' && path === 'api/commands') {
+      const body = JSON.parse(init.body);
+      commands.push(body.query);
+      const m = /^État (?:\{(.+)\}|(.+))$/.exec(body.query);
+      if (!m) return json({ error_description: `Unknown field: ${body.query.split(' ')[0]}` }, 400);
+      const wanted = m[1] ?? m[2];
+      const id = body.issues[0].idReadable;
+      if (issues.has(id) && ['In Progress', 'In Review', 'Done'].includes(wanted)) issues.get(id).state = wanted;
+      return json({});
+    }
+
+    if (path === 'api/issues') {
+      const query = u.searchParams.get('query') ?? '';
+      const ids = [...query.matchAll(/issue id: (\S+)/g)].map((x) => x[1]);
+      if (ids.length) return json(ids.map(asIssue).filter(Boolean));
+      return json([...issues.keys()].map(asIssue));
+    }
+
+    const single = /^api\/issues\/([^/]+)$/.exec(path);
+    if (single) {
+      const issue = asIssue(single[1]);
+      return issue ? json(issue) : json({ error: 'not found' }, 404);
+    }
+    return json({ error: `unhandled ${path}` }, 404);
+  };
+
+  return { fetchImpl, issues, commands };
+}
+
+const buildLocalised = (config = LOCALISED_CONFIG) => {
+  const fake = localisedYouTrack();
+  const r = createYouTrackProvider({ config, fetch: fake.fetchImpl, onWarn: () => {} });
+  assert.ok(r.ok, r.error);
+  return { provider: r.provider, ...fake };
+};
+
+test('#58: setState on a localised field reports the move it made, not UNKNOWN', async () => {
+  const { provider, commands, issues } = buildLocalised();
+  const r = await provider.setState('ABC-1', 'review');
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.state, 'In Review');
+  assert.equal(issues.get('ABC-1').state, 'In Review');
+  assert.deepEqual(commands, ['État In Review'], 'the command names the configured field');
+});
+
+test('#58: getState reads the configured state field', async () => {
+  const { provider } = buildLocalised();
+  assert.equal(await provider.getState('ABC-1'), 'In Progress');
+});
+
+test('#58: getStates reads the configured state field in bulk', async () => {
+  const { provider } = buildLocalised();
+  const states = await provider.getStates(['ABC-1', 'ABC-2']);
+  assert.deepEqual([...states.entries()], [['ABC-1', 'In Progress'], ['ABC-2', 'In Review']]);
+});
+
+test('#58: listOpen reads the configured state field', async () => {
+  const { provider } = buildLocalised();
+  const r = await provider.listOpen();
+  assert.ok(r.ok, r.error);
+  assert.deepEqual(r.data.map((row) => [row.id, row.state]), [['ABC-1', 'In Progress'], ['ABC-2', 'In Review']]);
+});
+
+test('#58: getIssue reads state and assignee by their configured names, and renders neither twice', async () => {
+  const { provider } = buildLocalised();
+  const r = await provider.getIssue('ABC-1');
+  assert.ok(r.ok, r.error);
+  assert.equal(r.data.state, 'In Progress');
+  assert.equal(r.data.assignee, 'ayoub');
+  assert.deepEqual(r.data.fields, [{ name: 'Priorité', value: 'Majeure' }], 'État and Responsable are not generic fields');
+});
+
+test('#58: the English names are the documented default, and a config without them is unchanged', async () => {
+  // The default is documented, not inferred: a config that predates the key
+  // means State/Assignee, and must produce the same bytes it produced before.
+  assert.deepEqual(fieldNames({}), { state: 'State', assignee: 'Assignee' });
+  assert.deepEqual(fieldNames(CONFIG), { state: 'State', assignee: 'Assignee' });
+
+  const explicit = { ...CONFIG, youtrack: { ...CONFIG.youtrack, stateField: 'State', assigneeField: 'Assignee' } };
+  const seen = [];
+  for (const config of [CONFIG, explicit]) {
+    const fake = fakeYouTrack();
+    const r = createYouTrackProvider({ config, fetch: fake.fetchImpl, onWarn: () => {} });
+    assert.ok(r.ok, r.error);
+    const issue = await r.provider.getIssue('ABC-1');
+    const moved = await r.provider.setState('ABC-1', 'review');
+    const states = await r.provider.getStates(['ABC-1', 'ABC-2']);
+    seen.push(JSON.stringify({ issue, moved, states: [...states] }));
+  }
+  assert.equal(seen[0], seen[1]);
+  assert.match(seen[0], /"state":"In Review"/);
+});
+
+test('#58: a localised instance read through the English default is the bug, and it is UNKNOWN not a crash', async () => {
+  // What #58 reports: the read misses, so the baseline is UNKNOWN and every
+  // spelling is exhausted. The fix is the config key, not detection.
+  const { provider } = buildLocalised(CONFIG);
+  assert.equal(await provider.getState('ABC-1'), UNKNOWN);
+  const r = await provider.setState('ABC-1', 'review');
+  assert.equal(r.ok, false);
+});
+
+test('#58: normalizeIssue takes the field names it should read', () => {
+  const i = normalizeIssue(
+    {
+      idReadable: 'ABC-5',
+      customFields: [
+        { name: 'État', value: { name: 'Done' } },
+        { name: 'Responsable', value: { login: 'ayoub', fullName: 'Ayoub' } },
+        { name: 'State', value: { name: 'not this one' } },
+      ],
+    },
+    { fields: { state: 'État', assignee: 'Responsable' } },
+  );
+  assert.equal(i.state, 'Done');
+  assert.equal(i.assignee, 'ayoub');
+  assert.deepEqual(i.fields, [{ name: 'State', value: 'not this one' }]);
+});
+
+test('#58: a blank field name is refused at construction, naming the key', () => {
+  // Present-but-empty is not absent. `|| 'State'` would quietly read the
+  // English default through a blank key and reproduce the very bug — UNKNOWN
+  // before and after — with nothing naming the key that caused it (rule 2).
+  for (const [key, over] of [
+    ['stateField', { stateField: '' }],
+    ['assigneeField', { assigneeField: '   ' }],
+  ]) {
+    const config = { ...CONFIG, youtrack: { ...CONFIG.youtrack, ...over } };
+    const r = createYouTrackProvider({ config, fetch: async () => new Response('{}'), onWarn: () => {} });
+    assert.equal(r.ok, false, `${key} blank must be refused`);
+    assert.match(r.error, new RegExp(`youtrack\\.${key}`));
+  }
+});
+
+test('#58: the state and assignee field names must differ', () => {
+  // Two names for one field would read the assignee out of the state field
+  // and render a rendered state as a person, with no warning anywhere.
+  const config = { ...CONFIG, youtrack: { ...CONFIG.youtrack, stateField: 'Statut', assigneeField: 'statut' } };
+  const r = createYouTrackProvider({ config, fetch: async () => new Response('{}'), onWarn: () => {} });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /youtrack\.stateField/);
+  assert.match(r.error, /youtrack\.assigneeField/);
 });

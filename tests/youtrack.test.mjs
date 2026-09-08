@@ -6,6 +6,7 @@ import {
   brace,
   commandFor,
   commandVariants,
+  fieldNames,
   getState,
   request,
 } from '../lib/youtrack.mjs';
@@ -162,4 +163,52 @@ test('getState returns unknown rather than throwing when the read fails', async 
 test('getState returns unknown when the issue has no State field', async () => {
   stubFetch(() => ({ body: { customFields: [{ name: 'Type', value: { name: 'Bug' } }] } }));
   assert.equal(await getState('https://a.cloud', 't', 'ABC-1'), 'unknown');
+});
+
+// --- #58: the field name is config, and every read goes through it ------------
+
+test('fieldNames defaults to the English names and reads youtrack.* when set', () => {
+  assert.deepEqual(fieldNames(undefined), { state: 'State', assignee: 'Assignee' });
+  assert.deepEqual(fieldNames({ youtrack: {} }), { state: 'State', assignee: 'Assignee' });
+  assert.deepEqual(fieldNames({ youtrack: { stateField: 'État', assigneeField: 'Responsable' } }), {
+    state: 'État',
+    assignee: 'Responsable',
+  });
+});
+
+test('applyCommand reads back through the configured state field', async () => {
+  stubFetch((url, init) => {
+    if (init?.method === 'POST') return { status: 200, body: {} };
+    return { body: { customFields: [{ name: 'État', value: { name: 'En revue' } }] } };
+  });
+  const miss = await applyCommand('https://a.cloud', 't', 'ABC-1', 'État En revue');
+  assert.equal(miss.state, 'unknown', 'the English default misses a localised field');
+
+  const hit = await applyCommand('https://a.cloud', 't', 'ABC-1', 'État En revue', undefined, { stateField: 'État' });
+  assert.equal(hit.state, 'En revue');
+});
+
+test('getState reads the configured state field', async () => {
+  stubFetch(() => ({ body: { customFields: [{ name: 'État', value: { name: 'En cours' } }] } }));
+  assert.equal(await getState('https://a.cloud', 't', 'ABC-1', { stateField: 'État' }), 'En cours');
+});
+
+test('#58: fieldNames passes a present-but-blank name through rather than defaulting it', () => {
+  // The provider refuses a blank name by key; the resolver must not hide it
+  // behind the English default first. `null` is JSON for "no answer" and
+  // reads as absent.
+  assert.equal(fieldNames({ youtrack: { stateField: '' } }).state, '');
+  assert.equal(fieldNames({ youtrack: { assigneeField: '' } }).assignee, '');
+  assert.deepEqual(fieldNames({ youtrack: { stateField: null, assigneeField: null } }), {
+    state: 'State',
+    assignee: 'Assignee',
+  });
+});
+
+test('#58: commandFor braces a multi-word field name', () => {
+  // The field is now a configured name, and YouTrack's command syntax braces
+  // a field name containing a space the same way it braces a value.
+  assert.equal(commandFor({ 'État du ticket': 'En revue' }), '{État du ticket} En revue');
+  assert.equal(commandFor({ 'État du ticket': 'En revue' }, { braceTrailing: true }), '{État du ticket} {En revue}');
+  assert.equal(commandFor({ État: 'En revue' }), 'État En revue', 'a single-word name is never braced');
 });

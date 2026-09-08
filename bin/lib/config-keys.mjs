@@ -170,6 +170,25 @@ export const CONFIG_KEYS = [
     parse: csv,
   },
   {
+    // The adapter reads the state field by its display name, and a localised
+    // instance does not call it `State` — the one behind #14 says `État`. A
+    // miss reads as UNKNOWN, and `setState` then reports every successful move
+    // as a failure (#58). The name is config: the English default is what a
+    // config predating the key means, not a guess about the instance.
+    key: 'youtrack.stateField',
+    message: 'The name of the State field on this instance (a localised one may say État)',
+    type: 'text',
+    appliesTo: (config) => proposeProvider({ existing: config }) === 'youtrack',
+    default: () => 'State',
+  },
+  {
+    key: 'youtrack.assigneeField',
+    message: 'The name of the Assignee field on this instance (a localised one may say Responsable)',
+    type: 'text',
+    appliesTo: (config) => proposeProvider({ existing: config }) === 'youtrack',
+    default: () => 'Assignee',
+  },
+  {
     key: 'branch.base',
     message: 'Branch that work is forked from',
     type: 'text',

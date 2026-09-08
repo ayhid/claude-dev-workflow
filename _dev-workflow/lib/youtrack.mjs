@@ -23,6 +23,68 @@ import { UNKNOWN } from './sync.mjs';
 const TIMEOUT_MS = 15_000;
 
 /**
+ * The names of the two fields the adapter reads by name.
+ *
+ * A custom field is called whatever the instance calls it, and on a localised
+ * instance that is not `State`: the one behind #14 answers `État`. A lookup by
+ * the English name then misses, every read returns UNKNOWN, and `setState` —
+ * which judges a write by the state *changing* — sees UNKNOWN before and after
+ * and reports every successful move as a failure (#58).
+ *
+ * So the name is config, `youtrack.stateField` / `youtrack.assigneeField`,
+ * and this is the one place it is resolved: every read site and the write
+ * site take the name from here, so an eighth call site cannot spell it again.
+ * The English names are the documented default for a config that predates the
+ * key — a default, not a guess; selecting the field by `$type` would work on
+ * most instances and be silently wrong on the ones that drive the ladder from
+ * an ordinary enum, which is the guess provider rule 2 forbids.
+ *
+ * Absent (or JSON `null`) means the default. A name that is present but blank
+ * is passed through as it is: `||` would read the English default through an
+ * empty key and reproduce the bug with nothing naming the key, so the
+ * provider refuses it at construction instead — see `checkFieldNames`.
+ *
+ * @param {object} [config]
+ * @returns {{state: string, assignee: string}}
+ */
+export function fieldNames(config) {
+  const yt = config?.youtrack ?? {};
+  return {
+    state: yt.stateField ?? 'State',
+    assignee: yt.assigneeField ?? 'Assignee',
+  };
+}
+
+/**
+ * Why a config's field names cannot be used, or null when they can.
+ *
+ * Rule 2 at construction rather than at the first read, as the GitHub adapter
+ * does for its labels: a blank name would read UNKNOWN on every issue with
+ * nothing pointing at the key, and one name for both fields would render a
+ * state as the assignee — a wrong issue view with no warning anywhere.
+ *
+ * @param {{state: string, assignee: string}} names
+ * @returns {string|null}
+ */
+export function checkFieldNames({ state, assignee }) {
+  for (const [key, value] of [
+    ['youtrack.stateField', state],
+    ['youtrack.assigneeField', assignee],
+  ]) {
+    if (!String(value).trim()) {
+      return `"${key}" is blank — name the field as this instance calls it, or remove the key for the English default (run /dev-init)`;
+    }
+  }
+  if (sameState(state, assignee)) {
+    return `"youtrack.stateField" and "youtrack.assigneeField" both say "${state}" — the state and the assignee are two different fields (run /dev-init)`;
+  }
+  return null;
+}
+
+/** The custom field called `name` on a raw issue, or undefined. */
+const fieldByName = (issue, name) => (issue?.customFields ?? []).find((f) => f.name === name);
+
+/**
  * Wrap a value in braces when it contains a space. The primitive only — where
  * it is applied is `commandFor`'s decision, not this function's.
  *
@@ -66,7 +128,9 @@ export function commandFor(pairs, { braceTrailing = false } = {}) {
   return entries
     .map(([field, value], i) => {
       const trailing = i === entries.length - 1;
-      return `${field} ${trailing && !braceTrailing ? String(value) : brace(value)}`;
+      // The field is a configured name since #58, and a multi-word one is
+      // braced the way a value is — `{État du ticket} En revue`.
+      return `${brace(field)} ${trailing && !braceTrailing ? String(value) : brace(value)}`;
     })
     .join(' ');
 }
@@ -186,21 +250,32 @@ export async function listProjects(baseUrl, token) {
  */
 export async function projectFieldValues(baseUrl, token, projectId) {
   const r = await request(baseUrl, token, `api/admin/projects/${projectId}/customFields`, {
-    params: { fields: 'field(name),bundle(values(name,isResolved,ordinal))' },
+    params: { fields: '$type,field(name),bundle(values(name,isResolved,ordinal))' },
   });
   if (!r.ok) return r;
 
+  // `data` is values by field name, as before. `stateFields` and `userFields`
+  // are the names of the fields whose *type* is a state or a user — what the
+  // wizard proposes as `youtrack.stateField` / `youtrack.assigneeField` on an
+  // instance that does not call them State and Assignee (#58). A proposal the
+  // user confirms, never a value read at runtime: the adapter takes the name
+  // from config alone.
   const byName = {};
+  const stateFields = [];
+  const userFields = [];
   for (const cf of Array.isArray(r.data) ? r.data : []) {
     const name = cf?.field?.name;
+    if (!name) continue;
+    if (cf?.$type === 'StateProjectCustomField') stateFields.push(name);
+    if (cf?.$type === 'UserProjectCustomField') userFields.push(name);
     const values = cf?.bundle?.values;
-    if (!name || !Array.isArray(values)) continue;
+    if (!Array.isArray(values)) continue;
     byName[name] = values
       .slice()
       .sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0))
       .map((v) => ({ name: v.name, isResolved: Boolean(v.isResolved) }));
   }
-  return { ok: true, data: byName };
+  return { ok: true, data: byName, stateFields, userFields };
 }
 
 /** Resolve the internal project id from its shortName. */
@@ -227,14 +302,18 @@ export async function getIssue(baseUrl, token, issue) {
   return request(baseUrl, token, `api/issues/${issue}`, { params: { fields: ISSUE_FIELDS } });
 }
 
-/** Current State field value, or 'unknown' when it cannot be read. */
-export async function getState(baseUrl, token, issue) {
+/**
+ * Current State field value, or 'unknown' when it cannot be read.
+ *
+ * @param {{stateField?: string}} [opts] the field's name on this instance —
+ *   `fieldNames(config).state`; the English default otherwise
+ */
+export async function getState(baseUrl, token, issue, { stateField = fieldNames().state } = {}) {
   const r = await request(baseUrl, token, `api/issues/${issue}`, {
     params: { fields: 'customFields(name,value(name))' },
   });
   if (!r.ok) return 'unknown';
-  const field = (r.data?.customFields ?? []).find((f) => f.name === 'State');
-  return field?.value?.name ?? 'unknown';
+  return fieldByName(r.data, stateField)?.value?.name ?? 'unknown';
 }
 
 /** Open issues in `project` matching free-text `keywords`. */
@@ -256,7 +335,7 @@ export async function searchIssues(baseUrl, token, project, keywords, top = 15) 
  * The read-back is the actual check: a 200 here does not mean the command
  * applied. Callers should report `state`, not the absence of an error.
  */
-export async function applyCommand(baseUrl, token, issue, query, comment) {
+export async function applyCommand(baseUrl, token, issue, query, comment, { stateField } = {}) {
   const body = {
     query,
     issues: [{ idReadable: issue }],
@@ -266,7 +345,7 @@ export async function applyCommand(baseUrl, token, issue, query, comment) {
   const r = await request(baseUrl, token, 'api/commands', { method: 'POST', body });
   if (!r.ok) return { ok: false, error: `command '${query}' on ${issue}: ${r.error}` };
 
-  const state = await getState(baseUrl, token, issue);
+  const state = await getState(baseUrl, token, issue, { stateField });
   return { ok: true, state };
 }
 
@@ -336,8 +415,7 @@ export function renderValue(v) {
   return String(v);
 }
 
-const fieldValue = (issue, name) =>
-  renderValue((issue?.customFields ?? []).find((f) => f.name === name)?.value);
+const fieldValue = (issue, name) => renderValue(fieldByName(issue, name)?.value);
 
 /**
  * A raw YouTrack issue as a `NormalizedIssue` (see lib/provider.mjs).
@@ -347,18 +425,18 @@ const fieldValue = (issue, name) =>
  * be provider-blind. Fields arrive sorted so the same issue prints the same
  * bytes on every run.
  */
-export function normalizeIssue(raw, { baseUrl } = {}) {
+export function normalizeIssue(raw, { baseUrl, fields: names = fieldNames() } = {}) {
   const id = raw?.idReadable ?? '';
-  const state = fieldValue(raw, 'State');
+  const state = fieldValue(raw, names.state);
 
   // The login, deliberately, not the display name: it is stable, unique, and
   // what `@mention` needs. `renderValue` prefers fullName for display, which is
   // right for a field list and wrong for an identity.
-  const assigneeRaw = (raw?.customFields ?? []).find((f) => f.name === 'Assignee')?.value;
+  const assigneeRaw = fieldByName(raw, names.assignee)?.value;
   const assignee = assigneeRaw?.login ?? (assigneeRaw ? renderValue(assigneeRaw) : null);
 
   const fields = (raw?.customFields ?? [])
-    .filter((f) => f.name !== 'State' && f.name !== 'Assignee')
+    .filter((f) => f.name !== names.state && f.name !== names.assignee)
     .map((f) => ({ name: f.name, value: renderValue(f.value) }))
     .filter((f) => f.value !== '—')
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -417,6 +495,11 @@ export function createYouTrackProvider({ config, fetch: fetchImpl, onWarn }) {
     };
   }
 
+  // Resolved once, here, from config (#58). Nothing below names a field itself.
+  const names = fieldNames(config);
+  const namesError = checkFieldNames(names);
+  if (namesError) return { ok: false, error: namesError };
+
   // Resolved lazily: the installer's own probes need a provider before a token
   // is necessarily available, and `config` alone cannot tell us.
   let tokenPromise = null;
@@ -444,6 +527,8 @@ export function createYouTrackProvider({ config, fetch: fetchImpl, onWarn }) {
       error: 'no youtrack.subtaskLinkType configured — set it to the link type that means "subtask of" on this instance (the built-in one is "Subtask")',
     };
   };
+
+  const stateOf = (issue) => fieldByName(issue, names.state)?.value?.name ?? UNKNOWN;
 
   const provider = {
     name: 'youtrack',
@@ -487,7 +572,7 @@ export function createYouTrackProvider({ config, fetch: fetchImpl, onWarn }) {
       return withToken(async (token) => {
         const r = await call(token, `api/issues/${id}`, { params: { fields: ISSUE_FIELDS } });
         if (!r.ok) return r;
-        return { ok: true, data: normalizeIssue(r.data, { baseUrl }) };
+        return { ok: true, data: normalizeIssue(r.data, { baseUrl, fields: names }) };
       });
     },
 
@@ -497,8 +582,7 @@ export function createYouTrackProvider({ config, fetch: fetchImpl, onWarn }) {
           params: { fields: 'customFields(name,value(name))' },
         });
         if (!res.ok) return res;
-        const field = (res.data?.customFields ?? []).find((f) => f.name === 'State');
-        return { ok: true, data: field?.value?.name ?? UNKNOWN };
+        return { ok: true, data: stateOf(res.data) };
       });
       if (!r.ok) {
         // Rule 3: never discard the reason. Without this a 500 shows up in the
@@ -536,10 +620,7 @@ export function createYouTrackProvider({ config, fetch: fetchImpl, onWarn }) {
         return out;
       }
 
-      for (const issue of r.data ?? []) {
-        const field = (issue.customFields ?? []).find((f) => f.name === 'State');
-        out.set(issue.idReadable, field?.value?.name ?? UNKNOWN);
-      }
+      for (const issue of r.data ?? []) out.set(issue.idReadable, stateOf(issue));
       // Anything the query did not return is unreadable, not absent.
       for (const id of ids) if (!out.has(id)) out.set(id, UNKNOWN);
       return out;
@@ -600,7 +681,7 @@ export function createYouTrackProvider({ config, fetch: fetchImpl, onWarn }) {
           .map((i) => ({
             id: i.idReadable,
             title: i.summary ?? '',
-            state: (i.customFields ?? []).find((f) => f.name === 'State')?.value?.name ?? UNKNOWN,
+            state: stateOf(i),
             url: `${baseUrl}/issue/${i.idReadable}`,
           }))
           .sort((a, b) => a.id.localeCompare(b.id));
@@ -648,8 +729,7 @@ export function createYouTrackProvider({ config, fetch: fetchImpl, onWarn }) {
             params: { fields: 'customFields(name,value(name))' },
           });
           if (!res.ok) return { ok: false, error: res.error };
-          const field = (res.data?.customFields ?? []).find((f) => f.name === 'State');
-          return { ok: true, state: field?.value?.name ?? UNKNOWN };
+          return { ok: true, state: stateOf(res.data) };
         };
 
         // The baseline is what makes "did this apply?" answerable. Comparing the
@@ -665,7 +745,7 @@ export function createYouTrackProvider({ config, fetch: fetchImpl, onWarn }) {
         let sendComment = Boolean(comment);
         let failure = null;
 
-        for (const query of commandVariants({ State: resolved.state })) {
+        for (const query of commandVariants({ [names.state]: resolved.state })) {
           const r = await call(token, 'api/commands', {
             method: 'POST',
             body: {

@@ -335,7 +335,9 @@ inside a session.
 > `.dev-workflow.json` holds no secret. `tokenOpRef` is a 1Password *reference*, not a credential,
 > so the file is meant to be committed.
 
-**YouTrack** needs `baseUrl` and `project`; everything else has a working default.
+**YouTrack** needs `baseUrl` and `project`; everything else has a working default. On a
+localised instance, name the state and assignee fields — they are read by display name, and
+`État` is not `State`.
 
 ```json
 {
@@ -343,6 +345,7 @@ inside a session.
   "baseUrl": "https://acme.youtrack.cloud",
   "project": "ABC",
   "tokenOpRef": "op://Private/youtrack/credential",
+  "youtrack": { "stateField": "État", "assigneeField": "Responsable" },
   "states": { "start": "In Progress", "review": "In Review", "done": "Done" }
 }
 ```

@@ -715,23 +715,50 @@ async function configureYouTrack() {
   let stateValues = [];
   let typeValues = existing?.issueTypes ?? ['Bug', 'Feature', 'Task', 'Epic', 'Improvement'];
   let priorityValues = existing?.priorities ?? ['Show-stopper', 'Critical', 'Major', 'Normal', 'Minor'];
+  let fields = null;
 
   if (online && projectId) {
     const s = p.spinner();
-    s.start(`Reading the field values of ${project}`);
-    const fields = await projectFieldValues(baseUrl, token, projectId);
+    s.start(`Reading the fields of ${project}`);
+    fields = await projectFieldValues(baseUrl, token, projectId);
     if (fields.ok) {
-      stateValues = (fields.data.State ?? []).map((v) => v.name);
-      if (fields.data.Type?.length) typeValues = fields.data.Type.map((v) => v.name);
-      if (fields.data.Priority?.length) priorityValues = fields.data.Priority.map((v) => v.name);
-      s.stop(
-        stateValues.length
-          ? `States: ${c.dim(stateValues.join(' → '))}`
-          : c.yellow('No State field found — you will type the state names.'),
-      );
+      s.stop(`Fields: ${c.dim(Object.keys(fields.data).join(', ') || 'none')}`);
     } else {
       s.stop(c.yellow(`Could not read the field values: ${fields.error}`));
+      fields = null;
     }
+  }
+
+  // --- which field is the state, and which the assignee ----------------------
+  // The adapter reads both by display name, and a localised instance does not
+  // call them State and Assignee (#58 — the one behind #14 says `État`). The
+  // live project proposes the field whose type says what it is; the answer is
+  // the user's, and it is what the adapter reads from then on.
+  const askField = async (what, discovered, previous, fallback, { differsFrom = null } = {}) =>
+    bail(
+      await p.text({
+        message: `Name of the ${what} field on this instance`,
+        initialValue: discovered ?? previous ?? fallback,
+        validate: (v) => {
+          if (!v?.trim()) return 'Required.';
+          // One name for both fields reads the assignee out of the state field
+          // and renders a state as a person — the adapter refuses it too.
+          if (differsFrom && v.trim().toLowerCase() === differsFrom.toLowerCase()) return `That is the ${differsFrom} field.`;
+          return undefined;
+        },
+      }),
+    ).trim();
+  const stateField = await askField('State', fields?.stateFields?.[0], existing?.youtrack?.stateField, 'State');
+  const assigneeField = await askField('Assignee', fields?.userFields?.[0], existing?.youtrack?.assigneeField, 'Assignee', {
+    differsFrom: stateField,
+  });
+
+  if (fields) {
+    stateValues = (fields.data[stateField] ?? []).map((v) => v.name);
+    if (fields.data.Type?.length) typeValues = fields.data.Type.map((v) => v.name);
+    if (fields.data.Priority?.length) priorityValues = fields.data.Priority.map((v) => v.name);
+    if (stateValues.length) p.log.info(`States: ${c.dim(stateValues.join(' → '))}`);
+    else p.log.warn(`No values found for a field named ${stateField} — you will type the state names.`);
   }
 
   return {
@@ -740,6 +767,13 @@ async function configureYouTrack() {
       project,
       ...(projectId ? { projectId } : {}),
       ...(tokenOpRef ? { tokenOpRef } : {}),
+      // The link type is not asked here; a name the project already gave it
+      // rides along so a reconfigure keeps it, as it keeps the two fields.
+      youtrack: {
+        ...(existing?.youtrack?.subtaskLinkType ? { subtaskLinkType: existing.youtrack.subtaskLinkType } : {}),
+        stateField,
+        assigneeField,
+      },
     },
     stateValues,
     ladder: stateValues.length ? stateValues : (existing?.states?.ladder ?? []),
