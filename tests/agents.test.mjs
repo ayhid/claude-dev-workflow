@@ -95,3 +95,29 @@ test('every dev-* name a skill mentions is a skill or an agent that ships', () =
   assert.equal(named.get('dev-reader'), 'dev-ingest-docs');
   for (const lens of REVIEW_LENSES) assert.equal(named.get(`dev-review-${lens}`), 'dev-review');
 });
+
+test('dev-builder carries the build discipline as rules above its input (#121)', () => {
+  const { agent } = parseAgent(readFileSync(join(AGENTS, 'dev-builder.md'), 'utf8'));
+  const rules = agent.body.split('## Input')[0];
+  // Stop the line: a red suite is fixed at the root, guarded, then resumed — never built past.
+  assert.match(rules, /## Stop the line/);
+  assert.match(rules, /root cause/i);
+  assert.match(rules, /regression test/i);
+  // Scope: what is outside the unit is reported, never fixed in passing.
+  assert.match(rules, /## Scope/);
+  assert.match(rules, /`noticed`/);
+  // The irreversible step is reported as blocked, and the session decides.
+  assert.match(rules, /## Stop on the irreversible/);
+  assert.match(rules, /git revert/);
+  assert.match(rules.split('## Stop on the irreversible')[1].split('## ')[0], /`blocked`/);
+  // A standing bar beside the criteria.
+  assert.match(rules, /## Done bar/);
+  // The report carries the two new fields.
+  assert.match(agent.body, /"tests": \[/);
+  assert.match(agent.body, /"noticed": \[/);
+});
+
+test('dev-builder is no longer than it was before #121', () => {
+  const lines = readFileSync(join(AGENTS, 'dev-builder.md'), 'utf8').trimEnd().split('\n').length;
+  assert.ok(lines <= 94, `dev-builder.md is ${lines} lines; the ceiling is 94`);
+});
