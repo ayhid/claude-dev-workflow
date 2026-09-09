@@ -33,11 +33,14 @@ against — `<ISSUE-ID>` in argv, "ticket" throughout `CLAUDE.md`, "task" in the
 Two constraints bound any answer. Skills live in **one flat namespace** shared with every other tool
 the user has installed, which is already why `CLAUDE.md` refuses to claim `task`, `bug` or `done`
 unprefixed — so a skill name has to be distinctive against strangers, not just against its siblings.
-And renaming is **cheap in the installer and expensive in prose**: `bin/lib/payload.mjs`'s delete pass
-removes an owned, unplanned, non-generated path unconditionally, without consulting whether the user
-edited it, so an old skill directory disappears on the next `--update` with no alias needed — while the
-names themselves appear in roughly 200 places across `README.md`, `docs/`, `CLAUDE.md`, `bin/`,
-`tests/` and the skills' own cross-references.
+And renaming is **usually cheap in the installer and always expensive in prose**. `bin/lib/payload.mjs`'s
+delete pass removes an owned, unplanned, non-generated path on the next `--update`, so a *clean* old
+skill directory disappears with no alias needed. It does **not** remove one the consumer edited:
+`protectedPaths` is `detectDrift`'s `modified` set — every manifest entry whose hash on disk no longer
+matches — and the delete pass skips it unless `--force`. So a consumer who had edited a renamed skill
+keeps both copies, and both match `dev-*`. That case is narrow and the installer reports it, but it is
+real, and a rename has to be shipped knowing it. Meanwhile the names themselves appear in roughly 200
+places across `README.md`, `docs/`, `CLAUDE.md`, `bin/`, `tests/` and the skills' own cross-references.
 
 ## Options considered
 
@@ -56,9 +59,13 @@ names themselves appear in roughly 200 places across `README.md`, `docs/`, `CLAU
   issue. The act is the only thing that differs between them, so it is the only thing a name can carry.
 - **Keep every old skill name as a deprecated alias for one major.** Rejected — an alias and its
   target both match `dev-*` in a flat namespace, so the model may load either, and a name that
-  sometimes resolves elsewhere is worse than one that is gone. The installer already makes the clean
-  path available: the delete pass removes the old directory on the next update, so the alias would buy
-  nothing but ambiguity.
+  sometimes resolves elsewhere is worse than one that is gone. For most consumers the installer
+  already makes the clean path available: the delete pass removes an untouched old directory on the
+  next update, so the alias would buy nothing but ambiguity. The one case that does leave two copies —
+  a consumer who had edited the old skill, whose file `protectedPaths` preserves — is narrow, is
+  reported by the installer, and is cleared by `--force` or by deleting the directory. An alias would
+  impose that same ambiguity on *everyone*, deliberately and for a whole major, to spare a few the
+  version that reports it.
 - **A rule, stated per layer, with its exceptions named rather than left to taste.** Chosen. Below.
 
 ## Decision
@@ -110,14 +117,18 @@ one name across both binaries. And R2's licensed noun-group turns out to describ
 breaking change and cuts a major. `/dev-task` and `/dev-done` are the two most-referenced names in the
 repo. The renames reach roughly 200 references, and every one is prose or a test path rather than
 behaviour, which makes the change wide, dull, and easy to leave half-done: the verification that
-matters is a grep proving no old name survives and a real double install proving the old directories
-are gone.
+matters is a grep proving no old name survives in the source, and a real double install proving a
+clean old directory is gone — and proving that an *edited* one is reported rather than silently kept,
+since that is the case the delete pass declines to touch. The migration note has to say so, because a
+consumer who customised `/dev-task` will otherwise find `/dev-task` and `/dev-work` both offered.
 
 **What it forecloses.** Truncations, so no future `reorg`. And, for now, **`hooks/*` filenames**:
 `mergeHookIntoSettings` only ever adds an entry to `.claude/settings.json` and never prunes a
-superseded one, while the delete pass removes the script unconditionally — so renaming a hook would
-delete the file and leave its command string pointing at a missing path, firing on every Bash tool call
-in every consumer project. `check-commit-ticket.sh` therefore keeps the word this rule otherwise
+superseded one, while the delete pass removes the old script — so renaming a hook would delete the file
+and leave its command string pointing at a missing path, firing on every Bash tool call in every
+consumer project. (A consumer who had *edited* the hook is spared, since `protectedPaths` keeps their
+copy and the stale entry then points at a file that still exists. Being saved by having modified the
+payload is not a property to rely on.) `check-commit-ticket.sh` therefore keeps the word this rule otherwise
 retires, until the merge learns to prune. That is a defect in its own right, not a naming question, and
 it is filed as one.
 

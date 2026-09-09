@@ -321,7 +321,8 @@ user has installed, and `task` / `bug` / `done` are far too generic to claim.
 user is asking for, as an imperative verb; a subcommand takes the act too, except where it groups
 sub-verbs or purely reports, when it takes its subject; an agent takes its role. One act gets one
 word across both layers and both binaries, a compound is `<verb>-<subject>`, and a name that writes
-may never sit one letter from a name that reports. Read the record before adding a name — it also
+may never differ from a name that reports by only a prefix, a suffix or one letter. Read the record
+before adding a name — it also
 carries the two carve-outs (`/dev-bug`, `dev.mjs assess`) so they are not re-argued, and the reason
 `hooks/*` filenames are excluded.
 
