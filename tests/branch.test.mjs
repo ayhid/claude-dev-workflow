@@ -112,6 +112,35 @@ test('renderPullRequestTitle gives a title with no component prefix no scope', (
   );
 });
 
+test('a title already typed is kept as written, and the ID is appended only when absent', () => {
+  const config = gh();
+  // Already typed and already carrying the ID: byte-identical.
+  assert.deepEqual(
+    renderPullRequestTitle(config, { id: '#154', type: 'fix', title: 'fix(land): type the title (#154)' }),
+    { ok: true, title: 'fix(land): type the title (#154)' },
+  );
+  // Typed, but no ID: the ID goes on the end and nothing else changes — not
+  // even a type that disagrees with the resolved one, since the author chose it.
+  assert.deepEqual(
+    renderPullRequestTitle(config, { id: '#7', type: 'chore', title: 'docs: explain the ladder' }),
+    { ok: true, title: 'docs: explain the ladder (#7)' },
+  );
+  assert.deepEqual(
+    renderPullRequestTitle(config, { id: '#7', type: 'feat', title: 'feat(api)!: drop the v1 route' }),
+    { ok: true, title: 'feat(api)!: drop the v1 route (#7)' },
+  );
+  // #1460 is not #146.
+  assert.deepEqual(
+    renderPullRequestTitle(config, { id: '#146', type: 'fix', title: 'fix: follow-up to #1460' }),
+    { ok: true, title: 'fix: follow-up to #1460 (#146)' },
+  );
+  // A prefix that is not a configured commit type is a component, not a type.
+  assert.deepEqual(
+    renderPullRequestTitle(config, { id: '#8', type: 'feat', title: 'feature: dark mode' }),
+    { ok: true, title: 'feat(feature): dark mode (#8)' },
+  );
+});
+
 test('issueIdFromBranch anchors to the first number on GitHub', () => {
   const config = gh();
   // The 500 is part of the description, not the ticket.
