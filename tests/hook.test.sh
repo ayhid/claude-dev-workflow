@@ -196,6 +196,66 @@ run_case 'fail open: an invalid idPattern still blocks a ticketless commit' 2 \
 run_case 'a comma in idPattern is rejected, not mangled' 0 \
   'git commit -m "feat: thing (ABC-1)"' '{"commit":{"idPattern":"A,B"}}'
 
+# --- install.mode global on a machine with no payload (#131) -------------------
+#
+# The guards stay in the project in both modes, so a fresh clone still enforces.
+# What that clone lacks is the runtime, and nothing else would tell the user why
+# `dev.mjs` is missing — so the guard says so in one line, naming the install
+# command, the same idiom as the jq branch: warn, never fail closed, never stay
+# silent. Only on the commit path: the fast bail stays first.
+CFG_GLOBAL='{"install":{"mode":"global"}}'
+
+# global_case <desc> <expected-exit> <warn: yes|no> <machine payload: yes|no> <command> [config]
+global_case() {
+  local desc="$1" want="$2" want_warn="$3" has_payload="$4" cmd="$5" cfg="${6-$CFG_GLOBAL}"
+  local dir="$TMP/global-$((pass + fail))" home="$TMP/home-$((pass + fail))"
+  mkdir -p "$dir" "$home"
+  printf '%s' "$cfg" > "$dir/.dev-workflow.json"
+  if [ "$has_payload" = yes ]; then
+    mkdir -p "$home/.claude/dev-workflow/_config"
+    printf '{"installation":{"version":"1.0.0"}}' > "$home/.claude/dev-workflow/_config/manifest.json"
+  fi
+
+  local payload err code
+  payload=$(jq -n --arg c "$cmd" '{tool_name:"Bash", tool_input:{command:$c}}')
+  err=$(printf '%s' "$payload" | HOME="$home" CLAUDE_PROJECT_DIR="$dir" bash "$HOOK" 2>&1 >/dev/null)
+  code=$?
+
+  local warn count got=no problem=''
+  warn=$(printf '%s\n' "$err" | grep 'install.mode is global')
+  count=$(printf '%s' "$warn" | grep -c .)
+  [ "$count" -gt 0 ] && got=yes
+  [ "$code" = "$want" ] || problem="want exit $want, got $code"
+  [ "$got" = "$want_warn" ] || problem="${problem:+$problem; }want warn=$want_warn, got warn=$got"
+  if [ "$got" = yes ]; then
+    [ "$count" = 1 ] || problem="${problem:+$problem; }the warning is $count lines, not one"
+    case "$warn" in
+      *'npx claude-dev-workflow@latest --update'*) ;;
+      *) problem="${problem:+$problem; }the warning does not name the install command" ;;
+    esac
+  fi
+
+  if [ -z "$problem" ]; then
+    pass=$((pass + 1)); printf '  ok   %s\n' "$desc"
+  else
+    fail=$((fail + 1))
+    printf '  FAIL %s\n       %s\n' "$desc" "$problem"
+    [ -n "$err" ] && printf '       stderr: %s\n' "$(printf '%s' "$err" | head -3 | tr '\n' ' ')"
+  fi
+}
+
+global_case 'global, no payload: a ticketless commit is still blocked, and it warns' 2 yes no \
+  'git commit -m "feat(api): add endpoint"'
+global_case 'global, no payload: a valid commit still passes, and it warns' 0 yes no \
+  'git commit -m "feat(api): add endpoint (ABC-1)"'
+global_case 'global, no payload: a non-commit bails before any of it' 0 no no 'npm test'
+global_case 'global, payload present: enforced, and nothing to warn about' 2 no yes \
+  'git commit -m "feat(api): add endpoint"'
+global_case 'local mode never asks after a machine payload' 2 no no \
+  'git commit -m "feat(api): add endpoint"' '{"install":{"mode":"local"}}'
+global_case 'a disabled hook says nothing, in global mode too' 0 no no \
+  'git commit -m "whatever"' '{"install":{"mode":"global"},"hooks":{"commitTicket":false}}'
+
 without_jq 'no jq: warns that a commit is unchecked' yes 'git commit -m "nope"'
 without_jq 'no jq: stays quiet for other commands'   no  'npm test'
 

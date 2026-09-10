@@ -71,6 +71,19 @@ if command -v jq >/dev/null 2>&1 && cfg=$(_find_cfg) && jq -e . "$cfg" >/dev/nul
   # `// true` would be wrong here — jq's alternative operator treats `false` as
   # empty, so an explicit false would read as true.
   [ "$(jq -r 'if .hooks.commitTicket == false or .commit.enforce == false then "off" else "on" end' "$cfg")" = "off" ] && exit 0
+
+  # `install.mode: global` keeps the runtime on the machine, under the root
+  # lib/manifest.mjs names as GLOBAL_PAYLOAD_DIR — bash cannot import it, so a
+  # test pins this spelling to that one. This guard lives in the project and
+  # enforces without the runtime; what nothing else would tell the user is why
+  # `dev.mjs` is missing. One line, only with a commit in flight, and never a
+  # block — the same idiom as the jq branch above.
+  if [ "$(jq -r '.install.mode // empty' "$cfg")" = "global" ]; then
+    home="${HOME:-${USERPROFILE:-}}"
+    if [ -z "$home" ] || [ ! -f "$home/.claude/dev-workflow/_config/manifest.json" ]; then
+      echo "check-commit-ticket: install.mode is global but this machine has no workflow payload, so dev.mjs is missing (this guard still enforces). Install it with: npx claude-dev-workflow@latest --update" >&2
+    fi
+  fi
   [ "$(jq -r 'if .commit.requireType == false then "off" else "on" end' "$cfg")" = "off" ] && require_type=0
   v=$(jq -r '.commit.noTicketEscape // empty' "$cfg"); [ -n "$v" ] && escape="$v"
   v=$(jq -r '(.commit.types // []) | join("|")' "$cfg"); [ -n "$v" ] && types="$v"

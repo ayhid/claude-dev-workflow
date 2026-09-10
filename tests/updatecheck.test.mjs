@@ -21,7 +21,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { MANIFEST_PATH, resolveInstallRoots } from '../lib/manifest.mjs';
+import { GLOBAL_PAYLOAD_DIR, MANIFEST_PATH, resolveInstallRoots } from '../lib/manifest.mjs';
 import { UserError } from '../scripts/cmd/common.mjs';
 import {
   CACHE_PATH,
@@ -408,6 +408,15 @@ test('the installer, the report and the banner all print the same command', () =
   assert.equal(spell(render({ installed: '2.0.0', latest: '2.3.1', checked: true })), 'npx claude-dev-workflow@latest --update');
   assert.equal(spell(banner('2.0.0', '2.3.1')), 'npx claude-dev-workflow@latest --update');
   assert.equal(UPGRADE_COMMAND, 'npx claude-dev-workflow@latest --update');
+});
+
+test('the commit guard names the machine root and the install command the payload does', () => {
+  // The guard is bash and cannot import either constant, so its copies are
+  // pinned here (#131). A drifted root would warn on every commit of a healthy
+  // machine; a drifted command would teach a spelling that re-runs a cached copy.
+  const hook = readFileSync(join(ROOT, 'hooks', 'check-commit-ticket.sh'), 'utf8');
+  assert.ok(hook.includes(`"$home/${GLOBAL_PAYLOAD_DIR}/_config/manifest.json"`), 'the guard probes GLOBAL_PAYLOAD_DIR');
+  assert.ok(hook.includes(`Install it with: ${UPGRADE_COMMAND}`), 'the guard names UPGRADE_COMMAND');
 });
 
 test('the shipped payload declares that command in exactly one file', () => {
