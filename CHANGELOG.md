@@ -1,3 +1,10 @@
+# [1.22.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.21.0...v1.22.0) (2026-09-10)
+
+
+### Features
+
+* **manifest:** install-mode roots and a manifest per root ([#129](https://github.com/ayhid/claude-dev-workflow/issues/129)) ([#134](https://github.com/ayhid/claude-dev-workflow/issues/134)) ([e619353](https://github.com/ayhid/claude-dev-workflow/commit/e61935303ca4c7af7f4fd603e5150555c38a4125))
+
 # [1.21.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.20.2...v1.21.0) (2026-09-10)
 
 
