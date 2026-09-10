@@ -138,6 +138,52 @@ export function renderBranch(config, { id, type, title, slug } = {}) {
 }
 
 /**
+ * A `<component>: summary` title — the shape `/dev-file` drafts. The component
+ * is one token: a prefix with a space in it is prose, not a scope.
+ */
+const COMPONENT_PREFIX = /^([\w./-]+):\s+(\S.*)$/;
+
+/**
+ * Whether `text` already names `id`, in any spelling the project's ID syntax
+ * accepts. Whole IDs only: `#1460` does not mention `#146`.
+ */
+function mentionsId(config, text, id) {
+  const { regex, canonical } = idSyntaxFor(config);
+  const scan = new RegExp(regex.source, regex.flags.includes('g') ? regex.flags : `${regex.flags}g`);
+  const wanted = canonical(id);
+  return (text.match(scan) ?? []).some((found) => canonical(found) === wanted);
+}
+
+/**
+ * The title a pull request is opened with: `<type>(<scope>): <summary> (<ID>)`.
+ *
+ * A squash merge makes this string the commit subject on the base branch, and
+ * semantic-release reads nothing else — so this is a commit subject, rendered
+ * by the same rule `commit.pattern` asks of every commit. The type is resolved
+ * by the caller, exactly as `renderBranch` takes it.
+ *
+ * @param {object} config
+ * @param {{id: string, type: string, title?: string}} issue
+ * @returns {{ok: true, title: string} | {ok: false, error: string}}
+ */
+export function renderPullRequestTitle(config, { id, type, title } = {}) {
+  const text = String(title ?? '').trim();
+
+  // Someone already wrote a commit subject here. Their type is a release
+  // decision they made on purpose, so it is kept even where the issue's type
+  // would have said otherwise; only a missing ID is added.
+  const typed = /^([a-z]+)(?:\([^)]*\))?!?:\s/.exec(text);
+  if (typed && (config?.commit?.types ?? []).includes(typed[1])) {
+    return { ok: true, title: mentionsId(config, text, id) ? text : `${text} (${id})` };
+  }
+
+  const prefixed = COMPONENT_PREFIX.exec(text);
+  const head = prefixed ? `${type}(${prefixed[1]})` : type;
+  const summary = prefixed ? prefixed[2] : text;
+  return { ok: true, title: `${head}: ${summary} (${id})` };
+}
+
+/**
  * The issue ID a branch name refers to, or null.
  *
  * Not `extractIssueIds`: that scans prose, where a GitHub ID is written `#42`,
