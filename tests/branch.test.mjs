@@ -14,6 +14,7 @@ import {
   issueTypeOf,
   refIdFor,
   renderBranch,
+  renderPullRequestTitle,
   safeRefSegment,
   slugify,
   worktreePathFor,
@@ -84,6 +85,31 @@ test('renderBranch refuses rather than rendering a nameless branch', () => {
   const config = gh();
   assert.match(renderBranch(config, { id: '', type: 'feat', title: 'x' }).error, /no issue ID/);
   assert.match(renderBranch(config, { id: '#1', title: 'x' }).error, /<type>/);
+});
+
+// --- pull request titles (#154) -----------------------------------------------
+
+/**
+ * A squash merge makes the pull request title the commit subject on the base,
+ * and semantic-release reads nothing else. An untyped title is a release that
+ * never happens — nine of them, before this existed.
+ */
+test('renderPullRequestTitle types the title and reads a component prefix as the scope', () => {
+  assert.deepEqual(
+    renderPullRequestTitle(gh(), { id: '#146', type: 'feat', title: 'fleet: the board selector' }),
+    { ok: true, title: 'feat(fleet): the board selector (#146)' },
+  );
+});
+
+test('renderPullRequestTitle gives a title with no component prefix no scope', () => {
+  assert.deepEqual(
+    renderPullRequestTitle(gh(), { id: '#42', type: 'fix', title: 'Add a dark mode toggle' }),
+    { ok: true, title: 'fix: Add a dark mode toggle (#42)' },
+  );
+  assert.deepEqual(
+    renderPullRequestTitle(yt(), { id: 'ABC-398', type: 'chore', title: 'Redirect 301 map' }),
+    { ok: true, title: 'chore: Redirect 301 map (ABC-398)' },
+  );
 });
 
 test('issueIdFromBranch anchors to the first number on GitHub', () => {
