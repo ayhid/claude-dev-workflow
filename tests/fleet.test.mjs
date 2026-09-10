@@ -150,6 +150,25 @@ test('the plan term: the newest plan is the one dated last, not the one listed l
   assert.equal(planOf([{ ...undated, body: '## Plan\nolder' }, undated]), undated.body, 'with no dates, the later one');
 });
 
+test('the plan term: of two competing ## Plan comments, the newer one\'s criteria are returned (#153)', () => {
+  const older = { author: 'a', at: '2026-09-01T10:00:00Z', body: '## Plan\n\n- [ ] AC1: one\n' };
+  const newer = {
+    author: 'a',
+    at: '2026-09-02T10:00:00Z',
+    body: '## Plan\n\n- [ ] AC1: one\n- [ ] AC2: two\n- [ ] AC3: three\n',
+  };
+  const tickets = [
+    ticket('#10', { comments: [newer, older] }),
+    ticket('#11', { comments: [older, newer] }),
+  ];
+  const states = new Map([['#10', 'Backlog'], ['#11', 'Backlog']]);
+
+  const by = classifyFleet(tickets, states, CONFIG);
+
+  assert.deepEqual(by.get('#10'), { bucket: 'ready', criteria: 3 }, 'the newer plan listed first');
+  assert.deepEqual(by.get('#11'), { bucket: 'ready', criteria: 3 }, 'the newer plan listed last');
+});
+
 // --- AC3: the quick-wins order ------------------------------------------------
 
 const CANDIDATES = [
