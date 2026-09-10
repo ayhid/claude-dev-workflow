@@ -11,7 +11,8 @@
  * `$HOME`, passed as `env` rather than set on `process.env`. A dry run proves
  * nothing about a write path.
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -126,6 +127,73 @@ test('AC3: the project manifest records the project files and nothing of the mac
 
   const machineRecorded = readJson(join(machine, '_config', 'manifest.json')).files.map((f) => f.path);
   assert.ok(!machineRecorded.some((p) => p.startsWith(SKILLS_DIR) || p.startsWith(AGENTS_DIR) || p.endsWith('.sh')));
+});
+
+// --- AC4: a fresh clone, on a machine with no payload, still enforces ---------
+
+/**
+ * Run the command a settings entry registers, the way Claude Code runs a hook:
+ * through a shell, so `$CLAUDE_PROJECT_DIR` and `$HOME` expand, with the tool
+ * payload on stdin.
+ */
+const runRegistered = (command, { project, home, payload }) =>
+  spawnSync('bash', ['-c', command], {
+    input: JSON.stringify(payload),
+    encoding: 'utf8',
+    env: { PATH: process.env.PATH, HOME: home, CLAUDE_PROJECT_DIR: project },
+  });
+
+/** The single command registered under `event` whose entry has `matcher`. */
+const registered = (settings, event, matcher) => {
+  const commands = (settings.hooks?.[event] ?? [])
+    .filter((e) => e.matcher === matcher)
+    .flatMap((e) => (e.hooks ?? []).map((h) => h.command));
+  assert.equal(commands.length, 1, `exactly one ${event}/${matcher} hook`);
+  return commands[0];
+};
+
+test('AC4: a fresh clone of a globally-installed project fires both guards on a machine with no payload', () => {
+  const { project } = globalInstall();
+
+  // The clone carries what the project commits and nothing from the machine
+  // that installed it; the new machine has a $HOME with no payload in it.
+  const clone = tempDir('dw-global-clone-');
+  cpSync(project, clone, { recursive: true });
+  const bareHome = tempDir('dw-global-bare-home-');
+  assert.ok(!existsSync(join(bareHome, GLOBAL_PAYLOAD_DIR)), 'the new machine has no payload');
+
+  const settings = readJson(join(clone, '.claude', 'settings.json'));
+
+  // The commit guard: a non-conforming message is blocked, with exit 2 — not
+  // the 127 a missing script would give, which is neither allow nor block.
+  const commitGuard = registered(settings, 'PreToolUse', 'Bash');
+  const bad = runRegistered(commitGuard, {
+    project: clone,
+    home: bareHome,
+    payload: { tool_name: 'Bash', tool_input: { command: 'git commit -m "add endpoint"' } },
+  });
+  assert.equal(bad.status, 2, `the commit guard must block: ${bad.stderr}`);
+
+  // The control: the same guard lets a conforming message through, so the 2
+  // above is the guard's verdict and not some other failure.
+  const good = runRegistered(commitGuard, {
+    project: clone,
+    home: bareHome,
+    payload: { tool_name: 'Bash', tool_input: { command: 'git commit -m "feat(api): add endpoint (ABC-1)"' } },
+  });
+  assert.equal(good.status, 0, good.stderr);
+
+  // The ADR guard fires too: an edit to an accepted decision record is refused.
+  const adr = join(clone, 'docs', 'decisions', '0001-a-decision.md');
+  mkdirSync(dirname(adr), { recursive: true });
+  writeFileSync(adr, '# 0001. A decision\n\n- Status: accepted\n- Date: 2026-08-28\n\n## Context\n\nx\n');
+  const adrGuard = registered(settings, 'PreToolUse', 'Edit|Write');
+  const edit = runRegistered(adrGuard, {
+    project: clone,
+    home: bareHome,
+    payload: { tool_name: 'Edit', tool_input: { file_path: adr, old_string: 'x', new_string: 'y' } },
+  });
+  assert.equal(edit.status, 2, `the ADR guard must block: ${edit.stderr}`);
 });
 
 // --- AC6, the other half: a planned write outside the roots still throws ------
