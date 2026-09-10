@@ -18,7 +18,9 @@
  * hard boundary — every write and, more importantly, every *delete* is filtered
  * through it, so a wrong or hand-edited manifest still cannot reach a file that
  * is not ours. `.claude/settings.json` is the one genuinely shared file, and it
- * is merged, never rewritten.
+ * is merged, never rewritten. A **global** install adds exactly one root more,
+ * off the project: the runtime under `$HOME/` + `GLOBAL_PAYLOAD_DIR`, recorded in
+ * a manifest of its own.
  *
  * Nothing written here has dependencies: the payload must run in a project with
  * no package.json at all.
@@ -48,6 +50,7 @@ import { dirname, join, relative, sep } from 'node:path';
 // with it.
 import {
   AGENTS_DIR,
+  GLOBAL_PAYLOAD_DIR,
   MANIFEST_PATH,
   PAYLOAD_DIR,
   SKILLS_DIR,
@@ -55,6 +58,7 @@ import {
   isGeneratedPath,
   readJson,
   readManifest,
+  resolveInstallRoots,
   sha256,
 } from '../../lib/manifest.mjs';
 
@@ -131,10 +135,11 @@ export const AGENT_PREFIX = SKILL_PREFIX;
  * must never resolve outside the project.
  *
  * `root` names what `rel` is relative to. `project` is the three roots above.
- * `machine` is the global install's runtime root, `$HOME/.claude/dev-workflow`,
- * which is ours whole — so a path under it is owned exactly when the same path
- * under `_dev-workflow/` would be, and by the same traversal rules. Any other
- * root owns nothing: a typo in a caller must not widen the boundary.
+ * `machine` is the global install's runtime root, `GLOBAL_PAYLOAD_DIR` under
+ * `$HOME` (spelled once, in lib/manifest.mjs). That root is ours whole, so a
+ * path under it is owned exactly when the same path under `_dev-workflow/`
+ * would be, by the same traversal rules. Any other root owns nothing: a typo
+ * in a caller must not widen the boundary.
  *
  * An option rather than a positional argument, because this is passed straight
  * to array methods (`paths.some(isOwnedPath)`) that hand over an index second.
@@ -288,6 +293,42 @@ export function planFiles(sourceRoot) {
 }
 
 /**
+ * Does a payload file — relative to the payload root — go to the machine in a
+ * global install?
+ *
+ * `lib/` and `scripts/` are the runtime. A Node hook goes with them because it
+ * imports `../lib/…` relatively and cannot resolve it across roots. Everything
+ * else under `hooks/` — the bash guards — stays in the project: a guard that is
+ * not there exits 127, neither allow nor block, so enforcement would vanish from
+ * a fresh clone without a word.
+ */
+function travelsWithRuntime(payloadRel) {
+  return payloadRel.split(sep)[0] !== 'hooks' || payloadRel.endsWith('.mjs');
+}
+
+/**
+ * The same plan, split the way a global install writes it: `{ machine, project }`.
+ *
+ * `machine` paths are relative to the payload root (`lib/config.mjs`); `project`
+ * paths to the project, exactly as `planFiles` spells them. Derived from
+ * `planFiles` rather than walked again, so the two can never disagree about what
+ * ships — only about where it lands.
+ */
+export function planFileSets(sourceRoot) {
+  const machine = new Map();
+  const project = new Map();
+  const prefix = `${PAYLOAD_DIR}${sep}`;
+
+  for (const [rel, src] of planFiles(sourceRoot)) {
+    const payloadRel = rel.startsWith(prefix) ? rel.slice(prefix.length) : null;
+    if (payloadRel !== null && travelsWithRuntime(payloadRel)) machine.set(payloadRel, src);
+    else project.set(rel, src);
+  }
+
+  return { machine, project };
+}
+
+/**
  * Add our hooks to the project's settings, preserving anything already there.
  *
  * Users have their own hooks; an install that overwrote `settings.json` would
@@ -329,6 +370,29 @@ export function mergeHookIntoSettings(settings) {
 }
 
 /**
+ * The roots one install writes into, each with its own plan and its own manifest.
+ *
+ * Local is one target, the project, holding everything. Global is two: the
+ * machine root with the runtime, and the project with the skills, the agents
+ * and the guards. Each records only what was written into it, so each can be
+ * updated, drift-checked and cleaned against its own manifest.
+ */
+function planTargets({ sourceRoot, projectDir, mode, env }) {
+  const roots = resolveInstallRoots({ projectDir, mode, env });
+  const project = { root: 'project', dir: projectDir, manifestAbs: join(projectDir, MANIFEST_PATH), payloadDir: PAYLOAD_DIR };
+
+  if (roots.payloadRoot === join(roots.projectRoot, PAYLOAD_DIR)) {
+    return [{ ...project, planned: planFiles(sourceRoot) }];
+  }
+
+  const sets = planFileSets(sourceRoot);
+  return [
+    { root: 'machine', dir: roots.payloadRoot, manifestAbs: roots.payloadManifest, payloadDir: GLOBAL_PAYLOAD_DIR, planned: sets.machine },
+    { ...project, planned: sets.project },
+  ];
+}
+
+/**
  * Install (or update) the workflow in `projectDir`.
  *
  * @param {object} opts
@@ -337,7 +401,10 @@ export function mergeHookIntoSettings(settings) {
  * @param {string} opts.version      recorded in the manifest
  * @param {boolean} [opts.force]     overwrite locally-modified files
  * @param {boolean} [opts.dryRun]    plan only, write nothing
+ * @param {string} [opts.mode]       `local` (everything in the project) or `global` (the runtime on the machine)
+ * @param {NodeJS.ProcessEnv} [opts.env]  where `$HOME` is read from in global mode
  * @returns {{written: string[], skipped: string[], removed: string[], hookAdded: boolean, addedCommands: string[], isUpdate: boolean}}
+ *   Project files are reported project-relative; machine files by absolute path, so the two cannot be confused.
  */
 export function installPayload({
   sourceRoot,
@@ -346,28 +413,36 @@ export function installPayload({
   force = false,
   dryRun = false,
   writeFile = writeAtomically,
+  mode = 'local',
+  env = process.env,
 }) {
-  const previous = readManifest(projectDir);
-  const isUpdate = Boolean(previous);
-  const drift = isUpdate ? detectDrift(projectDir, previous) : { modified: [] };
-  const protectedPaths = new Set(force ? [] : drift.modified);
+  const targets = planTargets({ sourceRoot, projectDir, mode, env });
+  const shown = (target, rel) => (target.root === 'machine' ? join(target.dir, rel) : rel);
 
-  const planned = planFiles(sourceRoot);
+  for (const target of targets) {
+    target.previous = readJson(target.manifestAbs);
+    target.drift = target.previous ? detectDrift(target.dir, target.previous) : { modified: [] };
+    target.protectedPaths = new Set(force ? [] : target.drift.modified);
+    target.manifestFiles = [];
+  }
+  const isUpdate = Boolean(targets.find((t) => t.root === 'project').previous);
 
   // A planned path outside our roots means the distribution itself is wrong —
   // a misnamed skill directory, say. Fail loudly rather than writing into
-  // someone else's territory.
-  for (const rel of planned.keys()) {
-    if (!isOwnedPath(rel)) {
+  // someone else's territory, and before the first write to any root.
+  for (const { root, dir, planned } of targets) {
+    for (const rel of planned.keys()) {
+      if (isOwnedPath(rel, { root })) continue;
       throw new Error(
-        `refusing to install: ${rel} is outside ${PAYLOAD_DIR}/, .claude/skills/${SKILL_PREFIX}* and .claude/agents/${AGENT_PREFIX}*.md`,
+        root === 'machine'
+          ? `refusing to install: ${rel} is outside the machine payload root ${dir}`
+          : `refusing to install: ${rel} is outside ${PAYLOAD_DIR}/, .claude/skills/${SKILL_PREFIX}* and .claude/agents/${AGENT_PREFIX}*.md`,
       );
     }
   }
 
   const written = [];
   const skipped = [];
-  const manifestFiles = [];
   const removed = [];
   let hookAdded = false;
   let addedCommands = [];
@@ -377,29 +452,31 @@ export function installPayload({
   // reported alongside the original error rather than in place of it.
   const journal = makeJournal();
   try {
-    for (const [rel, src] of planned) {
-      const dest = join(projectDir, rel);
-      const content = readFileSync(src);
-      const hash = sha256(content);
+    for (const target of targets) {
+      for (const [rel, src] of target.planned) {
+        const dest = join(target.dir, rel);
+        const content = readFileSync(src);
+        const hash = sha256(content);
 
-      if (protectedPaths.has(rel)) {
-        skipped.push(rel);
-        // Keep the *previous* hash so the file stays flagged as modified on the
-        // next run too, rather than silently becoming the new baseline.
-        const prior = previous.files.find((f) => f.path === rel);
-        manifestFiles.push({ path: rel, sha256: prior?.sha256 ?? hash });
-        continue;
-      }
+        if (target.protectedPaths.has(rel)) {
+          skipped.push(shown(target, rel));
+          // Keep the *previous* hash so the file stays flagged as modified on the
+          // next run too, rather than silently becoming the new baseline.
+          const prior = target.previous.files.find((f) => f.path === rel);
+          target.manifestFiles.push({ path: rel, sha256: prior?.sha256 ?? hash });
+          continue;
+        }
 
-      if (!dryRun) {
-        journal.mkdir(dirname(dest));
-        journal.remember(dest);
-        writeFile(dest, content);
-        // Carry the executable bit across: the commit hook is run as a script.
-        if (statSync(src).mode & 0o111) chmodSync(dest, 0o755);
+        if (!dryRun) {
+          journal.mkdir(dirname(dest));
+          journal.remember(dest);
+          writeFile(dest, content);
+          // Carry the executable bit across: the commit hook is run as a script.
+          if (statSync(src).mode & 0o111) chmodSync(dest, 0o755);
+        }
+        written.push(shown(target, rel));
+        target.manifestFiles.push({ path: rel, sha256: hash });
       }
-      written.push(rel);
-      manifestFiles.push({ path: rel, sha256: hash });
     }
 
     // Files this version no longer ships, that the last one did.
@@ -407,19 +484,22 @@ export function installPayload({
     // This is the only place the installer deletes anything, so it is where a bad
     // manifest would do real damage. Ownership is re-checked here rather than
     // trusted from the manifest: the file on disk was read from the project, not
-    // written by us, and it may have been edited by hand.
-    for (const entry of previous?.files ?? []) {
-      if (planned.has(entry.path)) continue;
-      if (protectedPaths.has(entry.path)) continue;
-      if (!isOwnedPath(entry.path)) continue;
-      if (isGeneratedPath(entry.path)) continue;
-      const abs = join(projectDir, entry.path);
-      if (!existsSync(abs)) continue;
-      if (!dryRun) {
-        journal.remember(abs);
-        rmSync(abs, { force: true });
+    // written by us, and it may have been edited by hand. Each root is cleaned
+    // against its own manifest and its own boundary only.
+    for (const target of targets) {
+      for (const entry of target.previous?.files ?? []) {
+        if (target.planned.has(entry.path)) continue;
+        if (target.protectedPaths.has(entry.path)) continue;
+        if (!isOwnedPath(entry.path, { root: target.root })) continue;
+        if (isGeneratedPath(entry.path)) continue;
+        const abs = join(target.dir, entry.path);
+        if (!existsSync(abs)) continue;
+        if (!dryRun) {
+          journal.remember(abs);
+          rmSync(abs, { force: true });
+        }
+        removed.push(shown(target, entry.path));
       }
-      removed.push(entry.path);
     }
 
     // Settings merge. Written atomically because this file is shared with the
@@ -437,22 +517,23 @@ export function installPayload({
 
     if (!dryRun) {
       const now = new Date().toISOString();
-      const manifest = {
-        installation: {
-          version,
-          installDate: previous?.installation?.installDate ?? now,
-          lastUpdated: now,
-        },
-        payloadDir: PAYLOAD_DIR,
-        skills: [...planned.keys()]
-          .filter((p) => p.startsWith(`${SKILLS_DIR}${sep}`) && p.endsWith("SKILL.md"))
-          .map((p) => p.split(sep)[2]),
-        files: manifestFiles.sort((a, b) => a.path.localeCompare(b.path)),
-      };
-      const manifestAbs = join(projectDir, MANIFEST_PATH);
-      journal.mkdir(dirname(manifestAbs));
-      journal.remember(manifestAbs);
-      writeFile(manifestAbs, `${JSON.stringify(manifest, null, 2)}\n`);
+      for (const target of targets) {
+        const manifest = {
+          installation: {
+            version,
+            installDate: target.previous?.installation?.installDate ?? now,
+            lastUpdated: now,
+          },
+          payloadDir: target.payloadDir,
+          skills: [...target.planned.keys()]
+            .filter((p) => p.startsWith(`${SKILLS_DIR}${sep}`) && p.endsWith("SKILL.md"))
+            .map((p) => p.split(sep)[2]),
+          files: target.manifestFiles.sort((a, b) => a.path.localeCompare(b.path)),
+        };
+        journal.mkdir(dirname(target.manifestAbs));
+        journal.remember(target.manifestAbs);
+        writeFile(target.manifestAbs, `${JSON.stringify(manifest, null, 2)}\n`);
+      }
     }
   } catch (err) {
     try {
@@ -463,5 +544,6 @@ export function installPayload({
     throw err;
   }
 
-  return { written, skipped, removed, hookAdded, addedCommands, isUpdate, modified: drift.modified };
+  const modified = targets.flatMap((target) => target.drift.modified.map((rel) => shown(target, rel)));
+  return { written, skipped, removed, hookAdded, addedCommands, isUpdate, modified };
 }
