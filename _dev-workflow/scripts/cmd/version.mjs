@@ -197,10 +197,19 @@ export async function upgrade(root, { run = sh, hasBin = has, vcs, latest = null
   }
 
   const after = readManifest(root)?.installation?.version ?? null;
+  // The machine half is read back like the project half: the version found,
+  // never the one the run was expected to produce.
+  const runtimeAfter = global ? runtimeVersion() : null;
   const lines = [r.stdout, ''].filter(Boolean);
 
-  if (after && before && after === before) {
+  // "Nothing changed" is a claim about the whole install, so it needs both
+  // halves to be where they were — a run that moved only the runtime changed
+  // what every skill in the project calls.
+  const projectSame = Boolean(after && before && after === before);
+  if (projectSame && runtimeAfter === runtimeBefore) {
     lines.push(`Still on ${after} — nothing changed.`);
+  } else if (projectSame) {
+    lines.push(`Project half still on ${after}.`);
   } else {
     lines.push(`Now on ${after ?? 'unknown'}${before ? ` (was ${before})` : ''}.`);
     const rewritten = new Intl.ListFormat('en').format([`${PAYLOAD_DIR}/`, '.claude/skills/dev-*', '.claude/agents/dev-*.md']);
@@ -208,9 +217,6 @@ export async function upgrade(root, { run = sh, hasBin = has, vcs, latest = null
   }
 
   if (global) {
-    // The machine half is read back like the project half: the version found,
-    // never the one the run was expected to produce.
-    const runtimeAfter = runtimeVersion();
     lines.push(`Machine runtime at ${roots.payloadRoot}: now on ${runtimeAfter ?? 'unknown'}${runtimeBefore ? ` (was ${runtimeBefore})` : ''}.`);
     const skew = skewWarning(after, runtimeAfter);
     if (skew) lines.push(skew);

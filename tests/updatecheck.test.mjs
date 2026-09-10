@@ -783,6 +783,26 @@ test('upgrade in global mode reports a runtime the installer left behind, rather
   assert.match(message, /Skew: the project half is on 1\.1\.0 and the machine runtime is on 1\.0\.0/);
 });
 
+test('upgrade in global mode does not call it "nothing changed" when only the runtime moved', async () => {
+  const { root, roots } = globalInstall('1.0.0');
+  const run = async (bin) => {
+    if (bin === 'npx') writeVersion(roots.payloadManifest, '1.1.0');
+    return { ok: true, code: 0, stdout: 'installed', stderr: '' };
+  };
+
+  const message = await upgrade(root, { run, hasBin: async (b) => b === 'npx', vcs: cleanVcs, latest: null, roots });
+  assert.doesNotMatch(message, /nothing changed/);
+  assert.match(message, /machine runtime .*now on 1\.1\.0 \(was 1\.0\.0\)/i);
+});
+
+test('upgrade in global mode says "nothing changed" only when both halves are where they were', async () => {
+  const { root, roots } = globalInstall('1.0.0');
+  const run = async () => ({ ok: true, code: 0, stdout: 'installed', stderr: '' });
+
+  const message = await upgrade(root, { run, hasBin: async (b) => b === 'npx', vcs: cleanVcs, latest: null, roots });
+  assert.match(message, /Still on 1\.0\.0 — nothing changed\./);
+});
+
 // --- #87: a session greeting says it every session, a command says it once a day ------
 
 test('announceOnce:false returns the banner even when this latest was already announced', async () => {
