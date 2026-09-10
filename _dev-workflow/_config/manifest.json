@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.20.1",
     "installDate": "2026-09-08T10:07:31.602Z",
-    "lastUpdated": "2026-09-10T05:20:23.798Z"
+    "lastUpdated": "2026-09-10T10:09:51.579Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -49,7 +49,7 @@
     },
     {
       "path": "_dev-workflow/lib/branch.mjs",
-      "sha256": "34bcf88f8253602c10742503fecdc60ab59023e7c7676b820c9898075a9a28ef"
+      "sha256": "54b088e0e53891524363af1d36f1176f0158a9f36c8ee3427989692bda0e65b2"
     },
     {
       "path": "_dev-workflow/lib/config.mjs",
@@ -62,6 +62,10 @@
     {
       "path": "_dev-workflow/lib/docset.mjs",
       "sha256": "1ef81a700372e481aab0d4dc705462e655146e11c40aceee3926777bceaafbe9"
+    },
+    {
+      "path": "_dev-workflow/lib/fleet.mjs",
+      "sha256": "719f6a7b1d1da53d4c0ea48672042273e8fdd0f5de53b58abb2b62787e0f3fcd"
     },
     {
       "path": "_dev-workflow/lib/github.mjs",
@@ -189,7 +193,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/land.mjs",
-      "sha256": "d1e6b13cb6e6307147ea83c9da294dfe849868b9a69e189dd94749bb8ee3fa0a"
+      "sha256": "541e94de17c007d71fbde5239a6be437d42329f38ea0b4acf66af2f7ca395372"
     },
     {
       "path": "_dev-workflow/scripts/cmd/note.mjs",
@@ -245,7 +249,7 @@
     },
     {
       "path": ".claude/agents/dev-builder.md",
-      "sha256": "81c5e24915b02bc7ae1e540b9a3d3e7b2d12982c5e3a39bed1323bfbfcf5befa"
+      "sha256": "8efcf728d465b15a84eac68c1f99371c17d0e7e2e1aaf163db0187b8e27ab22a"
     },
     {
       "path": ".claude/agents/dev-reader.md",
