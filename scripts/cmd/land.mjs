@@ -71,9 +71,15 @@ export function missingTargetError({ base, remote, repoDir, fromDeliveryBase }) 
  * it carries the commit type — resolved through the same `branch.types` mapping
  * `start` used to name the branch, so the branch and the subject cannot
  * disagree about what kind of change this is.
+ *
+ * An unmapped type is the resolver's error, naming `branch.types`, and never a
+ * fallback: the type decides the release, so a guess here is a guessed release.
+ *
+ * @returns {{ok: true, title: string} | {ok: false, error: string}}
  */
 export function pullRequestTitle(config, issue) {
   const resolved = resolveBranchType(config, issueTypeOf(config, issue));
+  if (!resolved.ok) return resolved;
   return renderPullRequestTitle(config, { id: issue.id, type: resolved.type, title: issue.title });
 }
 
@@ -223,7 +229,10 @@ export async function run(args, { reconcile = true } = {}) {
   L.push(`delivery: ${delivery.mode}${opts.apply ? '' : '   (dry run — pass --apply)'}`);
 
   if (delivery.mode === 'pr') {
+    // Before openPullRequest, which is where the push happens: a branch pushed
+    // for a pull request that cannot be titled is a remote ref left behind.
     const title = pullRequestTitle(config, { ...issue.data, id });
+    if (!title.ok) throw new UserError(title.error);
     await openPullRequest({
       workDir,
       branch,

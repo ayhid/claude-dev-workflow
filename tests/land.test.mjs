@@ -372,6 +372,25 @@ test('land --apply passes gh pr create exactly the title it printed', async () =
   assert.ok(create.includes(`--title ${printed} --body-file -`), `the title sent was not the one printed: ${create}`);
 });
 
+test('an issue type with no branch.types mapping is refused before anything is pushed', async () => {
+  // `Spike` is a type the tracker labels (TYPED maps it) but `branch.types` does
+  // not: guessing a commit type here would be guessing a release.
+  const { repo, wt, dev, read } = await withStubGh({
+    repos: ['api', 'web'],
+    config: TYPED,
+    labels: '{"name":"status: in progress"},{"name":"spike"}',
+    remote: true,
+  });
+
+  const r = await dev(['land', '--apply'], {}, { cwd: wt });
+
+  assert.equal(r.code, 1, r.stdout);
+  assert.match(r.stderr, /branch\.types/);
+  const remoteHeads = await sh('git', ['-C', repo, 'ls-remote', '--heads', 'origin', 'feat/12-thing']);
+  assert.equal(remoteHeads.stdout.trim(), '', 'the branch was pushed before the refusal');
+  assert.doesNotMatch(read('log'), /pr create/);
+});
+
 /**
  * #42: where the close event ends up when the worktree it was made from is
  * gone by the time it is written.
