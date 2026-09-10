@@ -41,6 +41,9 @@ four hooks into `.claude/settings.json`. That copy is what the project commits a
 there is no plugin manifest. A global binary updates a project to *its own* version, so
 `dev.mjs version --upgrade` uses it only when it already reports the latest release and falls
 back to `npx …@latest` otherwise, and `update` refuses to move a project backwards unless forced.
+`update` also asks the registry whether the binary is the latest and says "up to date" only on
+the registry's word: a stale global binary that reported the project current while pinning it to
+an old release was how a newer version went unnoticed by the one command run to get it.
 `npx github:ayhid/claude-dev-workflow` is the same install straight off `main`, one release ahead.
 
 **Always write `@latest`, everywhere — docs, help text, printed hints.** npx keys its cache on the

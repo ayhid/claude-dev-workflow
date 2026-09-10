@@ -65,6 +65,7 @@ import {
 import { baseBranch, commitIdPosition, describeRepo, findRepos } from './lib/detect.mjs';
 import { createLabelCommand, ghAuthStatus, ghLabels, ghRepoView, ghVersion } from './lib/gh.mjs';
 import { compareVersions } from '../lib/manifest.mjs';
+import { latestVersion } from '../lib/updatecheck.mjs';
 import { COMMANDS, parseCommand } from './lib/argv.mjs';
 import { classifyProject } from './lib/reinstall.mjs';
 import { PAYLOAD_DIR, installPayload, readManifest } from './lib/payload.mjs';
@@ -183,6 +184,15 @@ const UPDATE_COMMAND = 'npx claude-dev-workflow@latest --update';
 
 /** The same update, plus the wizard. The mode nothing used to name. */
 const RECONFIGURE_COMMAND = `${UPDATE_COMMAND} --reconfigure`;
+
+/**
+ * How to move the *binary* forward — the one thing no run of it can do for
+ * itself. A global install is one version until brew or npm replaces it, and
+ * `npx …@latest` is the spelling that resolves the newest without either.
+ */
+const BINARY_UPGRADE_HINT =
+  `Update the binary first: ${c.cyan('brew upgrade claude-dev-workflow')} or ${c.cyan('npm update -g claude-dev-workflow')},\n` +
+  `or ${c.cyan(UPDATE_COMMAND)} for the latest release.`;
 
 /**
  * Copy the payload and skills into the project, and report what happened.
@@ -362,10 +372,21 @@ async function addNewConfigKeys({ dryRun = false } = {}) {
  * backwards by accident: a global binary older than the project's copy is the
  * binary that needs updating, not the project. Exits when nothing was written.
  *
- * @returns {object} what `installPayload` reported
+ * Its own version is also the only one a binary knows. Whether that is the
+ * *latest* is the registry's to say, so ask it — bounded at 2.5s, silent on any
+ * failure, skipped under DEV_WORKFLOW_NO_NETWORK — before anyone prints "up to
+ * date". Without the lookup a global binary that is behind reports the project
+ * current at the very moment it pins it to a stale release, and the newer
+ * version is never mentioned by the one command run to get it.
+ *
+ * @returns {Promise<{files: object, latest: string|null, binaryBehind: boolean}>}
+ *   what `installPayload` reported, and where this binary stands against the registry
  */
-function refreshFiles() {
+async function refreshFiles() {
   const installedVersion = readManifest(targetDir)?.installation?.version ?? null;
+  const latest = process.env.DEV_WORKFLOW_NO_NETWORK ? null : await latestVersion();
+  const binaryBehind = compareVersions(VERSION, latest) === -1;
+
   if (installedVersion) {
     const cmp = compareVersions(installedVersion, VERSION);
     if (cmp === 0) p.log.info(`Project is at ${c.cyan(`v${VERSION}`)}, the version this binary installs.`);
@@ -373,12 +394,15 @@ function refreshFiles() {
     else if (cmp === 1 && !flag('--force')) {
       p.log.error(
         `The project is at ${c.cyan(`v${installedVersion}`)} and this binary would install ${c.cyan(`v${VERSION}`)} — a downgrade.\n` +
-          `Update the binary first: ${c.cyan('brew upgrade claude-dev-workflow')} or ${c.cyan('npm update -g claude-dev-workflow')},\n` +
-          `or ${c.cyan('npx claude-dev-workflow@latest --update')} for the latest release. Pass ${c.cyan('--force')} to downgrade anyway.`,
+          `${BINARY_UPGRADE_HINT} Pass ${c.cyan('--force')} to downgrade anyway.`,
       );
       p.outro(c.yellow('Nothing was updated.'));
       process.exit(1);
     } else if (cmp === 1) p.log.warn(`Downgrading the project ${c.cyan(`v${installedVersion} → v${VERSION}`)} — --force given.`);
+  }
+
+  if (binaryBehind) {
+    p.log.warn(`This binary installs ${c.cyan(`v${VERSION}`)}, but ${c.cyan(`v${latest}`)} is published.\n${BINARY_UPGRADE_HINT}`);
   }
 
   const files = installIntoProject({ force: flag('--force'), dryRun: flag('--print') });
@@ -386,7 +410,7 @@ function refreshFiles() {
     p.outro(c.yellow('Nothing was updated.'));
     process.exit(1);
   }
-  return files;
+  return { files, latest, binaryBehind };
 }
 
 /**
@@ -399,13 +423,17 @@ function refreshFiles() {
  */
 async function runExpress() {
   const dryRun = flag('--print');
-  const files = refreshFiles();
+  const { files, latest, binaryBehind } = await refreshFiles();
   const added = await addNewConfigKeys({ dryRun });
   if (!dryRun) p.log.info(closingLine(files, settingsAdded(added)));
+  // "Up to date" is a claim about the registry, not about this binary — and it
+  // is only made once the registry has confirmed it.
   p.outro(
     dryRun
       ? `${c.green('Planned only.')} ${c.dim(`v${VERSION} would be installed in ${targetDir}`)}`
-      : `${c.green('Up to date.')} ${c.dim(`v${VERSION} in ${targetDir}`)}`,
+      : binaryBehind
+        ? `${c.yellow(`Installed v${VERSION} — behind the latest release, v${latest}.`)} ${c.dim(targetDir)}`
+        : `${c.green('Up to date.')} ${c.dim(`v${VERSION} in ${targetDir}`)}`,
   );
   process.exit(0);
 }
@@ -478,7 +506,7 @@ let refreshed = null;
 
 if (flag('--update')) {
   if (!reconfigure) await runExpress();
-  refreshed = refreshFiles();
+  refreshed = (await refreshFiles()).files;
   p.log.step(`${c.bold('Change config')} — the wizard, with your current values as its defaults.`);
 }
 

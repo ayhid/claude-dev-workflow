@@ -270,7 +270,9 @@ dw update --force         # and overwrite files you have edited
 
 `update` installs the version the binary carries and says so — `Project v1.18.2 → v1.19.0` — and
 it refuses to move a project *backwards* when the binary is older than the project's copy, naming
-the upgrade command for the binary instead. `--force` downgrades anyway.
+the upgrade command for the binary instead. `--force` downgrades anyway. It also asks the npm
+registry whether the binary itself is current: a binary behind the latest release still installs,
+but warns and names the newer version rather than reporting the project up to date.
 
 With no global install, each is `npx claude-dev-workflow@latest --update …` — and that is also the
 spelling `dev.mjs version` prints, since it works on every machine. A global binary updates a

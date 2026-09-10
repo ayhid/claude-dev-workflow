@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -566,6 +567,7 @@ test('--update installs with no prompts, and --print writes nothing', async () =
       const child = spawn(process.execPath, [join(SOURCE_ROOT, 'bin', 'install.mjs'), ...args], {
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout: 30_000,
+        env: { ...process.env, DEV_WORKFLOW_NO_NETWORK: '1' },
       });
       let out = '';
       child.stdout.on('data', (d) => (out += d));
@@ -589,6 +591,69 @@ test('--update installs with no prompts, and --print writes nothing', async () =
   assert.ok(!existsSync(join(dir, '.dev-workflow.json')), '--update must not touch the config');
 });
 
+test('--update asks the registry whether the binary is the latest, and says "up to date" only when it is', async () => {
+  // A global binary installs its own version, and that is by design — but
+  // "Up to date" is a claim about the registry, not about the binary. A `dw
+  // update` from a binary two releases behind used to print it anyway, while
+  // pinning the project to the stale release and never naming the newer one.
+  const dir = scratch();
+  const version = JSON.parse(readFileSync(join(SOURCE_ROOT, 'package.json'), 'utf8')).version;
+
+  const registry = (latest) =>
+    new Promise((resolve) => {
+      const server = createServer((_req, res) => {
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ latest }));
+      });
+      server.listen(0, '127.0.0.1', () => resolve(server));
+    });
+
+  const runAgainst = (server, args) =>
+    new Promise((resolve) => {
+      const child = spawn(process.execPath, [join(SOURCE_ROOT, 'bin', 'install.mjs'), ...args], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 30_000,
+        env: {
+          ...process.env,
+          // CI sets `CI`, which turns colour on, and an ANSI code in the middle
+          // of "v99.0.0 is published" is what the assertions below would see.
+          NO_COLOR: '1',
+          DEV_WORKFLOW_NO_NETWORK: '',
+          DEV_WORKFLOW_REGISTRY_URL: `http://127.0.0.1:${server.address().port}/`,
+        },
+      });
+      let out = '';
+      child.stdout.on('data', (d) => (out += d));
+      child.stderr.on('data', (d) => (out += d));
+      child.on('close', (code, signal) => resolve({ code, signal, out }));
+    });
+
+  const ahead = await registry('99.0.0');
+  try {
+    const r = await runAgainst(ahead, ['--update', '--dir', dir]);
+    assert.equal(r.signal, null, r.out);
+    assert.equal(r.code, 0, 'a binary that is behind still installs — it is not a downgrade');
+    assert.ok(existsSync(join(dir, MANIFEST_PATH)), r.out);
+    assert.match(r.out, /v99\.0\.0 is published/, r.out);
+    assert.match(r.out, /npm update -g claude-dev-workflow/, 'the way to move the binary forward is named');
+    assert.match(r.out, /behind the latest release, v99\.0\.0/, r.out);
+    assert.doesNotMatch(r.out, /Up to date/, 'never on the binary\'s own word');
+  } finally {
+    ahead.close();
+  }
+
+  const current = await registry(version);
+  try {
+    const r = await runAgainst(current, ['--update', '--dir', dir]);
+    assert.equal(r.signal, null, r.out);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /Up to date/, r.out);
+    assert.doesNotMatch(r.out, /is published/, r.out);
+  } finally {
+    current.close();
+  }
+});
+
 // --- what express mode does to the config ------------------------------------
 //
 // Two more process-level cases, for the same reason as the one above: whether
@@ -601,6 +666,7 @@ const runInstaller = (args) =>
     const child = spawn(process.execPath, [join(SOURCE_ROOT, 'bin', 'install.mjs'), ...args], {
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 30_000,
+      env: { ...process.env, DEV_WORKFLOW_NO_NETWORK: '1' },
     });
     let out = '';
     child.stdout.on('data', (d) => (out += d));
