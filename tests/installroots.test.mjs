@@ -200,14 +200,21 @@ after(() => {
   for (const dir of scratch) rmSync(dir, { recursive: true, force: true });
 });
 
+/**
+ * A path as a literal inside a pattern. The temp directories below come from
+ * `tmpdir()`, which honours `TMPDIR`, and a `(` or `+` there would otherwise
+ * change what the pattern means.
+ */
+const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 test('dev.mjs config prints local and the project-relative roots', () => {
   const dir = project({ provider: 'github', github: { repo: 'acme/api' } });
   const r = devConfig(dir, { HOME: '/tmp/nowhere' });
 
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stdout, /install:\s+local/);
-  assert.match(r.stdout, new RegExp(`payload:\\s+${dir}/_dev-workflow`));
-  assert.match(r.stdout, new RegExp(`skills:\\s+${dir}/\\.claude/skills`));
+  assert.match(r.stdout, new RegExp(`payload:\\s+${escapeRe(dir)}/_dev-workflow`));
+  assert.match(r.stdout, new RegExp(`skills:\\s+${escapeRe(dir)}/\\.claude/skills`));
 });
 
 test('dev.mjs config prints global and the machine root it resolved', () => {
@@ -218,9 +225,9 @@ test('dev.mjs config prints global and the machine root it resolved', () => {
 
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stdout, /install:\s+global/);
-  assert.match(r.stdout, new RegExp(`payload:\\s+${home}/\\.claude/dev-workflow`));
+  assert.match(r.stdout, new RegExp(`payload:\\s+${escapeRe(home)}/\\.claude/dev-workflow`));
   // The skills stay in the project in both modes.
-  assert.match(r.stdout, new RegExp(`skills:\\s+${dir}/\\.claude/skills`));
+  assert.match(r.stdout, new RegExp(`skills:\\s+${escapeRe(dir)}/\\.claude/skills`));
 });
 
 test('dev.mjs config --json carries the mode, defaulted for a config that predates it', () => {
