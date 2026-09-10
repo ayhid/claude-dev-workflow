@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { classifyFleet } from '../lib/fleet.mjs';
+import { classifyFleet, countCriteria, orderCandidates, selectFleet } from '../lib/fleet.mjs';
 
 const CONFIG = {
   provider: 'github',
@@ -112,4 +112,81 @@ test('the terms are reported in a fixed order, so one ticket fails one named ter
   const by = classifyFleet(tickets, states, CONFIG);
 
   assert.equal(by.get('#10').term, 'dependencies');
+});
+
+// --- AC3: the quick-wins order ------------------------------------------------
+
+const CANDIDATES = [
+  { id: '#10', type: 'Feature', criteria: 3 },
+  { id: '#11', type: 'Bug', criteria: 3 },
+  { id: '#12', type: 'Feature', criteria: 1 },
+  { id: '#13', type: 'Task', criteria: 3 },
+];
+
+test('candidates are ordered by criteria count ascending, then fix before feat', () => {
+  assert.deepEqual(orderCandidates(CANDIDATES, CONFIG), ['#12', '#11', '#13', '#10']);
+});
+
+test('the order is stable: an equal pair keeps the order it came in', () => {
+  const pair = [
+    { id: '#20', type: 'Feature', criteria: 2 },
+    { id: '#21', type: 'Feature', criteria: 2 },
+  ];
+  assert.deepEqual(orderCandidates(pair, CONFIG), ['#20', '#21']);
+  assert.deepEqual(orderCandidates([...pair].reverse(), CONFIG), ['#21', '#20']);
+});
+
+test('an explicit ID list is used verbatim — not reordered, not filtered', () => {
+  const explicit = ['#10', '#12', '#99'];
+  assert.deepEqual(orderCandidates(CANDIDATES, CONFIG, { explicit }), explicit);
+});
+
+test('an unmapped type is ordered, not refused: it sits between fix and feat', () => {
+  const mixed = [
+    { id: '#30', type: 'Feature', criteria: 1 },
+    { id: '#31', type: 'Epic', criteria: 1 },
+    { id: '#32', type: 'Bug', criteria: 1 },
+    { id: '#33', type: null, criteria: 1 },
+  ];
+  assert.deepEqual(orderCandidates(mixed, CONFIG), ['#32', '#31', '#33', '#30']);
+});
+
+test('the criteria count comes from the plan\'s Criteria section, not its Verification list', () => {
+  const plan = [
+    '## Plan',
+    '### Criteria',
+    '- [ ] AC1: one',
+    '- [x] AC2: two',
+    '### Verification',
+    '- [ ] npm test',
+    '- [ ] a real run',
+  ].join('\n');
+
+  assert.equal(countCriteria(plan), 2);
+  assert.equal(countCriteria('## Plan\n\n- [ ] AC1: one\n- [ ] AC2: two\n- [ ] AC3: three\n'), 3);
+  assert.equal(countCriteria(''), 0);
+});
+
+test('selectFleet prints one order over the ready tickets, and nothing else', () => {
+  const plan = (n) => [{
+    author: 'a',
+    at: null,
+    body: `## Plan\n### Criteria\n${Array.from({ length: n }, (_, i) => `- [ ] AC${i + 1}: x`).join('\n')}\n`,
+  }];
+  const tickets = [
+    { id: '#10', type: 'Feature', dependsOn: [], comments: plan(3) },
+    { id: '#11', type: 'Bug', dependsOn: [], comments: plan(3) },
+    { id: '#12', type: 'Feature', dependsOn: [], comments: plan(1) },
+    { id: '#13', type: 'Feature', dependsOn: [], comments: [] },
+    { id: '#14', type: 'Feature', dependsOn: [], comments: plan(1) },
+  ];
+  const states = new Map([['#10', 'Backlog'], ['#11', 'Backlog'], ['#12', 'Backlog'], ['#13', 'Backlog'], ['#14', 'In Progress']]);
+
+  const { by, order } = selectFleet(tickets, states, CONFIG);
+
+  assert.deepEqual(order, ['#12', '#11', '#10']);
+  assert.equal(by.get('#13').bucket, 'unplanned');
+  assert.equal(by.get('#14').bucket, 'in progress');
+
+  assert.deepEqual(selectFleet(tickets, states, CONFIG, { explicit: ['#14', '#10'] }).order, ['#14', '#10']);
 });
