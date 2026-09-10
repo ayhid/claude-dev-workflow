@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { classifyFleet, countCriteria, orderCandidates, selectFleet } from '../lib/fleet.mjs';
+import { classifyFleet, countCriteria, orderCandidates, planOf, selectFleet } from '../lib/fleet.mjs';
 
 const CONFIG = {
   provider: 'github',
@@ -114,6 +114,17 @@ test('the terms are reported in a fixed order, so one ticket fails one named ter
   assert.equal(by.get('#10').term, 'dependencies');
 });
 
+test('the plan term: the newest plan is the one dated last, not the one listed last', () => {
+  const first = { author: 'a', at: '2026-09-01T10:00:00Z', body: '## Plan\n\n- [ ] AC1: first\n' };
+  const revised = { author: 'a', at: '2026-09-02T10:00:00Z', body: '## Plan\n\n- [ ] AC1: revised\n' };
+  const undated = { author: 'a', at: null, body: '## Plan\n\n- [ ] AC1: undated\n' };
+
+  assert.equal(planOf([revised, first]), revised.body, 'a tracker listing comments out of order');
+  assert.equal(planOf([first, revised]), revised.body);
+  assert.equal(planOf([revised, undated]), revised.body, 'a dated plan outranks an undated one');
+  assert.equal(planOf([{ ...undated, body: '## Plan\nolder' }, undated]), undated.body, 'with no dates, the later one');
+});
+
 // --- AC3: the quick-wins order ------------------------------------------------
 
 const CANDIDATES = [
@@ -139,6 +150,7 @@ test('the order is stable: an equal pair keeps the order it came in', () => {
 test('an explicit ID list is used verbatim — not reordered, not filtered', () => {
   const explicit = ['#10', '#12', '#99'];
   assert.deepEqual(orderCandidates(CANDIDATES, CONFIG, { explicit }), explicit);
+  assert.deepEqual(orderCandidates(CANDIDATES, CONFIG, { explicit: [] }), [], 'an empty list is a list, not an omitted one');
 });
 
 test('an unmapped type is ordered, not refused: it sits between fix and feat', () => {
@@ -189,4 +201,5 @@ test('selectFleet prints one order over the ready tickets, and nothing else', ()
   assert.equal(by.get('#14').bucket, 'in progress');
 
   assert.deepEqual(selectFleet(tickets, states, CONFIG, { explicit: ['#14', '#10'] }).order, ['#14', '#10']);
+  assert.deepEqual(selectFleet(tickets, states, CONFIG, { explicit: [] }).order, []);
 });
