@@ -105,6 +105,31 @@ test('the plan term: a ticket with no ## Plan comment is unplanned, not ready', 
   assert.equal(by.get('#12').bucket, 'ready');
 });
 
+test('the plan term: a plan comment or a body criteria section each count as planned; neither does not (#153)', () => {
+  const tickets = [
+    ticket('#10', { body: '## Problem\n\nno criteria in the body\n' }),
+    ticket('#11', {
+      comments: [],
+      body: '## Problem\n\nfiled by split\n\n## Acceptance criteria\n\n- [ ] AC1: one\n- [ ] AC2: two\n',
+    }),
+    ticket('#12', { comments: [{ author: 'a', at: null, body: 'no plan here' }], body: '## Problem\n\nnothing\n' }),
+  ];
+  const states = new Map([
+    ['#10', 'Backlog'],
+    ['#11', 'Backlog'],
+    ['#12', 'Backlog'],
+  ]);
+
+  const by = classifyFleet(tickets, states, CONFIG);
+
+  assert.deepEqual(by.get('#10'), { bucket: 'ready', criteria: 1 }, 'a plan comment only');
+  assert.deepEqual(by.get('#11'), { bucket: 'ready', criteria: 2 }, 'a criteria section only');
+  assert.equal(by.get('#12').bucket, 'unplanned', 'neither');
+  assert.equal(by.get('#12').term, 'plan');
+  assert.match(by.get('#12').why, /## Plan/);
+  assert.match(by.get('#12').why, /## Acceptance criteria/);
+});
+
 test('the terms are reported in a fixed order, so one ticket fails one named term', () => {
   const tickets = [ticket('#10', { dependsOn: ['#9'], comments: [] })];
   const states = new Map([['#10', 'Backlog'], ['#9', 'Backlog']]);
@@ -123,6 +148,25 @@ test('the plan term: the newest plan is the one dated last, not the one listed l
   assert.equal(planOf([first, revised]), revised.body);
   assert.equal(planOf([revised, undated]), revised.body, 'a dated plan outranks an undated one');
   assert.equal(planOf([{ ...undated, body: '## Plan\nolder' }, undated]), undated.body, 'with no dates, the later one');
+});
+
+test('the plan term: of two competing ## Plan comments, the newer one\'s criteria are returned (#153)', () => {
+  const older = { author: 'a', at: '2026-09-01T10:00:00Z', body: '## Plan\n\n- [ ] AC1: one\n' };
+  const newer = {
+    author: 'a',
+    at: '2026-09-02T10:00:00Z',
+    body: '## Plan\n\n- [ ] AC1: one\n- [ ] AC2: two\n- [ ] AC3: three\n',
+  };
+  const tickets = [
+    ticket('#10', { comments: [newer, older] }),
+    ticket('#11', { comments: [older, newer] }),
+  ];
+  const states = new Map([['#10', 'Backlog'], ['#11', 'Backlog']]);
+
+  const by = classifyFleet(tickets, states, CONFIG);
+
+  assert.deepEqual(by.get('#10'), { bucket: 'ready', criteria: 3 }, 'the newer plan listed first');
+  assert.deepEqual(by.get('#11'), { bucket: 'ready', criteria: 3 }, 'the newer plan listed last');
 });
 
 // --- AC3: the quick-wins order ------------------------------------------------
