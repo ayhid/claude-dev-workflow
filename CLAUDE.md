@@ -322,6 +322,15 @@ places for the seventh to be forgotten.
 Skill names are namespaced `dev-*`. They live in a flat namespace next to every other skill the
 user has installed, and `task` / `bug` / `done` are far too generic to claim.
 
+**What a thing is called is decided by rule, not by taste** — ADR 0005. A skill takes the act the
+user is asking for, as an imperative verb; a subcommand takes the act too, except where it groups
+sub-verbs or purely reports, when it takes its subject; an agent takes its role. One act gets one
+word across both layers and both binaries, a compound is `<verb>-<subject>`, and a name that writes
+may never differ from a name that reports by only a prefix, a suffix or one letter. Read the record
+before adding a name — it also
+carries the two carve-outs (`/dev-bug`, `dev.mjs assess`) so they are not re-argued, and the reason
+`hooks/*` filenames are excluded.
+
 ## What we own in a user's project, and nothing else
 
 A project is shared ground — other skill-based tools install their own payload directories and

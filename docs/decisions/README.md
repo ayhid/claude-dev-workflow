@@ -8,3 +8,4 @@
 | [0002](0002-retire-the-ci-posted-adversarial-reviewer.md) | Retire the CI-posted adversarial reviewer; keep the lenses local | accepted | 2026-08-30 |
 | [0003](0003-ship-subagent-definitions-as-a-third.md) | Ship subagent definitions as a third owned root, with a model per task class | accepted | 2026-09-03 |
 | [0004](0004-split-the-task-lifecycle-into-file.md) | Split the task lifecycle into file, plan, split and build, with work units as sub-issues built in parallel | accepted | 2026-09-07 |
+| [0005](0005-a-naming-rule-for-skills-commands.md) | A naming rule for skills, commands and agents | accepted | 2026-09-09 |
