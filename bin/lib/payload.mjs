@@ -129,12 +129,24 @@ export const AGENT_PREFIX = SKILL_PREFIX;
  *
  * Path traversal is rejected outright: a manifest entry of `../../etc/thing`
  * must never resolve outside the project.
+ *
+ * `root` names what `rel` is relative to. `project` is the three roots above.
+ * `machine` is the global install's runtime root, `$HOME/.claude/dev-workflow`,
+ * which is ours whole — so a path under it is owned exactly when the same path
+ * under `_dev-workflow/` would be, and by the same traversal rules. Any other
+ * root owns nothing: a typo in a caller must not widen the boundary.
+ *
+ * An option rather than a positional argument, because this is passed straight
+ * to array methods (`paths.some(isOwnedPath)`) that hand over an index second.
  */
-export function isOwnedPath(rel) {
+export function isOwnedPath(rel, { root = 'project' } = {}) {
   if (typeof rel !== 'string' || rel.length === 0) return false;
 
   const parts = rel.split(/[/\\]/);
   if (parts.includes('..') || parts.includes('') || rel.startsWith('/')) return false;
+
+  if (root === 'machine') return isOwnedPath(join(PAYLOAD_DIR, rel));
+  if (root !== 'project') return false;
 
   if (parts[0] === PAYLOAD_DIR) return parts.length > 1;
 
