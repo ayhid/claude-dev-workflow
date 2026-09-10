@@ -20,7 +20,19 @@ import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 
 import { GLOBAL_PAYLOAD_DIR, sha256 } from '../lib/manifest.mjs';
-import { AGENTS_DIR, MANIFEST_PATH, PAYLOAD_DIR, SKILLS_DIR, installPayload, isOwnedPath } from '../bin/lib/payload.mjs';
+import {
+  ADR_HOOK_COMMAND,
+  AGENTS_DIR,
+  HOOK_COMMAND,
+  MANIFEST_PATH,
+  PAYLOAD_DIR,
+  SESSION_HOOK_COMMAND,
+  SKILLS_DIR,
+  UPDATE_HOOK_COMMAND,
+  installPayload,
+  isOwnedPath,
+  mergeHookIntoSettings,
+} from '../bin/lib/payload.mjs';
 
 const SOURCE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -194,6 +206,99 @@ test('AC4: a fresh clone of a globally-installed project fires both guards on a 
     payload: { tool_name: 'Edit', tool_input: { file_path: adr, old_string: 'x', new_string: 'y' } },
   });
   assert.equal(edit.status, 2, `the ADR guard must block: ${edit.stderr}`);
+});
+
+// --- AC5: the guards name the project in both modes; the greeting names the mode's root
+
+const GLOBAL_SESSION = 'node "$HOME/.claude/dev-workflow/hooks/session-standup.mjs"';
+const GLOBAL_UPDATE = 'node "$HOME/.claude/dev-workflow/hooks/session-updatecheck.mjs"';
+
+/** Every command under `event`, in file order. */
+const commandsOf = (settings, event) =>
+  (settings.hooks?.[event] ?? []).flatMap((e) => (e?.hooks ?? []).map((h) => h.command));
+
+test('AC5: the guards name $CLAUDE_PROJECT_DIR in both modes, and the SessionStart entries name the mode root', () => {
+  const local = mergeHookIntoSettings({}, { mode: 'local' }).settings;
+  const global = mergeHookIntoSettings({}, { mode: 'global' }).settings;
+
+  for (const settings of [local, global]) {
+    assert.equal(registered(settings, 'PreToolUse', 'Bash'), HOOK_COMMAND);
+    assert.equal(registered(settings, 'PreToolUse', 'Edit|Write'), ADR_HOOK_COMMAND);
+  }
+  assert.match(HOOK_COMMAND, /^bash "\$CLAUDE_PROJECT_DIR\//);
+  assert.match(ADR_HOOK_COMMAND, /^bash "\$CLAUDE_PROJECT_DIR\//);
+
+  assert.deepEqual(commandsOf(local, 'SessionStart'), [SESSION_HOOK_COMMAND, UPDATE_HOOK_COMMAND]);
+  assert.match(SESSION_HOOK_COMMAND, /^node "\$CLAUDE_PROJECT_DIR\//);
+  assert.deepEqual(commandsOf(global, 'SessionStart'), [GLOBAL_SESSION, GLOBAL_UPDATE]);
+});
+
+test('AC5: a global install registers SessionStart commands that run the Node hooks it wrote on the machine', () => {
+  const { project, home, machine } = globalInstall();
+  const session = commandsOf(readJson(join(project, '.claude', 'settings.json')), 'SessionStart');
+
+  assert.deepEqual(session, [GLOBAL_SESSION, GLOBAL_UPDATE]);
+  for (const command of session) {
+    const script = command.match(/^node "(.+)"$/)[1].replace('$HOME', home);
+    assert.ok(script.startsWith(`${machine}/`), `${command} names the machine root`);
+    assert.ok(existsSync(script), `${command} runs a file the install wrote`);
+  }
+});
+
+test('AC5: switching modes rewrites our SessionStart entries in place rather than appending a second copy', () => {
+  const project = tempDir('dw-switch-project-');
+  const home = tempDir('dw-switch-home-');
+  const settingsPath = join(project, '.claude', 'settings.json');
+
+  // A user's own greeting, and a lookalike that is not ours: both must survive
+  // every switch exactly where they are.
+  const lookalike = 'node "$HOME/elsewhere/hooks/session-standup.mjs"';
+  mkdirSync(dirname(settingsPath), { recursive: true });
+  writeFileSync(
+    settingsPath,
+    JSON.stringify({
+      hooks: {
+        SessionStart: [
+          { hooks: [{ type: 'command', command: 'my-greeting' }] },
+          { hooks: [{ type: 'command', command: lookalike }] },
+        ],
+      },
+    }),
+  );
+  const install = (mode) =>
+    installPayload({ sourceRoot: SOURCE_ROOT, projectDir: project, version: '9.9.9', mode, env: { HOME: home } });
+
+  install('local');
+  const asLocal = readJson(settingsPath);
+  assert.deepEqual(commandsOf(asLocal, 'SessionStart'), ['my-greeting', lookalike, SESSION_HOOK_COMMAND, UPDATE_HOOK_COMMAND]);
+
+  install('global');
+  const asGlobal = readJson(settingsPath);
+  assert.deepEqual(commandsOf(asGlobal, 'SessionStart'), ['my-greeting', lookalike, GLOBAL_SESSION, GLOBAL_UPDATE]);
+  assert.equal(asGlobal.hooks.SessionStart.length, asLocal.hooks.SessionStart.length, 'no entry appended');
+  assert.deepEqual(commandsOf(asGlobal, 'PreToolUse'), commandsOf(asLocal, 'PreToolUse'), 'the guards are untouched');
+
+  install('local');
+  assert.deepEqual(readJson(settingsPath), asLocal, 'and back again, byte for byte the same settings');
+
+  const again = mergeHookIntoSettings(readJson(settingsPath), { mode: 'local' });
+  assert.equal(again.added, false, 'a re-run in the same mode changes nothing');
+  assert.deepEqual(again.settings, asLocal);
+});
+
+test('AC5: a settings file carrying both spellings of a greeting ends with one, and no empty entry', () => {
+  const both = {
+    hooks: {
+      SessionStart: [
+        { hooks: [{ type: 'command', command: SESSION_HOOK_COMMAND }] },
+        { hooks: [{ type: 'command', command: GLOBAL_SESSION }] },
+      ],
+    },
+  };
+  const { settings } = mergeHookIntoSettings(both, { mode: 'global' });
+
+  assert.deepEqual(commandsOf(settings, 'SessionStart'), [GLOBAL_SESSION, GLOBAL_UPDATE]);
+  assert.ok(settings.hooks.SessionStart.every((e) => e.hooks.length > 0), 'no entry is left holding nothing');
 });
 
 // --- AC6, the other half: a planned write outside the roots still throws ------

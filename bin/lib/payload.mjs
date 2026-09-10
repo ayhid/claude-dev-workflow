@@ -51,6 +51,7 @@ import { dirname, join, relative, sep } from 'node:path';
 import {
   AGENTS_DIR,
   GLOBAL_PAYLOAD_DIR,
+  INSTALL_MODES,
   MANIFEST_PATH,
   PAYLOAD_DIR,
   SKILLS_DIR,
@@ -84,13 +85,35 @@ export const HOOK_COMMAND = `bash "$CLAUDE_PROJECT_DIR/${PAYLOAD_DIR}/hooks/chec
 export const ADR_HOOK_COMMAND = `bash "$CLAUDE_PROJECT_DIR/${PAYLOAD_DIR}/hooks/check-adr-immutable.sh"`;
 
 /**
- * The session greeting. Node rather than bash, and the only one of the three
- * that is: it needs a portable timeout, and `timeout(1)` is not on a stock
- * macOS. The hook's own header carries the full reasoning.
+ * Where a Node hook runs from, per install mode, as the prefix its command expands.
+ *
+ * The bash guards run from the project in every mode — a fresh clone has to
+ * enforce — but the Node hooks import `../lib/…` and so run from wherever the
+ * runtime went. `$HOME` rather than the resolved path: `.claude/settings.json`
+ * is committed, and one developer's home directory in it would be a hook no one
+ * else can run.
  */
-export const SESSION_HOOK_COMMAND = `node "$CLAUDE_PROJECT_DIR/${PAYLOAD_DIR}/hooks/session-standup.mjs"`;
+const NODE_HOOK_ROOTS = {
+  local: `$CLAUDE_PROJECT_DIR/${PAYLOAD_DIR}`,
+  global: `$HOME/${GLOBAL_PAYLOAD_DIR}`,
+};
+
+function nodeHookCommand(mode, file) {
+  if (!Object.hasOwn(NODE_HOOK_ROOTS, mode)) {
+    throw new Error(`unknown install mode "${mode}" — expected ${INSTALL_MODES.join(' or ')}`);
+  }
+  return `node "${NODE_HOOK_ROOTS[mode]}/hooks/${file}"`;
+}
+
+/**
+ * The session greeting, as a local install registers it. Node rather than
+ * bash, and the only kind of hook that is: it needs a portable timeout, and
+ * `timeout(1)` is not on a stock macOS. The hook's own header carries the full
+ * reasoning.
+ */
+export const SESSION_HOOK_COMMAND = nodeHookCommand('local', 'session-standup.mjs');
 /** The version notice, on the same event: its own entry so its own switch (hooks.updateCheck) can turn it off alone. */
-export const UPDATE_HOOK_COMMAND = SESSION_HOOK_COMMAND.replace('session-standup.mjs', 'session-updatecheck.mjs');
+export const UPDATE_HOOK_COMMAND = nodeHookCommand('local', 'session-updatecheck.mjs');
 
 /**
  * Every hook we register: the event it fires on, the tool it matches, and the
@@ -107,12 +130,27 @@ export const UPDATE_HOOK_COMMAND = SESSION_HOOK_COMMAND.replace('session-standup
  * put it on the hot path for no gain. `SessionStart` takes no matcher at all —
  * it does not guard a tool — and an empty string is how that is spelled.
  */
-export const SHIPPED_HOOKS = [
-  { event: 'PreToolUse', matcher: 'Bash', command: HOOK_COMMAND },
-  { event: 'PreToolUse', matcher: 'Edit|Write', command: ADR_HOOK_COMMAND },
-  { event: 'SessionStart', matcher: '', command: SESSION_HOOK_COMMAND },
-  { event: 'SessionStart', matcher: '', command: UPDATE_HOOK_COMMAND },
-];
+export function shippedHooks(mode = 'local') {
+  // `spellings` is every command this hook has in any mode. The guards have one;
+  // the greetings have one per payload root, which is what lets the merge
+  // recognise its own entry after a mode switch.
+  const guard = (matcher, command) => ({ event: 'PreToolUse', matcher, command, spellings: [command] });
+  const greeting = (file) => ({
+    event: 'SessionStart',
+    matcher: '',
+    command: nodeHookCommand(mode, file),
+    spellings: INSTALL_MODES.map((m) => nodeHookCommand(m, file)),
+  });
+  return [
+    guard('Bash', HOOK_COMMAND),
+    guard('Edit|Write', ADR_HOOK_COMMAND),
+    greeting('session-standup.mjs'),
+    greeting('session-updatecheck.mjs'),
+  ];
+}
+
+/** What a local install registers. */
+export const SHIPPED_HOOKS = shippedHooks('local');
 
 /** The skill-name prefix we claim. Anything else in .claude/skills/ is someone else's. */
 export const SKILL_PREFIX = 'dev-';
@@ -341,32 +379,68 @@ export function planFileSets(sourceRoot) {
  * two hooks may legitimately share a command string on different events, and a
  * global search would then install only the first of them.
  *
- * @returns {{settings: object, added: boolean, addedCommands: string[]}}
+ * **A mode switch rewrites, it does not append.** The greetings run from the
+ * mode's payload root, so their command differs between modes while the
+ * guards' does not. An entry holding another mode's spelling of one of our
+ * hooks is rewritten where it stands — or dropped, when the current spelling is
+ * already registered — so a switch never leaves a hook pointing at the root it
+ * left. Only an exact spelling of ours is recognised: a lookalike is the user's.
+ *
+ * @param {object} settings
+ * @param {{mode?: string}} [opts]
+ * @returns {{settings: object, added: boolean, addedCommands: string[], changed: boolean}}
+ *   `added` when a hook was registered that was not there at all; `changed`
+ *   when the file needs writing, which a rewrite alone also makes true.
  */
-export function mergeHookIntoSettings(settings) {
+export function mergeHookIntoSettings(settings, { mode = 'local' } = {}) {
   const next = settings && typeof settings === 'object' ? structuredClone(settings) : {};
   next.hooks ??= {};
 
+  const holds = (entry, commands) => Array.isArray(entry?.hooks) && entry.hooks.some((h) => commands.has(h?.command));
+
   const addedCommands = [];
-  for (const { event, matcher, command } of SHIPPED_HOOKS) {
+  let rewritten = false;
+  for (const { event, matcher, command, spellings } of shippedHooks(mode)) {
     // A settings file may carry anything at all under an event key — this has
     // to survive a hand-edit that left a string or a null there.
     const existing = Array.isArray(next.hooks[event]) ? next.hooks[event] : [];
 
-    const already = existing.some((entry) => (entry?.hooks ?? []).some((h) => h?.command === command));
-    if (already) {
-      next.hooks[event] = existing;
+    const stale = new Set(spellings.filter((s) => s !== command));
+    let present = existing.some((entry) => holds(entry, new Set([command])));
+
+    const kept = [];
+    for (const entry of existing) {
+      if (!holds(entry, stale)) {
+        kept.push(entry);
+        continue;
+      }
+      const hooks = [];
+      for (const hook of entry.hooks) {
+        if (!stale.has(hook?.command)) hooks.push(hook);
+        else if (!present) {
+          hooks.push({ ...hook, command });
+          present = true;
+        }
+      }
+      rewritten = true;
+      // An entry that held nothing but a stale copy goes with it.
+      if (hooks.length > 0) kept.push({ ...entry, hooks });
+    }
+
+    if (present) {
+      next.hooks[event] = kept;
       continue;
     }
 
     // An empty matcher is omitted rather than written as "": SessionStart
     // entries take no matcher, and an empty one is not the same as none.
     const entry = { ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command }] };
-    next.hooks[event] = [...existing, entry];
+    next.hooks[event] = [...kept, entry];
     addedCommands.push(command);
   }
 
-  return { settings: next, added: addedCommands.length > 0, addedCommands };
+  const added = addedCommands.length > 0;
+  return { settings: next, added, addedCommands, changed: added || rewritten };
 }
 
 /**
@@ -506,10 +580,11 @@ export function installPayload({
     // user's own hooks: a torn write here breaks every Bash tool call in the
     // project, not just ours.
     const settingsAbs = join(projectDir, SETTINGS_PATH);
-    const merged = mergeHookIntoSettings(readJson(settingsAbs, {}));
+    const merged = mergeHookIntoSettings(readJson(settingsAbs, {}), { mode });
     hookAdded = merged.added;
     addedCommands = merged.addedCommands;
-    if (!dryRun && hookAdded) {
+    // A mode switch rewrites entries without adding any, and still has to land.
+    if (!dryRun && merged.changed) {
       journal.mkdir(dirname(settingsAbs));
       journal.remember(settingsAbs);
       writeFile(settingsAbs, `${JSON.stringify(merged.settings, null, 2)}\n`);
