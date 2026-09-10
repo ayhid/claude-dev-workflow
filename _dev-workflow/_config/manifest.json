@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.20.1",
     "installDate": "2026-09-08T10:07:31.602Z",
-    "lastUpdated": "2026-09-10T10:09:51.579Z"
+    "lastUpdated": "2026-09-10T10:13:45.178Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -249,7 +249,7 @@
     },
     {
       "path": ".claude/agents/dev-builder.md",
-      "sha256": "8efcf728d465b15a84eac68c1f99371c17d0e7e2e1aaf163db0187b8e27ab22a"
+      "sha256": "81c5e24915b02bc7ae1e540b9a3d3e7b2d12982c5e3a39bed1323bfbfcf5befa"
     },
     {
       "path": ".claude/agents/dev-reader.md",
