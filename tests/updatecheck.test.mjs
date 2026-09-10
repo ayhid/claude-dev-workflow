@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -801,6 +801,62 @@ test('upgrade in global mode says "nothing changed" only when both halves are wh
 
   const message = await upgrade(root, { run, hasBin: async (b) => b === 'npx', vcs: cleanVcs, latest: null, roots });
   assert.match(message, /Still on 1\.0\.0 — nothing changed\./);
+});
+
+// --- #131 AC13: in global mode the update-check cache is one per machine ----------------
+
+/** Run the session hook from the source tree, as a SessionStart would. */
+const sessionHook = (dir, env = {}) =>
+  spawnSync(process.execPath, [join(ROOT, 'hooks', 'session-updatecheck.mjs')], {
+    cwd: dir,
+    input: '{"source":"startup"}',
+    encoding: 'utf8',
+    env: { ...process.env, CLAUDE_PROJECT_DIR: dir, DEV_WORKFLOW_NO_NETWORK: '1', DEV_WORKFLOW_NO_BANNER: '', ...env },
+  });
+
+/** A project configured `install.mode: global`, with no cache of its own. */
+function globalProject() {
+  const dir = project({ installed: '1.6.2' });
+  writeFileSync(
+    join(dir, '.dev-workflow.json'),
+    JSON.stringify({ provider: 'github', github: { repo: 'acme/thing' }, install: { mode: 'global' } }),
+  );
+  return dir;
+}
+
+test('global projects share one cache beside the machine payload, and a local project keeps its own', () => {
+  // Every run has DEV_WORKFLOW_NO_NETWORK set, so a banner can only come from a
+  // cache — which is what makes "which cache was read" observable.
+  const home = mkdtempSync(join(tmpdir(), 'dw-home-'));
+  const env = { HOME: home };
+  const { payloadRoot } = resolveInstallRoots({ projectDir: home, mode: 'global', env });
+  const machineCache = join(payloadRoot, '_config', 'updatecheck.json');
+  mkdirSync(dirname(machineCache), { recursive: true });
+  writeFileSync(machineCache, JSON.stringify(FRESH));
+
+  const a = globalProject();
+  const b = globalProject();
+  const local = project({ installed: '1.6.2', cache: FRESH });
+
+  const first = dev(a, ['config'], env);
+  assert.equal(first.status, 0, first.stderr);
+  assert.match(first.stderr, /An update is available: 1\.6\.2 → 1\.6\.3/, 'the first global project reads the machine cache');
+  assert.equal(JSON.parse(readFileSync(machineCache, 'utf8')).announced, '1.6.3', 'and spends the announcement there');
+  assert.ok(!existsSync(join(a, CACHE_PATH)), 'a global project keeps no cache of its own');
+
+  const second = dev(b, ['config'], env);
+  assert.equal(second.status, 0, second.stderr);
+  assert.doesNotMatch(second.stderr, /An update is available/, 'the second project shares it: already said on this machine');
+  assert.ok(!existsSync(join(b, CACHE_PATH)));
+
+  const greeting = sessionHook(b, env);
+  assert.match(greeting.stdout, /An update is available: 1\.6\.2 → 1\.6\.3/, 'the session greeting reads the same machine cache');
+  assert.ok(!existsSync(join(b, CACHE_PATH)));
+
+  const own = dev(local, ['config'], env);
+  assert.equal(own.status, 0, own.stderr);
+  assert.match(own.stderr, /An update is available: 1\.6\.2 → 1\.6\.3/, 'a local project is untouched by the machine announcement');
+  assert.equal(JSON.parse(readFileSync(join(local, CACHE_PATH), 'utf8')).announced, '1.6.3');
 });
 
 // --- #87: a session greeting says it every session, a command says it once a day ------

@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.22.0",
     "installDate": "2026-09-08T10:07:31.602Z",
-    "lastUpdated": "2026-09-10T15:21:00.814Z"
+    "lastUpdated": "2026-09-10T15:23:09.923Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -37,7 +37,7 @@
     },
     {
       "path": "_dev-workflow/hooks/session-updatecheck.mjs",
-      "sha256": "092c5851b8e11a2ed3ba5463b0132331b7e81e5b8b2d7fd53fd2ed482c39ddf2"
+      "sha256": "f7ece4373d2608a305ae1fef4e08b0c2ac5ad3763f392a123ade1e8ddd782379"
     },
     {
       "path": "_dev-workflow/lib/adr.mjs",
@@ -141,7 +141,7 @@
     },
     {
       "path": "_dev-workflow/lib/updatecheck.mjs",
-      "sha256": "df809c31167ef457f734019387ad27f1a01e3c48869c4f94477f795e259840e6"
+      "sha256": "6328f4514b1046343fb22094fecc0c558a598c22b19e2a9b66acc8f8ca4c8ef9"
     },
     {
       "path": "_dev-workflow/lib/vcs.mjs",
@@ -169,7 +169,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/common.mjs",
-      "sha256": "9419ccf2c11afb3239f65394d38994c20b5cf0c61878d48ebdb4b90cb62df092"
+      "sha256": "ed2d593f213d7db1cf4d3bf0eda83423517328fbb0733e83cea127a67edbd35f"
     },
     {
       "path": "_dev-workflow/scripts/cmd/config.mjs",

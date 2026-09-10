@@ -119,8 +119,9 @@ async function main() {
 
   // `announceOnce: false`: a greeting says it every session the project is
   // behind, from the cache. It still records the announcement, so the
-  // commands run in this session do not say it again.
-  const text = await checkForUpdate({ root, installed, announceOnce: false });
+  // commands run in this session do not say it again. The mode decides which
+  // cache that is: the machine's in global mode, the project's in local.
+  const text = await checkForUpdate({ root, installed, mode: loaded.config?.install?.mode, announceOnce: false });
   if (text) process.stdout.write(`${text}\n`);
 }
 
