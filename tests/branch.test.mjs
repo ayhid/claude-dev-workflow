@@ -134,6 +134,16 @@ test('a title already typed is kept as written, and the ID is appended only when
     renderPullRequestTitle(config, { id: '#146', type: 'fix', title: 'fix: follow-up to #1460' }),
     { ok: true, title: 'fix: follow-up to #1460 (#146)' },
   );
+  // Any configured type is kept, not only a run of letters — `build-ci` must
+  // not fall through to the component rule and become a scope.
+  assert.deepEqual(
+    renderPullRequestTitle(gh({ commit: { types: ['fix', 'build-ci'] } }), {
+      id: '#9',
+      type: 'fix',
+      title: 'build-ci: pin the runner image',
+    }),
+    { ok: true, title: 'build-ci: pin the runner image (#9)' },
+  );
   // A prefix that is not a configured commit type is a component, not a type.
   assert.deepEqual(
     renderPullRequestTitle(config, { id: '#8', type: 'feat', title: 'feature: dark mode' }),
