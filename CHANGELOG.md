@@ -1,3 +1,10 @@
+## [1.20.2](https://github.com/ayhid/claude-dev-workflow/compare/v1.20.1...v1.20.2) (2026-09-10)
+
+
+### Bug Fixes
+
+* **land:** the pull request title carries no commit type, so a squash merge never cuts a release ([#154](https://github.com/ayhid/claude-dev-workflow/issues/154)) ([#155](https://github.com/ayhid/claude-dev-workflow/issues/155)) ([6b6ca04](https://github.com/ayhid/claude-dev-workflow/commit/6b6ca04e6afd6bde292a806d16b955863fc72b7c))
+
 ## [1.20.1](https://github.com/ayhid/claude-dev-workflow/compare/v1.20.0...v1.20.1) (2026-09-08)
 
 
