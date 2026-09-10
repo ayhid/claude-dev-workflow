@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { formatConfig, loadConfig } from '../../lib/config.mjs';
+import { resolveInstallRoots } from '../../lib/manifest.mjs';
 import { emitUpdateBanner } from './common.mjs';
 
 export async function run(args) {
@@ -28,7 +29,24 @@ export async function run(args) {
     const notesPath = resolve(root, config.notesFile ?? '');
     const notes = config.notesFile && existsSync(notesPath) ? readFileSync(notesPath, 'utf8') : '';
 
-    process.stdout.write(`${formatConfig(config, file, notes)}\n`);
+    // Which roots this project's install mode resolves to. Resolved here for
+    // the same reason the notes file is read here: formatConfig is pure, and
+    // this needs both the project root and the environment.
+    //
+    // A mode nothing can resolve — a typo, or `global` with no HOME — is a
+    // diagnosis, not a crash. `config` is the command a session runs *first* to
+    // find out whether the project is set up at all, so it prints everything it
+    // does know on stdout and says what it could not work out on stderr.
+    let roots = null;
+    let rootsError = null;
+    try {
+      roots = resolveInstallRoots({ projectDir: root, mode: config.install?.mode, env: process.env });
+    } catch (err) {
+      rootsError = err.message;
+    }
+
+    process.stdout.write(`${formatConfig(config, file, notes, roots)}\n`);
+    if (rootsError) process.stderr.write(`install roots: ${rootsError}\n`);
   }
 
   // After stdout, and on stderr: `--json` is parsed by skills, and the two
