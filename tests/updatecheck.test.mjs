@@ -21,7 +21,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { MANIFEST_PATH } from '../lib/manifest.mjs';
+import { MANIFEST_PATH, resolveInstallRoots } from '../lib/manifest.mjs';
 import { UserError } from '../scripts/cmd/common.mjs';
 import {
   CACHE_PATH,
@@ -667,6 +667,111 @@ test('upgrade refuses when a root directory is deleted but git still knows about
       return true;
     },
   );
+});
+
+// --- #131: a global install has two halves, and they can drift apart -----------------
+
+const GLOBAL = { ...BASE, mode: 'global', runtime: '2.0.0', payloadRoot: '/home/u/.claude/dev-workflow' };
+
+test('render: a global install reports both halves, and says nothing of skew when they agree', () => {
+  const out = render(GLOBAL);
+  assert.match(out, /^installed {2}2\.0\.0 {2}\(installed 2026-01-01, updated 2026-01-02\)$/m);
+  assert.match(out, /^runtime {4}2\.0\.0 {2}\(\/home\/u\/\.claude\/dev-workflow\)$/m);
+  assert.doesNotMatch(out, /Skew/);
+  assert.match(out, /Up to date\./);
+});
+
+test('render: halves on different versions are a warning naming both, with the way out', () => {
+  const out = render({ ...GLOBAL, runtime: '2.1.0', latest: '2.1.0' });
+  assert.match(out, /Skew: the project half is on 2\.0\.0 and the machine runtime is on 2\.1\.0/);
+  assert.match(out, /dev\.mjs version --upgrade/);
+});
+
+test('render: the older half is the one compared against the registry', () => {
+  // A current project calling a stale runtime is not "up to date".
+  const out = render({ ...GLOBAL, runtime: '1.9.0', latest: '2.0.0' });
+  assert.match(out, /An update is available: 1\.9\.0 → 2\.0\.0/);
+  assert.doesNotMatch(out, /Up to date\./);
+});
+
+test('render: a global install with no machine payload says so, and warns', () => {
+  const out = render({ ...GLOBAL, runtime: null });
+  assert.match(out, /^runtime {4}unknown — no manifest found {2}\(\/home\/u\/\.claude\/dev-workflow\)$/m);
+  assert.match(out, /Skew: the project half is on 2\.0\.0 and the machine runtime is on nothing/);
+});
+
+test('dev.mjs version reads the project and the machine manifests in global mode', () => {
+  const dir = project({ installed: '1.6.2' });
+  writeFileSync(
+    join(dir, '.dev-workflow.json'),
+    JSON.stringify({ provider: 'github', github: { repo: 'acme/thing' }, install: { mode: 'global' } }),
+  );
+  const home = mkdtempSync(join(tmpdir(), 'dw-home-'));
+  const { payloadManifest, payloadRoot } = resolveInstallRoots({ projectDir: dir, mode: 'global', env: { HOME: home } });
+  mkdirSync(dirname(payloadManifest), { recursive: true });
+  writeFileSync(payloadManifest, JSON.stringify({ installation: { version: '1.7.0' }, files: [] }));
+
+  const r = dev(dir, ['version', '--offline'], { HOME: home });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^installed {2}1\.6\.2/m);
+  assert.match(r.stdout, /^runtime {4}1\.7\.0/m);
+  assert.match(r.stdout, /Skew: the project half is on 1\.6\.2 and the machine runtime is on 1\.7\.0/);
+
+  const json = JSON.parse(dev(dir, ['version', '--offline', '--json'], { HOME: home }).stdout);
+  assert.equal(json.installed, '1.6.2');
+  assert.equal(json.runtime, '1.7.0');
+  assert.equal(json.payloadRoot, payloadRoot);
+});
+
+test('dev.mjs version in local mode reports one manifest, as it always has', () => {
+  const r = dev(project({ installed: '1.6.2' }), ['version', '--offline']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stdout, /^runtime/m);
+  assert.doesNotMatch(r.stdout, /Skew/);
+});
+
+/** A project and a temp-$HOME machine root, both at `version`, resolved as global. */
+function globalInstall(version) {
+  const root = installedRoot(version);
+  const home = mkdtempSync(join(tmpdir(), 'dw-home-'));
+  const roots = resolveInstallRoots({ projectDir: root, mode: 'global', env: { HOME: home } });
+  mkdirSync(dirname(roots.payloadManifest), { recursive: true });
+  writeFileSync(roots.payloadManifest, JSON.stringify({ installation: { version }, files: [] }));
+  return { root, roots };
+}
+
+const writeVersion = (path, version) => writeFileSync(path, JSON.stringify({ installation: { version }, files: [] }));
+
+test('upgrade in global mode refreshes both halves in one installer run, and reads both back', async () => {
+  const { root, roots } = globalInstall('1.0.0');
+  const calls = [];
+  const run = async (bin, args) => {
+    calls.push([bin, ...args]);
+    if (bin === 'npx') {
+      writeVersion(roots.projectManifest, '1.1.0');
+      writeVersion(roots.payloadManifest, '1.1.0');
+    }
+    return { ok: true, code: 0, stdout: 'installed', stderr: '' };
+  };
+
+  const message = await upgrade(root, { run, hasBin: async (b) => b === 'npx', vcs: cleanVcs, latest: null, roots });
+
+  assert.deepEqual(calls, [['npx', ...UPGRADE_ARGS, '--dir', root]], 'one installer run, never a project-only write');
+  assert.match(message, /Now on 1\.1\.0 \(was 1\.0\.0\)/);
+  assert.match(message, /machine runtime .*now on 1\.1\.0 \(was 1\.0\.0\)/i);
+  assert.ok(message.includes(roots.payloadRoot), 'the machine root is named');
+  assert.doesNotMatch(message, /Skew/);
+});
+
+test('upgrade in global mode reports a runtime the installer left behind, rather than assuming it moved', async () => {
+  const { root, roots } = globalInstall('1.0.0');
+  const run = async (bin) => {
+    if (bin === 'npx') writeVersion(roots.projectManifest, '1.1.0');
+    return { ok: true, code: 0, stdout: 'installed', stderr: '' };
+  };
+
+  const message = await upgrade(root, { run, hasBin: async (b) => b === 'npx', vcs: cleanVcs, latest: null, roots });
+  assert.match(message, /Skew: the project half is on 1\.1\.0 and the machine runtime is on 1\.0\.0/);
 });
 
 // --- #87: a session greeting says it every session, a command says it once a day ------
