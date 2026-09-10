@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.20.1",
     "installDate": "2026-09-08T10:07:31.602Z",
-    "lastUpdated": "2026-09-08T14:38:31.400Z"
+    "lastUpdated": "2026-09-10T07:32:19.936Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -62,6 +62,10 @@
     {
       "path": "_dev-workflow/lib/docset.mjs",
       "sha256": "1ef81a700372e481aab0d4dc705462e655146e11c40aceee3926777bceaafbe9"
+    },
+    {
+      "path": "_dev-workflow/lib/fleet.mjs",
+      "sha256": "719f6a7b1d1da53d4c0ea48672042273e8fdd0f5de53b58abb2b62787e0f3fcd"
     },
     {
       "path": "_dev-workflow/lib/github.mjs",
