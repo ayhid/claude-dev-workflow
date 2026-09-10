@@ -105,6 +105,31 @@ test('the plan term: a ticket with no ## Plan comment is unplanned, not ready', 
   assert.equal(by.get('#12').bucket, 'ready');
 });
 
+test('the plan term: a plan comment or a body criteria section each count as planned; neither does not (#153)', () => {
+  const tickets = [
+    ticket('#10', { body: '## Problem\n\nno criteria in the body\n' }),
+    ticket('#11', {
+      comments: [],
+      body: '## Problem\n\nfiled by split\n\n## Acceptance criteria\n\n- [ ] AC1: one\n- [ ] AC2: two\n',
+    }),
+    ticket('#12', { comments: [{ author: 'a', at: null, body: 'no plan here' }], body: '## Problem\n\nnothing\n' }),
+  ];
+  const states = new Map([
+    ['#10', 'Backlog'],
+    ['#11', 'Backlog'],
+    ['#12', 'Backlog'],
+  ]);
+
+  const by = classifyFleet(tickets, states, CONFIG);
+
+  assert.deepEqual(by.get('#10'), { bucket: 'ready', criteria: 1 }, 'a plan comment only');
+  assert.deepEqual(by.get('#11'), { bucket: 'ready', criteria: 2 }, 'a criteria section only');
+  assert.equal(by.get('#12').bucket, 'unplanned', 'neither');
+  assert.equal(by.get('#12').term, 'plan');
+  assert.match(by.get('#12').why, /## Plan/);
+  assert.match(by.get('#12').why, /## Acceptance criteria/);
+});
+
 test('the terms are reported in a fixed order, so one ticket fails one named term', () => {
   const tickets = [ticket('#10', { dependsOn: ['#9'], comments: [] })];
   const states = new Map([['#10', 'Backlog'], ['#9', 'Backlog']]);
