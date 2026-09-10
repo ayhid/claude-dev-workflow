@@ -14,6 +14,7 @@ import {
   issueTypeOf,
   refIdFor,
   renderBranch,
+  renderPullRequestTitle,
   safeRefSegment,
   slugify,
   worktreePathFor,
@@ -84,6 +85,70 @@ test('renderBranch refuses rather than rendering a nameless branch', () => {
   const config = gh();
   assert.match(renderBranch(config, { id: '', type: 'feat', title: 'x' }).error, /no issue ID/);
   assert.match(renderBranch(config, { id: '#1', title: 'x' }).error, /<type>/);
+});
+
+// --- pull request titles (#154) -----------------------------------------------
+
+/**
+ * A squash merge makes the pull request title the commit subject on the base,
+ * and semantic-release reads nothing else. An untyped title is a release that
+ * never happens — nine of them, before this existed.
+ */
+test('renderPullRequestTitle types the title and reads a component prefix as the scope', () => {
+  assert.deepEqual(
+    renderPullRequestTitle(gh(), { id: '#146', type: 'feat', title: 'fleet: the board selector' }),
+    { ok: true, title: 'feat(fleet): the board selector (#146)' },
+  );
+});
+
+test('renderPullRequestTitle gives a title with no component prefix no scope', () => {
+  assert.deepEqual(
+    renderPullRequestTitle(gh(), { id: '#42', type: 'fix', title: 'Add a dark mode toggle' }),
+    { ok: true, title: 'fix: Add a dark mode toggle (#42)' },
+  );
+  assert.deepEqual(
+    renderPullRequestTitle(yt(), { id: 'ABC-398', type: 'chore', title: 'Redirect 301 map' }),
+    { ok: true, title: 'chore: Redirect 301 map (ABC-398)' },
+  );
+});
+
+test('a title already typed is kept as written, and the ID is appended only when absent', () => {
+  const config = gh();
+  // Already typed and already carrying the ID: byte-identical.
+  assert.deepEqual(
+    renderPullRequestTitle(config, { id: '#154', type: 'fix', title: 'fix(land): type the title (#154)' }),
+    { ok: true, title: 'fix(land): type the title (#154)' },
+  );
+  // Typed, but no ID: the ID goes on the end and nothing else changes — not
+  // even a type that disagrees with the resolved one, since the author chose it.
+  assert.deepEqual(
+    renderPullRequestTitle(config, { id: '#7', type: 'chore', title: 'docs: explain the ladder' }),
+    { ok: true, title: 'docs: explain the ladder (#7)' },
+  );
+  assert.deepEqual(
+    renderPullRequestTitle(config, { id: '#7', type: 'feat', title: 'feat(api)!: drop the v1 route' }),
+    { ok: true, title: 'feat(api)!: drop the v1 route (#7)' },
+  );
+  // #1460 is not #146.
+  assert.deepEqual(
+    renderPullRequestTitle(config, { id: '#146', type: 'fix', title: 'fix: follow-up to #1460' }),
+    { ok: true, title: 'fix: follow-up to #1460 (#146)' },
+  );
+  // Any configured type is kept, not only a run of letters — `build-ci` must
+  // not fall through to the component rule and become a scope.
+  assert.deepEqual(
+    renderPullRequestTitle(gh({ commit: { types: ['fix', 'build-ci'] } }), {
+      id: '#9',
+      type: 'fix',
+      title: 'build-ci: pin the runner image',
+    }),
+    { ok: true, title: 'build-ci: pin the runner image (#9)' },
+  );
+  // A prefix that is not a configured commit type is a component, not a type.
+  assert.deepEqual(
+    renderPullRequestTitle(config, { id: '#8', type: 'feat', title: 'feature: dark mode' }),
+    { ok: true, title: 'feat(feature): dark mode (#8)' },
+  );
 });
 
 test('issueIdFromBranch anchors to the first number on GitHub', () => {

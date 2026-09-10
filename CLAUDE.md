@@ -212,6 +212,11 @@ repository and the git rules testable without a network.
    `states.abandon` has no default and must not grow one — everything else in this tool moves a
    ticket forward, so nothing will notice or correct a guess here, and the derived ladder's first
    entry is `In Progress`, the state the ticket is already in.
+8. **A pull request title is a commit subject.** A squash merge of a multi-commit PR writes the
+   title onto the base, and semantic-release reads nothing else, so `land` opens it with
+   `renderPullRequestTitle`: the type through the same `branch.types` mapping the branch used, and
+   an unmapped type refused before the push. Nine merges once shipped no release because the title
+   was the bare issue title (#154).
 
 ## What a change to the workflow costs
 
