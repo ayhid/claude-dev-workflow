@@ -1,3 +1,15 @@
+# [1.21.0](https://github.com/ayhid/claude-dev-workflow/compare/v1.20.2...v1.21.0) (2026-09-10)
+
+
+### Bug Fixes
+
+* **install:** update detects a newer release than the binary carries (no-ticket) ([#110](https://github.com/ayhid/claude-dev-workflow/issues/110)) ([8753352](https://github.com/ayhid/claude-dev-workflow/commit/875335237ae4f2f9a241d223fc7a3a7d372e363c))
+
+
+### Features
+
+* **agents:** dev-builder builds any ticket, not only a sub-issue ([#147](https://github.com/ayhid/claude-dev-workflow/issues/147)) ([#152](https://github.com/ayhid/claude-dev-workflow/issues/152)) ([7ed4fd9](https://github.com/ayhid/claude-dev-workflow/commit/7ed4fd904f339029de52c233e6163fde38fd4ae8))
+
 ## [1.20.2](https://github.com/ayhid/claude-dev-workflow/compare/v1.20.1...v1.20.2) (2026-09-10)
 
 
