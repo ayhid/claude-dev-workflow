@@ -121,3 +121,18 @@ test('dev-builder is no longer than it was before #121', () => {
   const lines = readFileSync(join(AGENTS, 'dev-builder.md'), 'utf8').trimEnd().split('\n').length;
   assert.ok(lines <= 94, `dev-builder.md is ${lines} lines; the ceiling is 94`);
 });
+
+test('dev-builder builds the ticket it was given, top-level or sub-issue alike (#147)', () => {
+  const { agent, ok, error } = parseAgent(readFileSync(join(AGENTS, 'dev-builder.md'), 'utf8'));
+  assert.equal(ok, true, error);
+  const text = `${agent.description}\n${agent.body}`;
+  // A builder is dispatched with one ticket id. Under a fleet that ticket is
+  // top-level and has no parent; on a split one it is a sub-issue. Nothing the
+  // builder does differs between the two, so the definition may not describe
+  // one of them and may state no rule that only holds for it.
+  assert.doesNotMatch(text, /sub-issue/i, 'the ticket may be top-level: no sub-issue wording');
+  assert.doesNotMatch(text, /parent/i, 'no rule may assume a parent exists');
+  assert.doesNotMatch(text, /split ticket/i, 'no rule may hold only for a ticket that was split');
+  // What it does say instead: the ticket it was handed, whatever its shape.
+  assert.match(agent.body, /the ticket you were given/i);
+});
