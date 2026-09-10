@@ -320,6 +320,58 @@ test('land <ID> for a branch nobody has mounted says to resume it rather than la
   assert.match(r.stderr, /resume #13/);
 });
 
+// --- the pull request title (#154) ---------------------------------------------
+
+/**
+ * A squash merge makes the pull request title the commit subject on the base,
+ * and an untyped one cuts no release. The stub's issue #12 carries a type label
+ * here, so the type in the title is read off the issue rather than falling back.
+ */
+const TYPED = {
+  ...PR_MODE,
+  github: { ...CONFIG.github, labels: { ...CONFIG.github.labels, type: { Feature: 'enhancement', Spike: 'spike' } } },
+};
+const FEATURE = '{"name":"status: in progress"},{"name":"enhancement"}';
+
+test('the dry run prints the typed title the pull request will be opened with', async () => {
+  const { wt, dev } = await withStubGh({ config: TYPED, labels: FEATURE });
+
+  const r = await dev(['land'], {}, { cwd: wt });
+
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /^title: +feat: Half a thing \(#12\)$/m);
+  assert.match(r.stdout, /dry run/);
+});
+
+test('land --apply passes gh pr create exactly the title it printed', async () => {
+  const openPr = {
+    number: 7,
+    state: 'OPEN',
+    title: 'feat: Half a thing (#12)',
+    url: 'https://github.com/o/r/pull/7',
+    headRefName: 'feat/12-thing',
+    createdAt: new Date().toISOString(),
+  };
+  // Multi-repo, like the --apply test above: `repos[].github` is what gives the
+  // reconcile that follows a pr delivery a slug to scan, with no real remote.
+  const { wt, dev, read } = await withStubGh({
+    repos: ['api', 'web'],
+    config: TYPED,
+    labels: FEATURE,
+    remote: true,
+    prsByState: { merged: [], open: [openPr] },
+  });
+
+  const r = await dev(['land', '--apply'], {}, { cwd: wt });
+
+  assert.equal(r.code, 0, r.stderr);
+  const printed = /^title: +(.+)$/m.exec(r.stdout)?.[1];
+  assert.equal(printed, 'feat: Half a thing (#12)');
+  const create = read('log').split('\n').find((line) => line.startsWith('pr create'));
+  assert.ok(create, 'gh pr create was never called');
+  assert.ok(create.includes(`--title ${printed} --body-file -`), `the title sent was not the one printed: ${create}`);
+});
+
 /**
  * #42: where the close event ends up when the worktree it was made from is
  * gone by the time it is written.
