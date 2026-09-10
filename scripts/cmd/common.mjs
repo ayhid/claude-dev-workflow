@@ -453,7 +453,9 @@ export async function emitUpdateBanner(configRoot) {
     // does, so both commands answer about the same install.
     const root = findInstallRoot(process.env.CLAUDE_PROJECT_DIR ?? process.cwd()) ?? configRoot;
     const installed = readManifest(root)?.installation?.version ?? null;
-    const text = await checkForUpdate({ root, installed });
+    // The cache follows the install mode — one per machine in global mode.
+    const mode = loadConfig().config.install?.mode;
+    const text = await checkForUpdate({ root, installed, mode });
     if (text) process.stderr.write(`${text}\n`);
   } catch {
     // Deliberately empty: see above.

@@ -123,6 +123,11 @@ run_case 'both keys absent leaves the guard on'             2 accepted \
   --cfg '{"hooks":{}}'
 run_case 'invalid json falls back to the default dir'       2 accepted --cfg '{not json'
 
+# Global mode (#131). The guard stays in the project in both modes, so a machine
+# with no payload — $HOME pointed at an empty directory — still freezes a record.
+HOME="$TMP/no-machine-payload" run_case 'global mode with no machine payload still blocks' 2 accepted \
+  --cfg '{"install":{"mode":"global"}}'
+
 # Degradation.
 without_jq 'no jq: warns that records are unprotected'      yes accepted
 without_jq 'no jq: warns regardless of status, it cannot read one' yes proposed

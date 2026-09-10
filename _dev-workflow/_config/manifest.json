@@ -1,8 +1,8 @@
 {
   "installation": {
-    "version": "1.21.0",
+    "version": "1.22.0",
     "installDate": "2026-09-08T10:07:31.602Z",
-    "lastUpdated": "2026-09-10T13:08:39.542Z"
+    "lastUpdated": "2026-09-10T15:23:09.923Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -29,7 +29,7 @@
     },
     {
       "path": "_dev-workflow/hooks/check-commit-ticket.sh",
-      "sha256": "beb28b7b2e1554e219b8df6a70ab0e65aaeabb7d884df5802e7e580880b840b6"
+      "sha256": "454b237ad3c693a4a29afbe2af64d46cdf7945bb4d83e84a0f59e3388ada85e2"
     },
     {
       "path": "_dev-workflow/hooks/session-standup.mjs",
@@ -37,7 +37,7 @@
     },
     {
       "path": "_dev-workflow/hooks/session-updatecheck.mjs",
-      "sha256": "092c5851b8e11a2ed3ba5463b0132331b7e81e5b8b2d7fd53fd2ed482c39ddf2"
+      "sha256": "f7ece4373d2608a305ae1fef4e08b0c2ac5ad3763f392a123ade1e8ddd782379"
     },
     {
       "path": "_dev-workflow/lib/adr.mjs",
@@ -141,7 +141,7 @@
     },
     {
       "path": "_dev-workflow/lib/updatecheck.mjs",
-      "sha256": "df809c31167ef457f734019387ad27f1a01e3c48869c4f94477f795e259840e6"
+      "sha256": "6328f4514b1046343fb22094fecc0c558a598c22b19e2a9b66acc8f8ca4c8ef9"
     },
     {
       "path": "_dev-workflow/lib/vcs.mjs",
@@ -169,7 +169,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/common.mjs",
-      "sha256": "9419ccf2c11afb3239f65394d38994c20b5cf0c61878d48ebdb4b90cb62df092"
+      "sha256": "ed2d593f213d7db1cf4d3bf0eda83423517328fbb0733e83cea127a67edbd35f"
     },
     {
       "path": "_dev-workflow/scripts/cmd/config.mjs",
@@ -241,7 +241,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/version.mjs",
-      "sha256": "e16bf0fdbd51bf918174a4e7a08cbd3f367793e0acf0622371486a5bbf785997"
+      "sha256": "a2484e788f2cfda5057bc72fee4c52a24e9447fb05a9d8a4b682b56a3251f1de"
     },
     {
       "path": "_dev-workflow/scripts/dev.mjs",
