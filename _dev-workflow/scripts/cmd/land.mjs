@@ -19,8 +19,8 @@
  * rejected, so `--apply` is the only thing that demonstrates the write works.
  */
 import { canonicalId } from '../../lib/issueid.mjs';
-import { issueIdFromBranch } from '../../lib/branch.mjs';
-import { deliveryBase, deliveryFor } from '../../lib/config.mjs';
+import { issueIdFromBranch, issueTypeOf, renderPullRequestTitle } from '../../lib/branch.mjs';
+import { deliveryBase, deliveryFor, resolveBranchType } from '../../lib/config.mjs';
 import { parseCriteria } from '../../lib/metrics.mjs';
 import { sh } from '../../lib/sh.mjs';
 import { makeVcs } from '../../lib/vcs.mjs';
@@ -64,9 +64,31 @@ export function missingTargetError({ base, remote, repoDir, fromDeliveryBase }) 
   );
 }
 
+/**
+ * The title a pull request for `issue` is opened with.
+ *
+ * Under a squash merge this string becomes the commit subject on the base, so
+ * it carries the commit type — resolved through the same `branch.types` mapping
+ * `start` used to name the branch, so the branch and the subject cannot
+ * disagree about what kind of change this is.
+ *
+ * An unmapped type is the resolver's error, naming `branch.types`, and never a
+ * fallback: the type decides the release, so a guess here is a guessed release.
+ *
+ * @returns {{ok: true, title: string} | {ok: false, error: string}}
+ */
+export function pullRequestTitle(config, issue) {
+  const resolved = resolveBranchType(config, issueTypeOf(config, issue));
+  if (!resolved.ok) return resolved;
+  return renderPullRequestTitle(config, { id: issue.id, type: resolved.type, title: issue.title });
+}
+
 /** Open the PR and report what actually landed on it, not what was requested. */
-async function openPullRequest({ workDir, branch, base, issue, reviewer, remote, apply, L }) {
+async function openPullRequest({ workDir, branch, base, issue, title, reviewer, remote, apply, L }) {
   L.push(`action:   open a pull request ${branch} → ${base}`);
+  // On the plan, dry run included: it is the commit subject a squash merge will
+  // write, and the one place to see the release it cuts before anything moves.
+  L.push(`title:    ${title}`);
   // Printed on the plan, not only after the fact: a reviewer that never reaches
   // the PR is the failure this command already warns about below, and a dry run
   // that omits the name cannot be checked against the config before the push.
@@ -78,7 +100,7 @@ async function openPullRequest({ workDir, branch, base, issue, reviewer, remote,
   L.push(`push:     ${remote} ${branch}`);
 
   const body = `${issue.body ? `${issue.body}\n\n---\n\n` : ''}Closes ${issue.id} — ${issue.url}`;
-  const args = ['pr', 'create', '--base', base, '--head', branch, '--title', issue.title, '--body-file', '-'];
+  const args = ['pr', 'create', '--base', base, '--head', branch, '--title', title, '--body-file', '-'];
   if (reviewer) args.push('--reviewer', reviewer);
 
   const created = await sh('gh', args, { cwd: workDir, input: body });
@@ -207,11 +229,16 @@ export async function run(args, { reconcile = true } = {}) {
   L.push(`delivery: ${delivery.mode}${opts.apply ? '' : '   (dry run — pass --apply)'}`);
 
   if (delivery.mode === 'pr') {
+    // Before openPullRequest, which is where the push happens: a branch pushed
+    // for a pull request that cannot be titled is a remote ref left behind.
+    const title = pullRequestTitle(config, { ...issue.data, id });
+    if (!title.ok) throw new UserError(title.error);
     await openPullRequest({
       workDir,
       branch,
       base,
       issue: issue.data,
+      title: title.title,
       reviewer: config.reviewer,
       remote,
       apply: opts.apply,

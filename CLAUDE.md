@@ -41,6 +41,9 @@ four hooks into `.claude/settings.json`. That copy is what the project commits a
 there is no plugin manifest. A global binary updates a project to *its own* version, so
 `dev.mjs version --upgrade` uses it only when it already reports the latest release and falls
 back to `npx …@latest` otherwise, and `update` refuses to move a project backwards unless forced.
+`update` also asks the registry whether the binary is the latest and says "up to date" only on
+the registry's word: a stale global binary that reported the project current while pinning it to
+an old release was how a newer version went unnoticed by the one command run to get it.
 `npx github:ayhid/claude-dev-workflow` is the same install straight off `main`, one release ahead.
 
 **Always write `@latest`, everywhere — docs, help text, printed hints.** npx keys its cache on the
@@ -212,6 +215,11 @@ repository and the git rules testable without a network.
    `states.abandon` has no default and must not grow one — everything else in this tool moves a
    ticket forward, so nothing will notice or correct a guess here, and the derived ladder's first
    entry is `In Progress`, the state the ticket is already in.
+8. **A pull request title is a commit subject.** A squash merge of a multi-commit PR writes the
+   title onto the base, and semantic-release reads nothing else, so `land` opens it with
+   `renderPullRequestTitle`: the type through the same `branch.types` mapping the branch used, and
+   an unmapped type refused before the push. Nine merges once shipped no release because the title
+   was the bare issue title (#154).
 
 ## What a change to the workflow costs
 
@@ -316,6 +324,15 @@ places for the seventh to be forgotten.
 
 Skill names are namespaced `dev-*`. They live in a flat namespace next to every other skill the
 user has installed, and `task` / `bug` / `done` are far too generic to claim.
+
+**What a thing is called is decided by rule, not by taste** — ADR 0005. A skill takes the act the
+user is asking for, as an imperative verb; a subcommand takes the act too, except where it groups
+sub-verbs or purely reports, when it takes its subject; an agent takes its role. One act gets one
+word across both layers and both binaries, a compound is `<verb>-<subject>`, and a name that writes
+may never differ from a name that reports by only a prefix, a suffix or one letter. Read the record
+before adding a name — it also
+carries the two carve-outs (`/dev-bug`, `dev.mjs assess`) so they are not re-argued, and the reason
+`hooks/*` filenames are excluded.
 
 ## What we own in a user's project, and nothing else
 
