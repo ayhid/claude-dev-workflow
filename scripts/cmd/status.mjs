@@ -64,6 +64,7 @@ export async function run(argv) {
       issue: here.issue,
       pr: here.pr,
       dirty: here.dirty,
+      treeError: here.treeError,
       delivery: here.delivery,
       config,
     });
@@ -173,7 +174,8 @@ async function rowFor({ config, vcs, entry, cwd, prs }) {
     path: entry.path,
     branch: entry.branch,
     here: samePath(entry.path, cwd),
-    dirty: clean.ok && !clean.clean ? clean.dirty.length : 0,
+    dirty: clean.ok ? clean.dirty.length : null,
+    treeError: clean.ok ? null : clean.error,
     issueId: entry.branch ? issueIdFromBranch(config, entry.branch) : null,
     pr: prs === PR_UNKNOWN ? PR_UNKNOWN : (prs.get(entry.branch) ?? null),
   };

@@ -17,7 +17,7 @@
  * about the whole command rather than the git layer, so it drives the real CLI
  * against the shared `gh` stub.
  */
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
@@ -27,7 +27,7 @@ import { missingTargetError } from '../scripts/cmd/land.mjs';
 import { sh } from '../lib/sh.mjs';
 import { makeVcs } from '../lib/vcs.mjs';
 import { worktreePathFor } from '../lib/branch.mjs';
-import { CONFIG, git as gitOf, withStubGh } from './ghstub.mjs';
+import { CONFIG, failGitStatus, git as gitOf, withStubGh } from './ghstub.mjs';
 
 const git = async (dir, ...args) => {
   const r = await sh('git', ['-C', dir, ...args]);
@@ -407,6 +407,12 @@ const LOG = '.dev-workflow.metrics.jsonl';
 test('a direct landing records the close in the main checkout, not the worktree it removed', async () => {
   const { repo, wt, dev } = await withStubGh({ remote: true, config: DIRECT_MODE });
   copyFileSync(join(repo, '.dev-workflow.json'), join(wt, '.dev-workflow.json'));
+  writeFileSync(join(repo, '.gitignore'), '.worktrees/\n.dev-workflow.metrics.jsonl\n');
+  await git(repo, 'add', '.gitignore', '.dev-workflow.json');
+  await git(repo, 'commit', '-m', 'configure workflow');
+  await git(repo, 'push', 'origin', 'main');
+  await git(wt, 'add', '.dev-workflow.json');
+  await git(wt, 'commit', '-m', 'configure workflow');
 
   // The start this cycle is measured from. Without it the close would report
   // `elapsedMs: null` and pass a test that only asked for a row.
@@ -431,3 +437,46 @@ test('a direct landing records the close in the main checkout, not the worktree 
   assert.ok(close.elapsedMs >= 90_000, `elapsedMs was ${close.elapsedMs}`);
   assert.equal(close.criteria, 'first-pass');
 });
+
+test('real Git counts modified workflow config as dirty', async () => {
+  const { repo, vcs } = await scaffold();
+  writeFileSync(join(repo, '.dev-workflow.json'), '{}\n');
+  await git(repo, 'add', '.dev-workflow.json');
+  await git(repo, 'commit', '-m', 'config');
+  writeFileSync(join(repo, '.dev-workflow.json'), '{"delivery":{"mode":"direct"}}\n');
+  const state = await vcs.isClean(repo);
+  assert.equal(state.clean, false);
+  assert.match(state.dirty.join('\n'), /\.dev-workflow\.json/);
+  mkdirSync(join(repo, 'src'));
+  assert.equal((await vcs.isClean(join(repo, 'src'))).clean, false, 'subdirectory calls still inspect the whole checkout');
+});
+
+test('dirty direct target preserves source, target, remote and worktree', async () => {
+  const { repo, wt, remote, vcs } = await scaffold();
+  const before = await Promise.all([head(wt, 'HEAD'), head(repo, 'develop'), head(remote, 'develop')]);
+  writeFileSync(join(repo, 'unfinished.txt'), 'keep this');
+  const result = await vcs.landDirect({ repoDir: repo, workDir: wt, branch: 'feat/1-thing', base: 'develop' });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /uncommitted changes/);
+  assert.deepEqual(await Promise.all([head(wt, 'HEAD'), head(repo, 'develop'), head(remote, 'develop')]), before);
+  assert.equal(readFileSync(join(repo, 'unfinished.txt'), 'utf8'), 'keep this');
+  assert.ok(existsSync(wt));
+});
+
+for (const state of ['dirty', 'unknown']) {
+  test(`PR apply refuses ${state} source before push or tracker writes`, async () => {
+    const fixture = await withStubGh({ config: { ...CONFIG, delivery: { mode: 'pr' } }, remote: true });
+    const { repo, wt, dev, read } = fixture;
+    if (state === 'dirty') writeFileSync(join(wt, '.dev-workflow.json'), '{}');
+    else await failGitStatus(fixture, wt);
+    const before = await head(wt, 'HEAD');
+    const result = await dev(['land', '--apply'], {}, { cwd: wt });
+    assert.equal(result.code, 1, result.stdout);
+    assert.match(result.stderr, /uncommitted changes|UNKNOWN.*injected status failure/);
+    assert.doesNotMatch(read('log'), /pr create|issue edit|issue comment/);
+    const remoteRef = await sh('git', ['-C', repo, 'ls-remote', 'origin', 'refs/heads/feat/12-thing']);
+    assert.equal(remoteRef.stdout, '');
+    assert.equal(await head(wt, 'HEAD'), before);
+    assert.ok(existsSync(wt));
+  });
+}

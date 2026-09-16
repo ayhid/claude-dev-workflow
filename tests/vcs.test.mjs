@@ -58,11 +58,13 @@ test('--dry-run is not mistaken for a hook bypass', () => {
   assert.doesNotThrow(() => vcs.git('/repo', ['push', '-n', 'origin', 'main']));
 });
 
-test('isClean ignores the workflow config it is about to be reconfigured by', async () => {
+test('isClean includes config unless its caller explicitly narrows the check', async () => {
   const run = fakeRun();
   const vcs = makeVcs({ run });
   await vcs.isClean('/repo');
-  assert.match(run.calls[0], /:\(exclude\)\.dev-workflow\.json/);
+  assert.equal(run.calls[0], 'git -C /repo status --porcelain -- :/');
+  await vcs.isClean('/repo', { exclude: ['.dev-workflow.json'] });
+  assert.match(run.calls[1], /:\(exclude\)\.dev-workflow\.json/);
 });
 
 test('branch mode refuses to switch a dirty tree', async () => {
@@ -297,3 +299,15 @@ test('freshestBase falls back to the local base with the reason: no remote, or a
   assert.equal(r.fetched, false);
   assert.match(r.why, /^could not fetch origin\/main: fatal: unable to access/);
 });
+
+for (const dir of ['/work', '/repo']) {
+  for (const failure of [{ ok: false, stderr: 'status denied' }, { stdout: ' M .dev-workflow.json' }]) {
+    test(`direct delivery refuses ${dir} dirty/unknown before any mutation: ${JSON.stringify(failure)}`, async () => {
+      const run = fakeRun({ [`-C ${dir} status`]: failure });
+      const result = await makeVcs({ run }).landDirect({ repoDir: '/repo', workDir: '/work', branch: 'feat/1-x', base: 'main' });
+      assert.equal(result.ok, false);
+      assert.match(result.error, /status denied|uncommitted changes/);
+      assert.ok(run.calls.every((call) => call.includes(' status --porcelain')), run.calls.join('\n'));
+    });
+  }
+}

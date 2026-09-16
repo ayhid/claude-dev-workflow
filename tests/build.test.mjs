@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { sh } from '../lib/sh.mjs';
-import { CONFIG, git, withStubGh } from './ghstub.mjs';
+import { CONFIG, failGitStatus, git, withStubGh } from './ghstub.mjs';
 
 const issue = (number, title, over = {}) => ({
   number,
@@ -169,6 +169,9 @@ test('--land from the project root lands worktrees it is not standing in, and th
   const direct = { ...CFG, delivery: { mode: 'direct', push: false } };
   const { repo, dev, projectRoot } = await withStubGh({ config: direct, issues: table });
 
+  writeFileSync(join(repo, '.gitignore'), '.worktrees/\n.dev-workflow.metrics.jsonl\n');
+  await git(repo, 'add', '.gitignore', '.dev-workflow.json');
+  await git(repo, 'commit', '-q', '-m', 'configure workflow');
   const wt = join(repo, '.worktrees', '43-parser');
   await git(repo, 'worktree', 'add', '-q', wt, '-b', '43-parser', 'main');
   writeFileSync(join(wt, 'parser.txt'), 'done\n');
@@ -183,4 +186,19 @@ test('--land from the project root lands worktrees it is not standing in, and th
   const log = readFileSync(join(projectRoot, '.dev-workflow.metrics.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(log.map((e) => [e.event, e.id]), [['done', '#43']]);
   assert.ok(!existsSync(join(wt, '.dev-workflow.metrics.jsonl')));
+});
+
+test('--land excludes a unit whose Git status is unreadable', async () => {
+  const table = SPLIT();
+  table[43].labels = ['status: in progress'];
+  const fixture = await withStubGh({ config: CFG, issues: table, remote: true });
+  const wt = join(fixture.repo, '.worktrees', '43-parser');
+  await git(fixture.repo, 'worktree', 'add', '-q', wt, '-b', '43-parser', 'main');
+  await failGitStatus(fixture, wt);
+  const result = await fixture.dev(['build', '#12', '--land', '--apply']);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /skipped: +#43 tree UNKNOWN.*injected status failure/);
+  assert.match(result.stdout, /nothing to land/);
+  assert.doesNotMatch(fixture.read('log'), /pr create|issue edit|issue comment/);
+  assert.equal(await git(fixture.repo, 'ls-remote', 'origin', 'refs/heads/43-parser'), '');
 });

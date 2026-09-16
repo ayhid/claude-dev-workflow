@@ -13,7 +13,7 @@
  * prove anything about the real API, and no stub can; `CLAUDE.md` says so at
  * length, and this file does not pretend otherwise.
  */
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -407,4 +407,20 @@ export async function withStubGh({ labels = '{"name":"status: in progress"}', pr
     /** The table, parsed — what the tracker holds after the command ran. */
     issues: () => JSON.parse(readFileSync(paths.issues, 'utf8')),
   };
+}
+
+/** Fail only Git status for one checkout; all other calls reach real Git. */
+export async function failGitStatus({ root }, target) {
+  const actual = await sh('which', ['git']);
+  if (!actual.ok) throw new Error(actual.stderr);
+  const quote = (s) => "'" + s.replaceAll("'", "'\\''") + "'";
+  const wrapper = join(root, 'bin', 'git');
+  writeFileSync(wrapper, `#!/bin/sh
+if [ "$1" = "-C" ] && { [ "$2" = ${quote(target)} ] || [ "$2" = ${quote(realpathSync(target))} ]; } && [ "$3" = "status" ]; then
+  echo 'injected status failure' >&2
+  exit 128
+fi
+exec ${quote(actual.stdout.trim())} "$@"
+`);
+  chmodSync(wrapper, 0o755);
 }

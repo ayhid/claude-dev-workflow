@@ -8,6 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { failGitStatus, withStubGh } from './ghstub.mjs';
 
 import { deepMerge, DEFAULTS } from '../lib/config.mjs';
 import { PR_UNKNOWN, describeBoard, describeCheckout, nextStep } from '../lib/status.mjs';
@@ -87,7 +88,7 @@ test('a ticket behind its own branch is called out, with the command to fix it',
 
 test('an unreachable GitHub CLI never becomes a suggestion to act on', () => {
   const next = nextStep({ config, issue: { id: '#22', state: 'In Progress' }, pr: PR_UNKNOWN, dirty: 0 });
-  assert.doesNotMatch(next ?? '', /review|merged/);
+  assert.equal(next, null);
 });
 
 test('the board sorts numerically, and ticketless rows sort last', () => {
@@ -115,7 +116,7 @@ test('an empty board says nothing is checked out rather than printing a bare hea
 // --- delivery mode (#44) ---------------------------------------------------------
 
 test('on a direct repo "no PR" is not a pending step', () => {
-  const out = text({ branch: '22-x', issue: { id: '#22', state: 'In Progress' }, pr: null, delivery: 'direct' });
+  const out = text({ branch: '22-x', issue: { id: '#22', state: 'In Progress' }, pr: null, dirty: 0, delivery: 'direct' });
   assert.match(out, /pr\s+direct delivery, no PR/);
   assert.doesNotMatch(out, /none yet/);
   assert.match(out, /next\s+dev\.mjs land/, 'the next step is unchanged: land follows delivery.mode');
@@ -141,4 +142,24 @@ test('the board cell reads "direct" where a pr project reads "none"', () => {
   assert.match(out, /^#9 {9}In Progress {4}direct/m);
   assert.match(out, /^#10 {8}In Progress {4}none/m);
   assert.match(out, /^#11 {8}In Progress {4}direct/m);
+});
+
+test('unknown cleanliness never renders clean or suggests delivery', () => {
+  const facts = { branch: '22-x', issue: { id: '#22' }, dirty: null, treeError: 'status failed' };
+  assert.match(text(facts), /tree\s+UNKNOWN.*status failed/);
+  assert.equal(describeCheckout({ config, ...facts }).next, null);
+  assert.match(describeBoard([facts]).join('\n'), /UNKNOWN/);
+  assert.doesNotMatch(describeBoard([facts]).join('\n'), /clean/);
+});
+
+test('CLI preserves failed Git status in local and board reports', async () => {
+  const fixture = await withStubGh();
+  await failGitStatus(fixture, fixture.wt);
+  for (const args of [['status'], ['status', '--all']]) {
+    const result = await fixture.dev(args, {}, { cwd: fixture.wt });
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /UNKNOWN/);
+    assert.match(result.stdout, /injected status failure/);
+    assert.doesNotMatch(result.stdout, /next.*land/);
+  }
 });

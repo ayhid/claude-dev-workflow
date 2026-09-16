@@ -95,6 +95,12 @@ async function openPullRequest({ workDir, branch, base, issue, title, reviewer, 
   L.push(`reviewer: ${reviewer || '(none configured)'}`);
   if (!apply) return { ok: true };
 
+  const clean = await makeVcs({ run: sh }).isClean(workDir);
+  if (!clean.ok) throw new UserError(`tree UNKNOWN: ${clean.error}`);
+  if (!clean.clean) {
+    throw new UserError(`${workDir} has uncommitted changes — commit them before landing:\n  ${clean.dirty.join('\n  ')}`);
+  }
+
   const push = await sh('git', ['-C', workDir, 'push', '--set-upstream', remote, branch]);
   if (!push.ok) throw new UserError(`pushing ${branch} to ${remote} failed:\n${push.stderr}`);
   L.push(`push:     ${remote} ${branch}`);

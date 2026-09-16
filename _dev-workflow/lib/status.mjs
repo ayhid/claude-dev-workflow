@@ -28,14 +28,15 @@ export const PR_UNKNOWN = 'unknown';
  *   isWorktree?: boolean,
  *   issue?: {id: string, state?: string|null, title?: string|null}|null,
  *   pr?: {number: number, state: string, url?: string}|null|'unknown',
- *   dirty?: number,
+ *   dirty?: number|null,
+ *   treeError?: string|null,
  *   delivery?: string|null,
  *   config: object,
  * }} facts
  * @returns {{lines: string[], next: string|null}}
  */
 export function describeCheckout(facts) {
-  const { branch, isWorktree = false, issue = null, pr = null, dirty = 0, delivery = null, config } = facts;
+  const { branch, isWorktree = false, issue = null, pr = null, dirty = null, treeError = null, delivery = null, config } = facts;
   const L = [];
   const row = (label, value) => L.push(`${label.padEnd(10)}${value}`);
 
@@ -52,7 +53,7 @@ export function describeCheckout(facts) {
   }
 
   row('pr', renderPr(pr, { delivery }));
-  row('tree', dirty === 0 ? 'clean' : `${dirty} uncommitted change${dirty === 1 ? '' : 's'}`);
+  row('tree', dirty == null ? `UNKNOWN${treeError ? ` — ${treeError}` : ''}` : dirty === 0 ? 'clean' : `${dirty} uncommitted change${dirty === 1 ? '' : 's'}`);
 
   const next = nextStep({ issue, pr, dirty, config });
   if (next) row('next', next);
@@ -90,6 +91,7 @@ function renderPr(pr, { delivery = null } = {}) {
  */
 export function nextStep({ issue, pr, dirty, config }) {
   if (!issue) return null;
+  if (dirty == null || pr === PR_UNKNOWN) return null;
 
   if (pr && pr !== PR_UNKNOWN) {
     const state = String(pr.state ?? '').toUpperCase();
@@ -129,8 +131,9 @@ export function describeBoard(rows, { root = null } = {}) {
     const pr = noPrExpected(row.pr, row.delivery)
       ? 'direct'
       : row.pr === PR_UNKNOWN ? '-' : row.pr ? `#${row.pr.number} ${shortState(row.pr.state)}` : 'none';
-    const tree = row.dirty > 0 ? `${row.dirty} dirty` : 'clean';
+    const tree = row.dirty == null ? 'UNKNOWN' : row.dirty > 0 ? `${row.dirty} dirty` : 'clean';
     const where = row.branch ?? relative(row.path, root);
+    if (row.treeError) out.push(`tree UNKNOWN in ${row.path}: ${row.treeError}`);
     out.push(`${id.padEnd(10)} ${state.padEnd(14)} ${pr.padEnd(12)} ${tree.padEnd(8)} ${where}`);
   }
 

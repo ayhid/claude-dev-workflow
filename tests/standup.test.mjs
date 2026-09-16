@@ -26,7 +26,7 @@ import {
   WAITING,
 } from '../lib/standup.mjs';
 import { PR_UNKNOWN } from '../lib/status.mjs';
-import { CONFIG, git, withStubGh } from './ghstub.mjs';
+import { CONFIG, failGitStatus, git, withStubGh } from './ghstub.mjs';
 
 const config = deepMerge(DEFAULTS, {
   provider: 'github',
@@ -519,4 +519,14 @@ test('a pull-request project never reads the base branch log', async () => {
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stdout, /\nmerged since /);
   assert.doesNotMatch(r.stdout, /#13/, 'a commit is not what a pr project calls landed — sync --deep is');
+});
+
+test('standup preserves UNKNOWN from the shared status scanner', async () => {
+  const fixture = await withStubGh();
+  await failGitStatus(fixture, fixture.wt);
+  const result = await fixture.dev(['standup']);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /UNKNOWN/);
+  assert.doesNotMatch(result.stdout, /ready.*land/);
+  assert.doesNotMatch(classify({ dirty: null, commits: 2 }).advice, /dev\.mjs land/);
 });

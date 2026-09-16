@@ -238,7 +238,11 @@ async function land({ config, parent, inProgress, rows, apply, vcs, L }) {
   const landable = [];
   for (const r of inProgress) {
     const clean = await vcs.isClean(r.checkout.path);
-    if (clean.ok && !clean.clean) {
+    if (!clean.ok) {
+      L.push(`skipped:  ${r.id} tree UNKNOWN in ${r.checkout.path}: ${clean.error}`);
+      continue;
+    }
+    if (!clean.clean) {
       L.push(`skipped:  ${r.id} has ${clean.dirty.length} uncommitted change(s) in ${r.checkout.path}`);
       continue;
     }
