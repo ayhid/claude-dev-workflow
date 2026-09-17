@@ -17,7 +17,7 @@
  * about the whole command rather than the git layer, so it drives the real CLI
  * against the shared `gh` stub.
  */
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
@@ -27,7 +27,7 @@ import { missingTargetError } from '../scripts/cmd/land.mjs';
 import { sh } from '../lib/sh.mjs';
 import { makeVcs } from '../lib/vcs.mjs';
 import { worktreePathFor } from '../lib/branch.mjs';
-import { CONFIG, git as gitOf, withStubGh } from './ghstub.mjs';
+import { CONFIG, failGitStatus, git as gitOf, withStubGh } from './ghstub.mjs';
 
 const git = async (dir, ...args) => {
   const r = await sh('git', ['-C', dir, ...args]);
@@ -431,3 +431,102 @@ test('a direct landing records the close in the main checkout, not the worktree 
   assert.ok(close.elapsedMs >= 90_000, `elapsedMs was ${close.elapsedMs}`);
   assert.equal(close.criteria, 'first-pass');
 });
+
+test('real Git counts modified workflow config as dirty', async () => {
+  const { repo, vcs } = await scaffold();
+  writeFileSync(join(repo, '.dev-workflow.json'), '{}\n');
+  await git(repo, 'add', '.dev-workflow.json');
+  await git(repo, 'commit', '-m', 'config');
+  writeFileSync(join(repo, '.dev-workflow.json'), '{"delivery":{"mode":"direct"}}\n');
+  const state = await vcs.isClean(repo);
+  assert.equal(state.clean, false);
+  assert.match(state.dirty.join('\n'), /\.dev-workflow\.json/);
+  mkdirSync(join(repo, 'src'));
+  assert.equal((await vcs.isClean(join(repo, 'src'))).clean, false, 'subdirectory calls still inspect the whole checkout');
+});
+
+test('dirty direct target preserves source, target, remote and worktree', async () => {
+  const { repo, wt, remote, vcs } = await scaffold();
+  writeFileSync(join(repo, 'unfinished.txt'), 'committed');
+  await git(repo, 'add', 'unfinished.txt');
+  await git(repo, 'commit', '-m', 'add a tracked file');
+  const before = await Promise.all([head(wt, 'HEAD'), head(repo, 'develop'), head(remote, 'develop')]);
+  writeFileSync(join(repo, 'unfinished.txt'), 'keep this');
+  const result = await vcs.landDirect({ repoDir: repo, workDir: wt, branch: 'feat/1-thing', base: 'develop' });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /uncommitted changes/);
+  assert.deepEqual(await Promise.all([head(wt, 'HEAD'), head(repo, 'develop'), head(remote, 'develop')]), before);
+  assert.equal(readFileSync(join(repo, 'unfinished.txt'), 'utf8'), 'keep this');
+  assert.ok(existsSync(wt));
+});
+
+test('direct delivery lands over the artifacts this tool leaves in the main checkout', async () => {
+  // `.worktrees/`, the metrics log and the update-check cache are written into
+  // the main checkout by this tool and gitignored by nobody. None of them can
+  // affect a switch + `merge --ff-only`, so refusing over them would refuse
+  // every default-configured project, permanently (#160).
+  const { repo, wt, vcs } = await scaffold();
+  mkdirSync(join(repo, '.worktrees'), { recursive: true });
+  writeFileSync(join(repo, '.dev-workflow.metrics.jsonl'), '{"event":"start"}\n');
+  writeFileSync(join(repo, '.dev-workflow.json'), '{"project":"x"}\n');
+  writeFileSync(join(wt, 'notes.md'), 'a scratch file in the worktree\n');
+  const result = await vcs.landDirect({ repoDir: repo, workDir: wt, branch: 'feat/1-thing', base: 'develop', push: false });
+  assert.equal(result.ok, true, result.error);
+  assert.equal(await head(repo, 'develop'), await head(wt, 'HEAD'), 'develop fast-forwarded onto the branch');
+  assert.equal(readFileSync(join(wt, 'notes.md'), 'utf8'), 'a scratch file in the worktree\n');
+});
+
+test('direct delivery refuses an uncommitted workflow config', async () => {
+  // The exception to the rule above: the config is what decides where and how
+  // this lands, so landing from one the base branch has never seen delivers
+  // from a state nobody can reproduce. Unlike `start`, committing it is an exit.
+  const { repo, wt, vcs } = await scaffold();
+  writeFileSync(join(repo, '.dev-workflow.json'), '{"project":"x"}\n');
+  await git(repo, 'add', '.dev-workflow.json');
+  await git(repo, 'commit', '-m', 'configure the workflow');
+  writeFileSync(join(repo, '.dev-workflow.json'), '{"delivery":{"mode":"direct"}}\n');
+  const result = await vcs.landDirect({ repoDir: repo, workDir: wt, branch: 'feat/1-thing', base: 'develop', push: false });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /\.dev-workflow\.json/);
+});
+
+test('a PR push is not refused over an untracked scratch file', async () => {
+  // `git push` is unaffected by working-tree state; what the refusal protects
+  // is a PR that does not contain the work. An untracked notes.md or profiler
+  // dump is not the work, and committing it is the wrong way out (#160).
+  const fixture = await withStubGh({
+    // The scaffold's remote is a bare path, so the slug is named rather than parsed.
+    config: { ...CONFIG, delivery: { mode: 'pr' }, repos: [{ path: '.', github: 'o/r' }] },
+    remote: true,
+  });
+  const { repo, wt, dev, read } = fixture;
+  writeFileSync(join(wt, 'notes.md'), 'scratch\n');
+  const result = await dev(['land', '--apply'], {}, { cwd: wt });
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(read('log'), /pr create/);
+  assert.notEqual((await sh('git', ['-C', repo, 'ls-remote', 'origin', 'refs/heads/feat/12-thing'])).stdout, '');
+  assert.ok(existsSync(join(wt, 'notes.md')), 'the scratch file is left exactly where it was');
+});
+
+for (const state of ['dirty', 'unknown']) {
+  test(`PR apply refuses ${state} source before push or tracker writes`, async () => {
+    const fixture = await withStubGh({ config: { ...CONFIG, delivery: { mode: 'pr' } }, remote: true });
+    const { repo, wt, dev, read } = fixture;
+    if (state === 'dirty') {
+      // Tracked, because that is what a push would leave out of the PR.
+      writeFileSync(join(wt, 'work.txt'), 'committed\n');
+      await gitOf(wt, 'add', 'work.txt');
+      await gitOf(wt, 'commit', '-m', 'feat(x): work (#12)');
+      writeFileSync(join(wt, 'work.txt'), 'not committed\n');
+    } else await failGitStatus(fixture, wt);
+    const before = await head(wt, 'HEAD');
+    const result = await dev(['land', '--apply'], {}, { cwd: wt });
+    assert.equal(result.code, 1, result.stdout);
+    assert.match(result.stderr, /uncommitted changes|UNKNOWN.*injected status failure/);
+    assert.doesNotMatch(read('log'), /pr create|issue edit|issue comment/);
+    const remoteRef = await sh('git', ['-C', repo, 'ls-remote', 'origin', 'refs/heads/feat/12-thing']);
+    assert.equal(remoteRef.stdout, '');
+    assert.equal(await head(wt, 'HEAD'), before);
+    assert.ok(existsSync(wt));
+  });
+}

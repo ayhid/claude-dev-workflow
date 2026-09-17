@@ -617,6 +617,25 @@ test('upgrade refuses when only .claude/agents/ has uncommitted changes', async 
   );
 });
 
+test('upgrade refuses when Git status cannot be read at all', async () => {
+  // An upgrade overwrites the owned roots. A status nobody could read is not a
+  // clean one, and treating it as clean overwrites files with no commit behind
+  // them to recover from (#160).
+  const root = installedRoot('1.0.0');
+  const { run } = fakeRunner({ globalVersion: '1.0.0' });
+  const vcs = { isClean: async () => ({ ok: false, error: 'fatal: not a git repository' }) };
+
+  await assert.rejects(
+    () => upgrade(root, { run, hasBin: async () => false, vcs, latest: null }),
+    (err) => {
+      assert.ok(err instanceof UserError, `expected a UserError, got ${err}`);
+      assert.match(err.message, /refusing to upgrade/);
+      assert.match(err.message, /not a git repository/, 'the refusal names what git said');
+      return true;
+    },
+  );
+});
+
 test('the post-upgrade message names all three owned roots', async () => {
   const root = installedRoot('1.0.0');
   const run = async (bin, args) => {

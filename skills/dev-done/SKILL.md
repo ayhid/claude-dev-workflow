@@ -97,22 +97,18 @@ Run the checks configured for the repo the work landed in, with its configured `
 If none are configured, find the project's own test and lint entry points and say which you ran
 — and watch for watch-mode targets that never exit.
 
-Report failures with their output. A failing suite blocks closing the ticket — **unless the
-failures are pre-existing**, and you have shown that rather than assumed it.
+Report failures with their output. A required failing check blocks delivery and closing the
+ticket unless the user explicitly accepts the named risk.
 
-To tell the two apart, compare what fails against what the branch changed:
+To establish a pre-existing failure, identify the exact base commit and reproduce the same
+failure in a separate checkout using the same command, environment and dependency setup.
+Record both revisions, commands, environment details and results. If equivalent reproduction
+is unavailable or inconclusive, classify the cause as UNKNOWN and stop.
 
-```bash
-git -C <repo> show --name-only --format= <commit>   # what this work touched
-```
-
-A failure in a file or module the branch never touched is pre-existing. Say so explicitly, name
-the module, and cite the commit's file list as the evidence. Then run the suite that *does* cover
-the change on its own and report that result separately — "39 suites green in the plugin under
-test, 3 unrelated failures elsewhere" is an honest close-out; "tests pass" is not.
-
-Never wave a failure away without doing this comparison. If the failing files overlap the change
-at all, treat it as caused by the work and stop.
+An unchanged caller can fail because this branch changed its dependency. A changed-file list
+cannot establish that a failure predates the branch. Run relevant checks separately if useful,
+but their success does not cancel a required failure. Even a reproduced baseline failure needs
+explicit risk acceptance before proceeding; never summarize that result as “tests pass.”
 
 ## 5. Confirm the diff is committed
 

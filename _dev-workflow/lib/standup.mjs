@@ -159,7 +159,7 @@ export function inFlight(rows, { base }) {
  * @param {{issue: ?object, pr: ?object, dirty: number, commits: ?number, config: object}} row
  * @returns {{priority: number, advice: string}}
  */
-export function classify({ issue, pr, dirty = 0, commits = null, config }) {
+export function assessInFlightWork({ issue, pr, dirty = 0, commits = null, config }) {
   const state = pr && pr !== PR_UNKNOWN ? String(pr.state ?? '').toUpperCase() : null;
   const id = issue?.id ?? '';
 
@@ -182,6 +182,13 @@ export function classify({ issue, pr, dirty = 0, commits = null, config }) {
   }
 
   if (state === 'OPEN') return { priority: WAITING, advice: `PR #${pr.number} is waiting on review` };
+
+  // Below this line every answer is about the working tree, so a tree nobody
+  // could read has no answer. Above it none of them were: reconciling a merged
+  // PR's ticket touches no file, and it is the cheapest thing on the board —
+  // losing it to an unreadable `git status` hides the stale ticket entirely
+  // and advises an inspection instead (#160).
+  if (dirty === null) return { priority: 2, advice: 'tree UNKNOWN — inspect Git status before delivery' };
 
   if (dirty > 0) {
     return {
@@ -211,7 +218,7 @@ export function classify({ issue, pr, dirty = 0, commits = null, config }) {
  */
 export function pickNext(rows, config) {
   const ranked = rows
-    .map((row) => ({ row, ...classify({ ...row, config }) }))
+    .map((row) => ({ row, ...assessInFlightWork({ ...row, config }) }))
     .filter((r) => r.priority < WAITING)
     .sort((a, b) => a.priority - b.priority || byRowId(a.row, b.row));
 
@@ -332,7 +339,7 @@ export function describeStandup(facts) {
     L.push('  (nothing has been sitting that long)');
   } else {
     for (const row of stale.sort(byRowId)) {
-      const { advice } = classify({ ...row, config });
+      const { advice } = assessInFlightWork({ ...row, config });
       L.push(`  ${(row.issue?.id ?? '-').padEnd(8)} ${humanAge(row.lastCommit, now).padEnd(6)} ${advice}`);
     }
   }
@@ -425,6 +432,7 @@ const prCell = (pr, delivery = null) => {
 };
 
 const treeCell = (row) => {
+  if (row.dirty === null) return 'UNKNOWN';
   if (row.dirty > 0) return `${row.dirty} dirty`;
   return row.commits > 0 ? `${row.commits} ahead` : 'clean';
 };

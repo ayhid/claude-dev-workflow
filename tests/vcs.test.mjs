@@ -10,6 +10,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { CONFIG_FILES } from '../lib/config.mjs';
 import { makeVcs } from '../lib/vcs.mjs';
 
 /**
@@ -58,11 +59,40 @@ test('--dry-run is not mistaken for a hook bypass', () => {
   assert.doesNotThrow(() => vcs.git('/repo', ['push', '-n', 'origin', 'main']));
 });
 
-test('isClean ignores the workflow config it is about to be reconfigured by', async () => {
+test('isClean asks git its own question, and a caller narrows it explicitly', async () => {
   const run = fakeRun();
   const vcs = makeVcs({ run });
   await vcs.isClean('/repo');
-  assert.match(run.calls[0], /:\(exclude\)\.dev-workflow\.json/);
+  // The default is the destroying caller's question: the whole checkout even
+  // from a subdirectory, untracked files counted, nothing excluded.
+  assert.equal(run.calls[0], 'git -C /repo status --porcelain -- :/');
+  await vcs.isClean('/repo', { untracked: false, exclude: ['.dev-workflow.json'] });
+  assert.match(run.calls[1], /--untracked-files=no/);
+  assert.match(run.calls[1], /:\(exclude\)\.dev-workflow\.json/);
+});
+
+test('switching a branch ignores untracked files and the config that configured it', async () => {
+  const run = fakeRun({
+    'rev-parse --verify --quiet refs/heads/feat/1-x': { ok: false },
+    'rev-parse --verify --quiet main': { stdout: 'abc' },
+  });
+  await makeVcs({ run }).startWork({ dir: '/repo', branch: 'feat/1-x', base: 'main', mode: 'branch' });
+  const status = run.calls.find((c) => c.includes(' status --porcelain'));
+  assert.match(status, /--untracked-files=no/, 'a switch cannot disturb an untracked file');
+  for (const file of CONFIG_FILES) assert.ok(status.includes(`:(exclude)${file}`), `${file} not excluded: ${status}`);
+});
+
+test('direct delivery counts the config but not the tool’s own untracked artifacts', async () => {
+  const run = fakeRun();
+  await makeVcs({ run }).landDirect({ repoDir: '/repo', workDir: '/work', branch: 'feat/1-x', base: 'main' });
+  const checks = run.calls.filter((c) => c.includes(' status --porcelain'));
+  assert.equal(checks.length, 2, 'both checkouts are asked before either is touched');
+  for (const call of checks) {
+    // `.worktrees/`, the metrics log and the update-check cache are untracked in
+    // the main checkout, and no consumer is obliged to gitignore them.
+    assert.match(call, /--untracked-files=no/);
+    assert.doesNotMatch(call, /:\(exclude\)/, 'delivery does not land over an uncommitted config');
+  }
 });
 
 test('branch mode refuses to switch a dirty tree', async () => {
@@ -297,3 +327,15 @@ test('freshestBase falls back to the local base with the reason: no remote, or a
   assert.equal(r.fetched, false);
   assert.match(r.why, /^could not fetch origin\/main: fatal: unable to access/);
 });
+
+for (const dir of ['/work', '/repo']) {
+  for (const failure of [{ ok: false, stderr: 'status denied' }, { stdout: ' M .dev-workflow.json' }]) {
+    test(`direct delivery refuses ${dir} dirty/unknown before any mutation: ${JSON.stringify(failure)}`, async () => {
+      const run = fakeRun({ [`-C ${dir} status`]: failure });
+      const result = await makeVcs({ run }).landDirect({ repoDir: '/repo', workDir: '/work', branch: 'feat/1-x', base: 'main' });
+      assert.equal(result.ok, false);
+      assert.match(result.error, /status denied|uncommitted changes/);
+      assert.ok(run.calls.every((call) => call.includes(' status --porcelain')), run.calls.join('\n'));
+    });
+  }
+}

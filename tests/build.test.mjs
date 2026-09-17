@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { sh } from '../lib/sh.mjs';
-import { CONFIG, git, withStubGh } from './ghstub.mjs';
+import { CONFIG, failGitStatus, git, withStubGh } from './ghstub.mjs';
 
 const issue = (number, title, over = {}) => ({
   number,
@@ -136,14 +136,20 @@ test('--land dry-runs the finished units, skips a dirty one, and --apply lands t
   for (const [n, slug] of [[43, '43-parser'], [44, '44-renderer']]) {
     const wt = join(repo, '.worktrees', slug);
     await git(repo, 'worktree', 'add', '-q', wt, '-b', slug, 'main');
-    await git(wt, 'commit', '-q', '--allow-empty', '-m', `feat(x): unit (#${n})`);
+    writeFileSync(join(wt, 'unit.txt'), 'the work\n');
+    await git(wt, 'add', 'unit.txt');
+    await git(wt, 'commit', '-q', '-m', `feat(x): unit (#${n})`);
   }
-  writeFileSync(join(repo, '.worktrees', '44-renderer', 'wip.txt'), 'not committed\n');
+  // A tracked modification is what a landing refuses. An untracked scratch file
+  // beside the other unit is not, and must not take it out of the wave (#160).
+  writeFileSync(join(repo, '.worktrees', '44-renderer', 'unit.txt'), 'not committed\n');
+  writeFileSync(join(repo, '.worktrees', '43-parser', 'scratch.txt'), 'a profiler dump\n');
 
   const dry = await dev(['build', '#12', '--land']);
   assert.equal(dry.code, 0, dry.stderr);
   assert.match(dry.stdout, /skipped: +#44 has 1 uncommitted change/);
   assert.match(dry.stdout, /land: +#43 +\(dry run/);
+  assert.doesNotMatch(dry.stdout, /skipped: +#43/, 'an untracked scratch file is not uncommitted work');
   assert.match(dry.stdout, /--- #43\n[\s\S]*branch: +43-parser → main/);
   assert.doesNotMatch(read('log'), /pr create/);
 
@@ -183,4 +189,19 @@ test('--land from the project root lands worktrees it is not standing in, and th
   const log = readFileSync(join(projectRoot, '.dev-workflow.metrics.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(log.map((e) => [e.event, e.id]), [['done', '#43']]);
   assert.ok(!existsSync(join(wt, '.dev-workflow.metrics.jsonl')));
+});
+
+test('--land excludes a unit whose Git status is unreadable', async () => {
+  const table = SPLIT();
+  table[43].labels = ['status: in progress'];
+  const fixture = await withStubGh({ config: CFG, issues: table, remote: true });
+  const wt = join(fixture.repo, '.worktrees', '43-parser');
+  await git(fixture.repo, 'worktree', 'add', '-q', wt, '-b', '43-parser', 'main');
+  await failGitStatus(fixture, wt);
+  const result = await fixture.dev(['build', '#12', '--land', '--apply']);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /skipped: +#43 tree UNKNOWN.*injected status failure/);
+  assert.match(result.stdout, /nothing to land/);
+  assert.doesNotMatch(fixture.read('log'), /pr create|issue edit|issue comment/);
+  assert.equal(await git(fixture.repo, 'ls-remote', 'origin', 'refs/heads/43-parser'), '');
 });

@@ -15,7 +15,7 @@ import { test } from 'node:test';
 import { DEFAULTS, deepMerge } from '../lib/config.mjs';
 import {
   ageDays,
-  classify,
+  assessInFlightWork,
   describeStandup,
   humanAge,
   inFlight,
@@ -26,7 +26,7 @@ import {
   WAITING,
 } from '../lib/standup.mjs';
 import { PR_UNKNOWN } from '../lib/status.mjs';
-import { CONFIG, git, withStubGh } from './ghstub.mjs';
+import { CONFIG, failGitStatus, git, withStubGh } from './ghstub.mjs';
 
 const config = deepMerge(DEFAULTS, {
   provider: 'github',
@@ -131,7 +131,7 @@ test('a checkout on the branch a repo delivers onto is not in flight either', ()
 const row = (patch) => ({ issue: null, pr: null, dirty: 0, commits: 0, config, ...patch });
 
 test('a merged PR whose ticket never moved is the cheapest thing to fix', () => {
-  const r = classify(row({
+  const r = assessInFlightWork(row({
     issue: { id: '#12', state: 'In Review' },
     pr: { number: 27, state: 'MERGED' },
   }));
@@ -140,27 +140,27 @@ test('a merged PR whose ticket never moved is the cheapest thing to fix', () => 
 });
 
 test('a merged PR whose ticket is done is not work at all', () => {
-  const r = classify(row({ issue: { id: '#12', state: 'Done' }, pr: { number: 27, state: 'MERGED' } }));
+  const r = assessInFlightWork(row({ issue: { id: '#12', state: 'Done' }, pr: { number: 27, state: 'MERGED' } }));
   assert.equal(r.priority, WAITING, 'never offered as next');
 });
 
 test('an open PR is waiting on somebody else and is never next', () => {
-  const r = classify(row({ issue: { id: '#12', state: 'In Review' }, pr: { number: 27, state: 'OPEN' } }));
+  const r = assessInFlightWork(row({ issue: { id: '#12', state: 'In Review' }, pr: { number: 27, state: 'OPEN' } }));
   assert.equal(r.priority, WAITING);
   assert.match(r.advice, /waiting on review/);
 });
 
 test('a PR closed unmerged is a decision, and names both ways out', () => {
-  const r = classify(row({ issue: { id: '#12', state: 'In Progress' }, pr: { number: 27, state: 'CLOSED' } }));
+  const r = assessInFlightWork(row({ issue: { id: '#12', state: 'In Progress' }, pr: { number: 27, state: 'CLOSED' } }));
   assert.equal(r.priority, 1);
   assert.match(r.advice, /reopen/);
   assert.match(r.advice, /dev\.mjs abandon #12/);
 });
 
 test('uncommitted work beats committed work, and both beat an untouched branch', () => {
-  const dirty = classify(row({ issue: { id: '#12', state: 'In Progress' }, dirty: 3 }));
-  const ahead = classify(row({ issue: { id: '#12', state: 'In Progress' }, commits: 2 }));
-  const idle = classify(row({ issue: { id: '#12', state: 'In Progress' } }));
+  const dirty = assessInFlightWork(row({ issue: { id: '#12', state: 'In Progress' }, dirty: 3 }));
+  const ahead = assessInFlightWork(row({ issue: { id: '#12', state: 'In Progress' }, commits: 2 }));
+  const idle = assessInFlightWork(row({ issue: { id: '#12', state: 'In Progress' } }));
 
   assert.ok(dirty.priority < ahead.priority, 'finish what is open before starting to land');
   assert.ok(ahead.priority < idle.priority);
@@ -170,7 +170,7 @@ test('uncommitted work beats committed work, and both beat an untouched branch',
 });
 
 test('a ticket behind its branch is reported as such', () => {
-  const r = classify(row({ issue: { id: '#12', state: 'Backlog' } }));
+  const r = assessInFlightWork(row({ issue: { id: '#12', state: 'Backlog' } }));
   assert.match(r.advice, /behind the branch/);
   assert.match(r.advice, /dev\.mjs resume #12/);
 });
@@ -178,7 +178,7 @@ test('a ticket behind its branch is reported as such', () => {
 test('a state the ladder does not have is never treated as behind', () => {
   // A ticket parked in Blocked was put there on purpose — the same rule the
   // reconciler applies, reached from the other side.
-  const r = classify(row({ issue: { id: '#12', state: 'Blocked' } }));
+  const r = assessInFlightWork(row({ issue: { id: '#12', state: 'Blocked' } }));
   assert.equal(r.priority, 5);
   assert.doesNotMatch(r.advice, /behind/);
 });
@@ -519,4 +519,34 @@ test('a pull-request project never reads the base branch log', async () => {
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stdout, /\nmerged since /);
   assert.doesNotMatch(r.stdout, /#13/, 'a commit is not what a pr project calls landed — sync --deep is');
+});
+
+test('standup preserves UNKNOWN from the shared status scanner', async () => {
+  const fixture = await withStubGh();
+  await failGitStatus(fixture, fixture.wt);
+  const result = await fixture.dev(['standup']);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /UNKNOWN/);
+  assert.doesNotMatch(result.stdout, /ready.*land/);
+  assert.doesNotMatch(assessInFlightWork({ dirty: null, commits: 2 }).advice, /dev\.mjs land/);
+});
+
+test('an unreadable tree does not hide a merged PR whose ticket never moved', () => {
+  // Reconciling the tracker touches no file, so tree readability is irrelevant
+  // to it — and it is the cheapest thing on the board. An UNKNOWN guard placed
+  // ahead of it buries the stale ticket and advises an inspection instead.
+  const r = assessInFlightWork(row({
+    issue: { id: '#12', state: 'In Review' },
+    pr: { number: 27, state: 'MERGED' },
+    dirty: null,
+  }));
+  assert.equal(r.priority, 0);
+  assert.match(r.advice, /dev\.mjs sync --apply/);
+});
+
+test('an unreadable tree still suppresses advice that would touch it', () => {
+  for (const patch of [{ commits: 2 }, { pr: { number: 27, state: 'OPEN' } }]) {
+    const r = assessInFlightWork(row({ issue: { id: '#12', state: 'In Progress' }, dirty: null, ...patch }));
+    assert.doesNotMatch(r.advice, /dev\.mjs land/, JSON.stringify(patch));
+  }
 });

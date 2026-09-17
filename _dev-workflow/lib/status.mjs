@@ -28,14 +28,19 @@ export const PR_UNKNOWN = 'unknown';
  *   isWorktree?: boolean,
  *   issue?: {id: string, state?: string|null, title?: string|null}|null,
  *   pr?: {number: number, state: string, url?: string}|null|'unknown',
- *   dirty?: number,
+ *   dirty?: number|null,
+ *   treeError?: string|null,
  *   delivery?: string|null,
  *   config: object,
  * }} facts
  * @returns {{lines: string[], next: string|null}}
  */
 export function describeCheckout(facts) {
-  const { branch, isWorktree = false, issue = null, pr = null, dirty = 0, delivery = null, config } = facts;
+  // `dirty` says three things, and only two are a caller's to say: a count, or
+  // `null` for "git status could not be read at all". Omitting it is neither,
+  // so it normalises to 0 here rather than rendering UNKNOWN and suppressing
+  // `next` on the strength of a missing argument (#160).
+  const { branch, isWorktree = false, issue = null, pr = null, dirty = 0, treeError = null, delivery = null, config } = facts;
   const L = [];
   const row = (label, value) => L.push(`${label.padEnd(10)}${value}`);
 
@@ -52,9 +57,9 @@ export function describeCheckout(facts) {
   }
 
   row('pr', renderPr(pr, { delivery }));
-  row('tree', dirty === 0 ? 'clean' : `${dirty} uncommitted change${dirty === 1 ? '' : 's'}`);
+  row('tree', dirty == null ? `UNKNOWN${treeError ? ` — ${treeError}` : ''}` : dirty === 0 ? 'clean' : `${dirty} uncommitted change${dirty === 1 ? '' : 's'}`);
 
-  const next = nextStep({ issue, pr, dirty, config });
+  const next = nextStep({ issue, pr, dirty, delivery, config });
   if (next) row('next', next);
 
   return { lines: L, next };
@@ -88,8 +93,18 @@ function renderPr(pr, { delivery = null } = {}) {
  * decided — `land` follows `delivery.mode`, it does not choose it — and it
  * suggests nothing at all when the honest answer is "waiting on a human".
  */
-export function nextStep({ issue, pr, dirty, config }) {
+export function nextStep({ issue, pr, dirty, delivery = null, config }) {
   if (!issue) return null;
+
+  // A tree nobody could read is not a tree to advise on: every suggestion below
+  // either commits it or lands it.
+  if (dirty == null) return null;
+
+  // A PR nobody could ask about is different, and only on a repo that opens
+  // them. Without `gh` — a supported setup — a `direct` project's advice never
+  // depended on PR state, so suppressing it there would silence the whole
+  // report over a tool it does not use (#160). Same rule as `describeBoard`.
+  if (pr === PR_UNKNOWN && !noPrExpected(pr, delivery)) return null;
 
   if (pr && pr !== PR_UNKNOWN) {
     const state = String(pr.state ?? '').toUpperCase();
@@ -122,6 +137,10 @@ export function nextStep({ issue, pr, dirty, config }) {
 export function describeBoard(rows, { root = null } = {}) {
   const header = `${'ISSUE'.padEnd(10)} ${'STATE'.padEnd(14)} ${'PR'.padEnd(12)} ${'TREE'.padEnd(8)} BRANCH`;
   const out = [header, '-'.repeat(Math.max(header.length, 60))];
+  // Why a tree is UNKNOWN is free text of unknown length, so it goes after the
+  // table rather than between two of its rows — the same place `describeStandup`
+  // puts `landedUnread`, and for the same reason: the columns stay columns.
+  const notes = [];
 
   for (const row of [...rows].sort(byIssue)) {
     const id = row.issue?.id ?? '-';
@@ -129,12 +148,14 @@ export function describeBoard(rows, { root = null } = {}) {
     const pr = noPrExpected(row.pr, row.delivery)
       ? 'direct'
       : row.pr === PR_UNKNOWN ? '-' : row.pr ? `#${row.pr.number} ${shortState(row.pr.state)}` : 'none';
-    const tree = row.dirty > 0 ? `${row.dirty} dirty` : 'clean';
+    const tree = row.dirty == null ? 'UNKNOWN' : row.dirty > 0 ? `${row.dirty} dirty` : 'clean';
     const where = row.branch ?? relative(row.path, root);
+    if (row.treeError) notes.push(`tree UNKNOWN in ${row.path}: ${row.treeError}`);
     out.push(`${id.padEnd(10)} ${state.padEnd(14)} ${pr.padEnd(12)} ${tree.padEnd(8)} ${where}`);
   }
 
   if (rows.length === 0) out.push('(no worktrees — nothing is checked out for a ticket)');
+  if (notes.length) out.push('', ...notes);
   return out;
 }
 
