@@ -10,6 +10,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { CONFIG_FILES } from '../lib/config.mjs';
 import { makeVcs } from '../lib/vcs.mjs';
 
 /**
@@ -58,13 +59,40 @@ test('--dry-run is not mistaken for a hook bypass', () => {
   assert.doesNotThrow(() => vcs.git('/repo', ['push', '-n', 'origin', 'main']));
 });
 
-test('isClean includes config unless its caller explicitly narrows the check', async () => {
+test('isClean asks git its own question, and a caller narrows it explicitly', async () => {
   const run = fakeRun();
   const vcs = makeVcs({ run });
   await vcs.isClean('/repo');
+  // The default is the destroying caller's question: the whole checkout even
+  // from a subdirectory, untracked files counted, nothing excluded.
   assert.equal(run.calls[0], 'git -C /repo status --porcelain -- :/');
-  await vcs.isClean('/repo', { exclude: ['.dev-workflow.json'] });
+  await vcs.isClean('/repo', { untracked: false, exclude: ['.dev-workflow.json'] });
+  assert.match(run.calls[1], /--untracked-files=no/);
   assert.match(run.calls[1], /:\(exclude\)\.dev-workflow\.json/);
+});
+
+test('switching a branch ignores untracked files and the config that configured it', async () => {
+  const run = fakeRun({
+    'rev-parse --verify --quiet refs/heads/feat/1-x': { ok: false },
+    'rev-parse --verify --quiet main': { stdout: 'abc' },
+  });
+  await makeVcs({ run }).startWork({ dir: '/repo', branch: 'feat/1-x', base: 'main', mode: 'branch' });
+  const status = run.calls.find((c) => c.includes(' status --porcelain'));
+  assert.match(status, /--untracked-files=no/, 'a switch cannot disturb an untracked file');
+  for (const file of CONFIG_FILES) assert.ok(status.includes(`:(exclude)${file}`), `${file} not excluded: ${status}`);
+});
+
+test('direct delivery counts the config but not the tool’s own untracked artifacts', async () => {
+  const run = fakeRun();
+  await makeVcs({ run }).landDirect({ repoDir: '/repo', workDir: '/work', branch: 'feat/1-x', base: 'main' });
+  const checks = run.calls.filter((c) => c.includes(' status --porcelain'));
+  assert.equal(checks.length, 2, 'both checkouts are asked before either is touched');
+  for (const call of checks) {
+    // `.worktrees/`, the metrics log and the update-check cache are untracked in
+    // the main checkout, and no consumer is obliged to gitignore them.
+    assert.match(call, /--untracked-files=no/);
+    assert.doesNotMatch(call, /:\(exclude\)/, 'delivery does not land over an uncommitted config');
+  }
 });
 
 test('branch mode refuses to switch a dirty tree', async () => {

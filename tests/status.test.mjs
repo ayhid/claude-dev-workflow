@@ -163,3 +163,33 @@ test('CLI preserves failed Git status in local and board reports', async () => {
     assert.doesNotMatch(result.stdout, /next.*land/);
   }
 });
+
+test('a direct project with no GitHub CLI still gets its next step', () => {
+  // `gh` missing or unauthenticated is a supported setup, and on `direct`
+  // delivery the advice never depended on a PR in the first place. Suppressing
+  // it there silences the whole report over a tool the project does not use.
+  const facts = { issue: { id: '#22', state: 'In Progress' }, pr: PR_UNKNOWN, dirty: 0 };
+  assert.equal(nextStep({ config, ...facts, delivery: 'direct' }), 'dev.mjs land');
+  assert.equal(nextStep({ config, ...facts, delivery: 'pr' }), null, 'a repo that opens PRs cannot guess');
+  assert.match(text({ branch: '22-x', ...facts, delivery: 'direct' }), /next\s+dev\.mjs land/);
+});
+
+test('an omitted dirty count is clean, not unknown', () => {
+  // `null` means "git status could not be read". A caller that simply did not
+  // pass the field said no such thing, and must not render UNKNOWN on it.
+  const out = describeCheckout({ config, branch: '22-x', issue: { id: '#22', state: 'In Progress' } });
+  assert.match(out.lines.join('\n'), /tree\s+clean/);
+  assert.equal(out.next, 'dev.mjs land');
+});
+
+test('why a tree is unknown goes after the board, not through its columns', () => {
+  const rows = [
+    { path: '/a', branch: '22-x', issue: { id: '#22', state: 'In Progress' }, pr: null, dirty: null, treeError: 'fatal: not a git repository' },
+    { path: '/b', branch: '23-y', issue: { id: '#23', state: 'In Progress' }, pr: null, dirty: 0 },
+  ];
+  const out = describeBoard(rows);
+  const table = out.slice(2, out.indexOf(''));
+  assert.equal(table.length, 2, out.join('\n'));
+  for (const line of table) assert.match(line, /^#\d+ {8}In Progress {4}/, `column drift: ${line}`);
+  assert.match(out.at(-1), /^tree UNKNOWN in \/a: fatal: not a git repository$/);
+});

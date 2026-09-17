@@ -530,3 +530,23 @@ test('standup preserves UNKNOWN from the shared status scanner', async () => {
   assert.doesNotMatch(result.stdout, /ready.*land/);
   assert.doesNotMatch(assessInFlightWork({ dirty: null, commits: 2 }).advice, /dev\.mjs land/);
 });
+
+test('an unreadable tree does not hide a merged PR whose ticket never moved', () => {
+  // Reconciling the tracker touches no file, so tree readability is irrelevant
+  // to it — and it is the cheapest thing on the board. An UNKNOWN guard placed
+  // ahead of it buries the stale ticket and advises an inspection instead.
+  const r = assessInFlightWork(row({
+    issue: { id: '#12', state: 'In Review' },
+    pr: { number: 27, state: 'MERGED' },
+    dirty: null,
+  }));
+  assert.equal(r.priority, 0);
+  assert.match(r.advice, /dev\.mjs sync --apply/);
+});
+
+test('an unreadable tree still suppresses advice that would touch it', () => {
+  for (const patch of [{ commits: 2 }, { pr: { number: 27, state: 'OPEN' } }]) {
+    const r = assessInFlightWork(row({ issue: { id: '#12', state: 'In Progress' }, dirty: null, ...patch }));
+    assert.doesNotMatch(r.advice, /dev\.mjs land/, JSON.stringify(patch));
+  }
+});

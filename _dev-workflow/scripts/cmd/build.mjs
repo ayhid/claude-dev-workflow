@@ -237,7 +237,9 @@ async function start({ config, provider, vcs, parent, states, ready, outputLines
 async function land({ config, parent, inProgress, rows, apply, vcs, outputLines }) {
   const landable = [];
   for (const row of inProgress) {
-    const clean = await vcs.isClean(row.checkout.path);
+    // The same question `land` asks of a single unit, asked of each one in the
+    // wave — so it has to be the same question: tracked changes only.
+    const clean = await vcs.isClean(row.checkout.path, { untracked: false });
     if (!clean.ok) {
       outputLines.push(`skipped:  ${row.id} tree UNKNOWN in ${row.checkout.path}: ${clean.error}`);
       continue;

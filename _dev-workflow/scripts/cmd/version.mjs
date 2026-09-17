@@ -120,7 +120,17 @@ export async function upgrade(root, { run = sh, hasBin = has, vcs, latest = null
   // still knows about the files.)
   const owned = [PAYLOAD_DIR, join('.claude', 'skills'), join('.claude', 'agents')];
   const state = await git.isClean(root, { paths: owned });
-  if (state.ok && !state.clean) {
+  if (!state.ok) {
+    // A status that could not be read is not a clean one. Upgrading on it
+    // overwrites these files with no commit behind them to recover from —
+    // the same failure the delivery checks refuse (#160).
+    throw new UserError(
+      `refusing to upgrade: could not read Git status for ${new Intl.ListFormat('en').format(owned)}.\n` +
+        `  ${state.error}\n` +
+        'An upgrade rewrites these files; fix the checkout first.',
+    );
+  }
+  if (!state.clean) {
     throw new UserError(
       `refusing to upgrade: ${new Intl.ListFormat('en').format(owned)} have uncommitted changes.\n` +
         `${state.dirty.map((l) => `  ${l}`).join('\n')}\n` +

@@ -160,7 +160,6 @@ export function inFlight(rows, { base }) {
  * @returns {{priority: number, advice: string}}
  */
 export function assessInFlightWork({ issue, pr, dirty = 0, commits = null, config }) {
-  if (dirty === null) return { priority: 2, advice: 'tree UNKNOWN — inspect Git status before delivery' };
   const state = pr && pr !== PR_UNKNOWN ? String(pr.state ?? '').toUpperCase() : null;
   const id = issue?.id ?? '';
 
@@ -183,6 +182,13 @@ export function assessInFlightWork({ issue, pr, dirty = 0, commits = null, confi
   }
 
   if (state === 'OPEN') return { priority: WAITING, advice: `PR #${pr.number} is waiting on review` };
+
+  // Below this line every answer is about the working tree, so a tree nobody
+  // could read has no answer. Above it none of them were: reconciling a merged
+  // PR's ticket touches no file, and it is the cheapest thing on the board —
+  // losing it to an unreadable `git status` hides the stale ticket entirely
+  // and advises an inspection instead (#160).
+  if (dirty === null) return { priority: 2, advice: 'tree UNKNOWN — inspect Git status before delivery' };
 
   if (dirty > 0) {
     return {

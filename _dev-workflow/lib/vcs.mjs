@@ -18,6 +18,7 @@
 import { rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
+import { CONFIG_FILES } from './config.mjs';
 import { LOG_SEP } from './sync.mjs';
 
 /** Arguments that would defeat a guarantee this module makes. */
@@ -107,15 +108,38 @@ export function makeVcs({ run }) {
   }
 
   /**
-   * Is the tree free of changes that would be disturbed by switching branches?
+   * What `git status` says about `dir` — the question every refusal below is
+   * built on. Three options narrow it, and each exists for a caller that would
+   * otherwise refuse work it has no business refusing.
    *
-   * `paths` narrows the question. The default asks about the whole tree, which is
-   * even when invoked from a subdirectory, which is what switching cares about; an upgrade cares only about the
-   * directories it is going to rewrite, and blocking it on an unrelated edit
-   * elsewhere in the repo would be the same no-exit loop.
+   * `paths` is the *where*. The default `:/` is the whole checkout even when the
+   * command was invoked from a subdirectory — a relative `.` answers about the
+   * subdirectory alone and calls a repo clean on the strength of one folder. An
+   * upgrade narrows it to the directories it is going to rewrite, because
+   * blocking it on an unrelated edit elsewhere would be a loop with no exit.
+   *
+   * `untracked` is the *what*, and it defaults to git's own answer — counted.
+   * A caller that **destroys** a checkout (`abandon`) or **overwrites** files in
+   * it (`version --upgrade`) is the only thing standing between an untracked
+   * file and its loss, with no commit to recover it from. Callers that merely
+   * switch, push or fast-forward pass `false`: none of those disturbs an
+   * untracked file, git refuses outright a switch that would clobber one, and
+   * this tool writes untracked files into the main checkout itself —
+   * `.worktrees/`, the metrics log, the update-check cache, none of which the
+   * installer gitignores. Counting those refuses a landing over the workflow's
+   * own artifacts, permanently and for nothing.
+   *
+   * `exclude` is the *exception*, and in practice it is the workflow's config.
+   * `/dev-init` and the installer rewrite `.dev-workflow.json`, so `start`
+   * excludes it rather than letting that edit block the very command it was made
+   * to configure. Delivery does **not** exclude it: landing over an uncommitted
+   * config delivers from a state the base branch does not have, and committing
+   * it is an exit that `start` does not have.
    */
-  async function isClean(dir, { exclude = [], paths = [':/'] } = {}) {
-    const args = ['status', '--porcelain', '--', ...paths, ...exclude.map((p) => `:(exclude)${p}`)];
+  async function isClean(dir, { exclude = [], paths = [':/'], untracked = true } = {}) {
+    const args = ['status', '--porcelain'];
+    if (!untracked) args.push('--untracked-files=no');
+    args.push('--', ...paths, ...exclude.map((p) => `:(exclude)${p}`));
     const r = await git(dir, args);
     if (!r.ok) return { ok: false, error: r.stderr || `git status failed in ${dir}` };
     return { ok: true, clean: r.stdout === '', dirty: r.stdout ? r.stdout.split('\n') : [] };
@@ -229,7 +253,7 @@ export function makeVcs({ run }) {
     }
 
     if (mode === 'branch') {
-      const clean = await isClean(dir);
+      const clean = await isClean(dir, { untracked: false, exclude: CONFIG_FILES });
       if (!clean.ok) return clean;
       if (!clean.clean) {
         return {
@@ -325,9 +349,11 @@ export function makeVcs({ run }) {
   async function landDirect({ repoDir, workDir, branch, base, remote = 'origin', push = true }) {
     const steps = [];
 
-    // Check both checkouts before fetch/rebase can mutate either one.
+    // Check both checkouts before fetch/rebase can mutate either one: a clean
+    // source rebased onto a dirty target leaves the branch moved and nothing
+    // landed, which reads as "it worked" everywhere except the base branch.
     for (const dir of new Set([workDir, repoDir])) {
-      const clean = await isClean(dir);
+      const clean = await isClean(dir, { untracked: false });
       if (!clean.ok) return clean;
       if (!clean.clean) {
         return {

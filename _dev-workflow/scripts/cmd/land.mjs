@@ -95,7 +95,11 @@ async function openPullRequest({ workDir, branch, base, issue, title, reviewer, 
   L.push(`reviewer: ${reviewer || '(none configured)'}`);
   if (!apply) return { ok: true };
 
-  const clean = await makeVcs({ run: sh }).isClean(workDir);
+  // A push cannot carry an uncommitted change, so what this refuses is a PR
+  // that does not contain the work it is about to ask for review on. Tracked
+  // modifications only: an untracked scratch file in the worktree is not part
+  // of the branch, and committing it is the wrong way out (#160).
+  const clean = await makeVcs({ run: sh }).isClean(workDir, { untracked: false });
   if (!clean.ok) throw new UserError(`tree UNKNOWN: ${clean.error}`);
   if (!clean.clean) {
     throw new UserError(`${workDir} has uncommitted changes — commit them before landing:\n  ${clean.dirty.join('\n  ')}`);
