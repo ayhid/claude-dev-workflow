@@ -408,11 +408,18 @@ test('a direct landing records the close in the main checkout, not the worktree 
   const { repo, wt, dev } = await withStubGh({ remote: true, config: DIRECT_MODE });
   copyFileSync(join(repo, '.dev-workflow.json'), join(wt, '.dev-workflow.json'));
   writeFileSync(join(repo, '.gitignore'), '.worktrees/\n.dev-workflow.metrics.jsonl\n');
-  await git(repo, 'add', '.gitignore', '.dev-workflow.json');
-  await git(repo, 'commit', '-m', 'configure workflow');
-  await git(repo, 'push', 'origin', 'main');
-  await git(wt, 'add', '.dev-workflow.json');
-  await git(wt, 'commit', '-m', 'configure workflow');
+  // Checkouts have separate indexes and branches; keep each Git sequence ordered.
+  await Promise.all([
+    (async () => {
+      await git(repo, 'add', '.gitignore', '.dev-workflow.json');
+      await git(repo, 'commit', '-m', 'configure workflow');
+      await git(repo, 'push', 'origin', 'main');
+    })(),
+    (async () => {
+      await git(wt, 'add', '.dev-workflow.json');
+      await git(wt, 'commit', '-m', 'configure workflow');
+    })(),
+  ]);
 
   // The start this cycle is measured from. Without it the close would report
   // `elapsedMs: null` and pass a test that only asked for a row.

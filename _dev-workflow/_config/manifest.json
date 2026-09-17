@@ -2,7 +2,7 @@
   "installation": {
     "version": "1.22.0",
     "installDate": "2026-09-08T10:07:31.602Z",
-    "lastUpdated": "2026-09-16T07:12:46.862Z"
+    "lastUpdated": "2026-09-17T10:56:49.371Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -121,7 +121,7 @@
     },
     {
       "path": "_dev-workflow/lib/standup.mjs",
-      "sha256": "b3229630a7db02f858d02f17f72db7a41979102446c14d48a97f182e84ceffa8"
+      "sha256": "8ad5ee6688901236f0a15f835cfa6ea0bd30478ee3ca7cb3c821153e21f17efc"
     },
     {
       "path": "_dev-workflow/lib/status.mjs",
@@ -165,7 +165,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/build.mjs",
-      "sha256": "456f1655e53a82aadd3fea827908b96a81c9a26763d060939fbf152e11266f76"
+      "sha256": "dceb5e80115b867fe81da4f6e18a7ab3df14e1077ec4eb7b179aa4da8759fd23"
     },
     {
       "path": "_dev-workflow/scripts/cmd/common.mjs",

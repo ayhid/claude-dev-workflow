@@ -47,14 +47,14 @@ const USAGE = 'usage: dev.mjs build <PARENT-ID> [--start] [--land [--apply]] [--
 function parseArgs(args) {
   const opts = { start: false, land: false, apply: false };
   const rest = [];
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a === '--start') opts.start = true;
-    else if (a === '--land') opts.land = true;
-    else if (a === '--apply') opts.apply = true;
-    else if (a === '--repo') opts.repo = args[++i];
-    else if (a.startsWith('-')) throw new UserError(`unknown flag ${a}\n\n${USAGE}`);
-    else rest.push(a);
+  for (let argumentIndex = 0; argumentIndex < args.length; argumentIndex++) {
+    const argument = args[argumentIndex];
+    if (argument === '--start') opts.start = true;
+    else if (argument === '--land') opts.land = true;
+    else if (argument === '--apply') opts.apply = true;
+    else if (argument === '--repo') opts.repo = args[++argumentIndex];
+    else if (argument.startsWith('-')) throw new UserError(`unknown flag ${argument}\n\n${USAGE}`);
+    else rest.push(argument);
   }
   if (opts.start && opts.land) throw new UserError('--start and --land are two different steps — pass one');
   if (opts.apply && !opts.land) throw new UserError('--apply goes with --land');
@@ -62,7 +62,7 @@ function parseArgs(args) {
 }
 
 /** `#43` padded to the width the board aligns on. */
-const col = (s, w) => String(s ?? '').padEnd(w);
+const padColumn = (value, width) => String(value ?? '').padEnd(width);
 
 export async function run(args) {
   const { opts, rest } = parseArgs(args);
@@ -76,26 +76,26 @@ export async function run(args) {
   const issue = must(await provider.getIssue(parent));
   const children = must(await provider.children(parent));
 
-  const L = [];
+  const outputLines = [];
   if (!children.length) {
-    L.push(`parent:   ${parent} — ${issue.title}`);
-    L.push(`children: none — this ticket was not split, so it is built as one unit: dev.mjs start ${parent}`);
-    process.stdout.write(`${L.join('\n')}\n`);
+    outputLines.push(`parent:   ${parent} — ${issue.title}`);
+    outputLines.push(`children: none — this ticket was not split, so it is built as one unit: dev.mjs start ${parent}`);
+    process.stdout.write(`${outputLines.join('\n')}\n`);
     return 0;
   }
 
-  const units = children.map((c) => ({
-    id: c.id,
-    title: c.title,
-    dependsOn: parseDependsOn(c.body, syntax),
-    repo: parseUnitRepo(c.body),
+  const units = children.map((child) => ({
+    id: child.id,
+    title: child.title,
+    dependsOn: parseDependsOn(child.body, syntax),
+    repo: parseUnitRepo(child.body),
   }));
 
   const order = computeWaves(units);
   if (!order.ok) throw new UserError(`${parent}'s units cannot be ordered: ${order.error}`);
 
   // One batched read for the parent, every unit and every external dependency.
-  const wanted = [...new Set([parent, ...units.map((u) => u.id), ...order.external.flatMap((e) => e.dependsOn)])];
+  const wanted = [...new Set([parent, ...units.map((unit) => unit.id), ...order.external.flatMap((dependency) => dependency.dependsOn)])];
   const states = await provider.getStates(wanted);
   const buckets = classifyUnits(units, states, config);
 
@@ -103,83 +103,83 @@ export async function run(args) {
   // multi-repo project wrote it into the unit's body at split time, and a unit
   // that carries none falls back to --repo, then to the refusal `resolveRepo`
   // already words.
-  const repoOf = (u) => resolveRepo(config, root, u.repo ?? opts.repo);
+  const repoOf = (unit) => resolveRepo(config, root, unit.repo ?? opts.repo);
   const repoDirs = new Map();
-  const repoFor = async (u) => {
-    const r = repoOf(u);
-    if (!repoDirs.has(r.path)) {
-      const dir = await vcs.mainCheckout(r.dir);
+  const repoFor = async (unit) => {
+    const repository = repoOf(unit);
+    if (!repoDirs.has(repository.path)) {
+      const dir = await vcs.mainCheckout(repository.dir);
       const [worktrees, branches, prs] = await Promise.all([
         vcs.listWorktreeEntries(dir),
         vcs.listBranches(dir),
         listPullRequests(dir),
       ]);
-      repoDirs.set(r.path, {
-        ...r,
+      repoDirs.set(repository.path, {
+        ...repository,
         dir,
         worktrees,
         branches,
         prs: prs === PR_UNKNOWN ? PR_UNKNOWN : prsByBranch(prs),
       });
     }
-    return repoDirs.get(r.path);
+    return repoDirs.get(repository.path);
   };
 
   const rows = [];
-  for (const u of units) {
-    const repo = await repoFor(u);
-    const checkout = findIssueCheckouts(config, { worktrees: repo.worktrees, branches: repo.branches }, u.id)[0] ?? null;
+  for (const unit of units) {
+    const repo = await repoFor(unit);
+    const checkout = findIssueCheckouts(config, { worktrees: repo.worktrees, branches: repo.branches }, unit.id)[0] ?? null;
     const pr = checkout && repo.prs !== PR_UNKNOWN ? (repo.prs.get(checkout.branch) ?? null) : null;
-    rows.push({ ...u, ...buckets.get(u.id), checkout, pr, repo });
+    rows.push({ ...unit, ...buckets.get(unit.id), checkout, pr, repo });
   }
 
-  L.push(`parent:   ${parent} — ${issue.title}   state: ${states.get(parent)}`);
-  for (const [w, wave] of order.waves.entries()) {
-    L.push(`wave ${w + 1}`);
+  outputLines.push(`parent:   ${parent} — ${issue.title}   state: ${states.get(parent)}`);
+  for (const [waveIndex, wave] of order.waves.entries()) {
+    outputLines.push(`wave ${waveIndex + 1}`);
     for (const id of wave) {
-      const r = rows.find((x) => x.id === id);
+      const row = rows.find((candidate) => candidate.id === id);
       const bits = [];
-      if (r.pr) bits.push(`PR #${r.pr.number} ${String(r.pr.state ?? '').toLowerCase()}`);
-      if (r.checkout?.path) bits.push(r.checkout.path + (r.bucket === 'done' ? '   (stale — remove when convenient)' : ''));
-      else if (r.checkout) bits.push(`branch ${r.checkout.branch} (not mounted)`);
-      if (r.bucket === 'blocked') bits.push(`waits on ${r.waitsOn.join(', ')}`);
-      if (r.bucket === 'unknown') bits.push(r.why);
-      L.push(`  ${col(r.id, 8)} ${col(r.bucket, 12)} ${col(r.title, 40)} ${bits.join('   ')}`.replace(/\s+$/, ''));
+      if (row.pr) bits.push(`PR #${row.pr.number} ${String(row.pr.state ?? '').toLowerCase()}`);
+      if (row.checkout?.path) bits.push(row.checkout.path + (row.bucket === 'done' ? '   (stale — remove when convenient)' : ''));
+      else if (row.checkout) bits.push(`branch ${row.checkout.branch} (not mounted)`);
+      if (row.bucket === 'blocked') bits.push(`waits on ${row.waitsOn.join(', ')}`);
+      if (row.bucket === 'unknown') bits.push(row.why);
+      outputLines.push(`  ${padColumn(row.id, 8)} ${padColumn(row.bucket, 12)} ${padColumn(row.title, 40)} ${bits.join('   ')}`.replace(/\s+$/, ''));
     }
   }
-  for (const e of order.external) {
-    L.push(`note:     ${e.id} also depends on ${e.dependsOn.join(', ')}, outside this split`);
+  for (const dependency of order.external) {
+    outputLines.push(`note:     ${dependency.id} also depends on ${dependency.dependsOn.join(', ')}, outside this split`);
   }
 
-  const ready = rows.filter((r) => r.bucket === 'ready');
-  const inProgress = rows.filter((r) => r.bucket === 'in progress' && r.checkout?.path);
-  const allDone = rows.every((r) => r.bucket === 'done');
+  const ready = rows.filter((row) => row.bucket === 'ready');
+  const inProgress = rows.filter((row) => row.bucket === 'in progress' && row.checkout?.path);
+  const allDone = rows.every((row) => row.bucket === 'done');
 
   if (!opts.start && !opts.land) {
-    if (allDone) L.push(`next:     every unit is done — close the parent: /dev-done ${parent}`);
-    else if (ready.length) L.push(`next:     build ${parent} --start   — ${ready.length} unit(s) ready`);
-    else if (inProgress.length) L.push(`next:     build ${parent} --land    — ${inProgress.length} unit(s) in progress`);
-    else if (rows.some((r) => r.bucket === 'review')) L.push('next:     waiting on pull requests to merge — dev.mjs sync, then run this again');
-    else L.push('next:     nothing is ready — see the units above');
-    process.stdout.write(`${L.join('\n')}\n`);
+    if (allDone) outputLines.push(`next:     every unit is done — close the parent: /dev-done ${parent}`);
+    else if (ready.length) outputLines.push(`next:     build ${parent} --start   — ${ready.length} unit(s) ready`);
+    else if (inProgress.length) outputLines.push(`next:     build ${parent} --land    — ${inProgress.length} unit(s) in progress`);
+    else if (rows.some((row) => row.bucket === 'review')) outputLines.push('next:     waiting on pull requests to merge — dev.mjs sync, then run this again');
+    else outputLines.push('next:     nothing is ready — see the units above');
+    process.stdout.write(`${outputLines.join('\n')}\n`);
     return 0;
   }
 
-  if (opts.start) return start({ config, provider, vcs, parent, states, ready, L });
-  return land({ config, parent, inProgress, rows, apply: opts.apply, vcs, L });
+  if (opts.start) return start({ config, provider, vcs, parent, states, ready, outputLines });
+  return land({ config, parent, inProgress, rows, apply: opts.apply, vcs, outputLines });
 }
 
 /** `--start`: mount every ready unit, serially, from the freshest base. */
-async function start({ config, provider, vcs, parent, states, ready, L }) {
+async function start({ config, provider, vcs, parent, states, ready, outputLines }) {
   const mode = config.branch?.mode ?? 'worktree';
   const base = config.branch?.base ?? 'main';
 
   if (!ready.length) {
-    L.push('start:    nothing is ready');
-    process.stdout.write(`${L.join('\n')}\n`);
+    outputLines.push('start:    nothing is ready');
+    process.stdout.write(`${outputLines.join('\n')}\n`);
     return 0;
   }
-  if (mode !== 'worktree' && ready.filter((r) => !r.checkout?.path).length > 1) {
+  if (mode !== 'worktree' && ready.filter((row) => !row.checkout?.path).length > 1) {
     throw new UserError(
       `branch.mode is "${mode}", which holds one checkout at a time, and ${ready.length} units are ready — ` +
         'set branch.mode to "worktree" to build them side by side, or start one by hand: ' +
@@ -192,25 +192,25 @@ async function start({ config, provider, vcs, parent, states, ready, L }) {
   const gap = stateGap(config, states.get(parent));
   if (gap.move) {
     const moved = await provider.setState(parent, 'start');
-    L.push(moved.ok ? `parent:   moved to ${moved.state}` : `parent:   NOT MOVED — ${moved.error}`);
+    outputLines.push(moved.ok ? `parent:   moved to ${moved.state}` : `parent:   NOT MOVED — ${moved.error}`);
   }
 
   // Fork from what has actually landed. `fetch` failing is not fatal — offline,
   // the local base is the freshest base there is — but it is said.
   const forkFrom = new Map();
   const dispatch = [];
-  for (const r of ready) {
-    const repo = r.repo;
+  for (const row of ready) {
+    const repo = row.repo;
     if (!forkFrom.has(repo.path)) {
       const remote = deliveryFor(config, repo.path).remote ?? 'origin';
       const fresh = await vcs.freshestBase({ dir: repo.dir, remote, base });
       forkFrom.set(repo.path, fresh.ref);
-      if (fresh.why) L.push(`note:     forking from local ${base} — ${fresh.why}`);
+      if (fresh.why) outputLines.push(`note:     forking from local ${base} — ${fresh.why}`);
     }
 
-    if (r.checkout?.path) {
-      L.push(`mounted:  ${r.id} already at ${r.checkout.path}`);
-      dispatch.push([r.id, r.checkout.path]);
+    if (row.checkout?.path) {
+      outputLines.push(`mounted:  ${row.id} already at ${row.checkout.path}`);
+      dispatch.push([row.id, row.checkout.path]);
       continue;
     }
 
@@ -219,57 +219,57 @@ async function start({ config, provider, vcs, parent, states, ready, L }) {
       provider,
       vcs,
       configured: { path: repo.path, dir: repo.dir },
-      id: r.id,
+      id: row.id,
       base: forkFrom.get(repo.path),
     });
-    for (const line of started.lines) if (/^(branch|mode|forked|created|state|warning):/.test(line)) L.push(`  ${line}`);
-    if (!started.moved) L.push(`  ${r.id} was mounted but not moved — retry: dev.mjs update ${r.id} state start`);
-    if (started.dir) dispatch.push([r.id, started.dir]);
+    for (const line of started.lines) if (/^(branch|mode|forked|created|state|warning):/.test(line)) outputLines.push(`  ${line}`);
+    if (!started.moved) outputLines.push(`  ${row.id} was mounted but not moved — retry: dev.mjs update ${row.id} state start`);
+    if (started.dir) dispatch.push([row.id, started.dir]);
   }
 
-  L.push('');
-  for (const [id, path] of dispatch) L.push(`dispatch: ${id}\t${path}`);
-  process.stdout.write(`${L.join('\n')}\n`);
+  outputLines.push('');
+  for (const [id, path] of dispatch) outputLines.push(`dispatch: ${id}\t${path}`);
+  process.stdout.write(`${outputLines.join('\n')}\n`);
   return 0;
 }
 
 /** `--land`: hand each finished unit to `land`, then reconcile once. */
-async function land({ config, parent, inProgress, rows, apply, vcs, L }) {
+async function land({ config, parent, inProgress, rows, apply, vcs, outputLines }) {
   const landable = [];
-  for (const r of inProgress) {
-    const clean = await vcs.isClean(r.checkout.path);
+  for (const row of inProgress) {
+    const clean = await vcs.isClean(row.checkout.path);
     if (!clean.ok) {
-      L.push(`skipped:  ${r.id} tree UNKNOWN in ${r.checkout.path}: ${clean.error}`);
+      outputLines.push(`skipped:  ${row.id} tree UNKNOWN in ${row.checkout.path}: ${clean.error}`);
       continue;
     }
     if (!clean.clean) {
-      L.push(`skipped:  ${r.id} has ${clean.dirty.length} uncommitted change(s) in ${r.checkout.path}`);
+      outputLines.push(`skipped:  ${row.id} has ${clean.dirty.length} uncommitted change(s) in ${row.checkout.path}`);
       continue;
     }
-    landable.push(r);
+    landable.push(row);
   }
-  for (const r of rows.filter((x) => x.bucket === 'in progress' && !x.checkout?.path)) {
-    L.push(`skipped:  ${r.id} is in progress but checked out nowhere — dev.mjs resume ${r.id}`);
+  for (const row of rows.filter((candidate) => candidate.bucket === 'in progress' && !candidate.checkout?.path)) {
+    outputLines.push(`skipped:  ${row.id} is in progress but checked out nowhere — dev.mjs resume ${row.id}`);
   }
   if (!landable.length) {
-    L.push('land:     nothing to land');
-    process.stdout.write(`${L.join('\n')}\n`);
+    outputLines.push('land:     nothing to land');
+    process.stdout.write(`${outputLines.join('\n')}\n`);
     return 0;
   }
 
-  L.push(`land:     ${landable.map((r) => r.id).join(', ')}${apply ? '' : '   (dry run — pass --apply)'}`);
-  process.stdout.write(`${L.join('\n')}\n\n`);
+  outputLines.push(`land:     ${landable.map((row) => row.id).join(', ')}${apply ? '' : '   (dry run — pass --apply)'}`);
+  process.stdout.write(`${outputLines.join('\n')}\n\n`);
 
   const { run: landRun } = await import('./land.mjs');
-  for (const r of landable) {
-    process.stdout.write(`--- ${r.id}\n`);
-    const args = [r.id, '--repo', r.repo.path, ...(apply ? ['--apply'] : [])];
+  for (const row of landable) {
+    process.stdout.write(`--- ${row.id}\n`);
+    const args = [row.id, '--repo', row.repo.path, ...(apply ? ['--apply'] : [])];
     // The reconcile is deferred to the end: one `sync --apply` for the wave,
     // not one per unit. A refusal stops the loop where it is — the units
     // before it have landed, the one that failed says why, the rest wait.
     const code = await landRun(args, { reconcile: false });
     if (code !== 0) {
-      process.stderr.write(`dev build: ${r.id} did not land — stopping here; the units after it are untouched\n`);
+      process.stderr.write(`dev build: ${row.id} did not land — stopping here; the units after it are untouched\n`);
       return code;
     }
   }
