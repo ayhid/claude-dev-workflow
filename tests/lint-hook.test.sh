@@ -136,9 +136,8 @@ fi
 # --- a malformed payload is not an error ---
 dir="$TMP/case-garbage"
 build_project "$dir" "$(CFG)" findings
-printf 'not json at all' | env CLAUDE_PROJECT_DIR="$dir" \
-  "$NODE_BIN" "$dir/_dev-workflow/hooks/lint-edited-file.mjs" >/dev/null 2>&1
-if [ $? = 0 ]; then
+if printf 'not json at all' | env CLAUDE_PROJECT_DIR="$dir" \
+  "$NODE_BIN" "$dir/_dev-workflow/hooks/lint-edited-file.mjs" >/dev/null 2>&1; then
   printf 'ok    a payload that is not JSON exits 0\n'; pass=$((pass + 1))
 else
   printf 'FAIL  a payload that is not JSON exits 0\n'; fail=$((fail + 1))
