@@ -60,7 +60,7 @@ const USAGE = `usage: dev.mjs <command> [args]
   sync   [--apply] [--since 30d] [--repo PATH] [--deep] [--limit N]
   review [--base REF] [--out DIR] [--no-intent]   build the adversarial review payloads
   review --render FINDINGS.json [--payloads DIR]  render lens output into the report
-  rules  [--repo PATH] [--json]         what is enforced, and what is only written down
+  rules  [--repo PATH] [--doctrine] [--json]  what is enforced, and what is only written down
   version [--json] [--offline] [--upgrade]
 
 Config comes from .dev-workflow.json (or .claude/dev-workflow.json), then the

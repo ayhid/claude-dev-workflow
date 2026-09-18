@@ -33,6 +33,15 @@
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/skill-name-prefix.mjs\""
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/_dev-workflow/hooks/lint-edited-file.mjs\""
+          }
+        ]
       }
     ],
     "SessionStart": [

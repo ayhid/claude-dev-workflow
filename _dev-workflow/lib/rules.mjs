@@ -35,6 +35,10 @@
  * @property {string}   count     runs `<RULE>` alone; what it prints is the count
  * @property {'id'|'entry'} placeholder  what `<RULE>` takes — see below
  * @property {{config: string, count: string}[]} variants  a recipe the found config overrides
+ * @property {string|null} resolve  reports the tool's **resolved** configuration; `<FILE>`
+ * @property {'run'|'config'|'none'} resolveKind  how coverage is answered for this tool
+ * @property {string} [resolveWhy]  why it is not `run` — required whenever it is not
+ * @property {string|null} lintFile  lints one file, for the edit hook; `<FILE>`
 
  *
  * `placeholder` is data rather than a convention because the two kinds cannot
@@ -60,6 +64,9 @@ export const LINTERS = [
     // the config file that was found is what decides. Printing the other one is
     // a count the user cannot reproduce.
     placeholder: 'id',
+    resolve: 'npx --no-install eslint --print-config <FILE>',
+    resolveKind: 'run',
+    lintFile: 'npx --no-install eslint <FILE>',
     variants: [{ config: '.eslintrc', count: `npx --no-install eslint . --no-eslintrc --rule '{"<RULE>": "error"}'` }],
   },
   {
@@ -69,6 +76,11 @@ export const LINTERS = [
     embedded: [],
     count: 'npx --no-install biome lint --only=<RULE> .',
     placeholder: 'id',
+    resolve: null,
+    resolveKind: 'config',
+    resolveWhy:
+      'biome has no --print-config; its configuration is JSON and is read directly instead',
+    lintFile: 'npx --no-install biome lint <FILE>',
     variants: [],
   },
   {
@@ -84,6 +96,11 @@ export const LINTERS = [
     // scratch file rather than being approximated by a flag that does not exist.
     count: `printf '{"rules":{"<RULE>": true}}' > /tmp/one-rule.json && npx --no-install stylelint "**/*.css" --config /tmp/one-rule.json`,
     placeholder: 'id',
+    resolve: null,
+    resolveKind: 'none',
+    resolveWhy:
+      'no doctrine rule maps onto CSS yet; stylelint --print-config is where to start when one does',
+    lintFile: null,
     variants: [],
   },
   {
@@ -93,6 +110,11 @@ export const LINTERS = [
     embedded: [{ file: 'pyproject.toml', marker: '[tool.ruff' }],
     count: 'ruff check --select <RULE> --statistics .',
     placeholder: 'id',
+    resolve: null,
+    resolveKind: 'none',
+    resolveWhy:
+      'no doctrine rule maps onto Python yet; ruff check --show-settings is where to start when one does',
+    lintFile: null,
     variants: [],
   },
   {
@@ -105,6 +127,11 @@ export const LINTERS = [
     ],
     count: 'flake8 --select=<RULE> .',
     placeholder: 'id',
+    resolve: null,
+    resolveKind: 'none',
+    resolveWhy:
+      'no doctrine rule maps onto Python yet, and flake8 reports no resolved configuration at all',
+    lintFile: null,
     variants: [],
   },
   {
@@ -114,6 +141,11 @@ export const LINTERS = [
     embedded: [{ file: 'pyproject.toml', marker: '[tool.pylint' }],
     count: 'pylint --disable=all --enable=<RULE> .',
     placeholder: 'id',
+    resolve: null,
+    resolveKind: 'none',
+    resolveWhy:
+      'no doctrine rule maps onto Python yet; pylint --generate-toml-config is where to start when one does',
+    lintFile: null,
     variants: [],
   },
   {
@@ -123,6 +155,11 @@ export const LINTERS = [
     embedded: [{ file: 'Cargo.toml', marker: '[lints.clippy' }],
     count: 'cargo clippy --all-targets -- -A clippy::all -W clippy::<RULE>',
     placeholder: 'id',
+    resolve: null,
+    resolveKind: 'none',
+    resolveWhy:
+      'no doctrine rule maps onto Rust yet, and clippy reports no resolved lint set',
+    lintFile: null,
     variants: [],
   },
   {
@@ -132,6 +169,11 @@ export const LINTERS = [
     embedded: [],
     count: 'rubocop --only <RULE> --format offenses',
     placeholder: 'id',
+    resolve: null,
+    resolveKind: 'none',
+    resolveWhy:
+      'no doctrine rule maps onto Ruby yet; rubocop --show-cops is where to start when one does',
+    lintFile: null,
     variants: [],
   },
   {
@@ -141,6 +183,11 @@ export const LINTERS = [
     embedded: [],
     count: 'golangci-lint run --disable-all -E <RULE> ./...',
     placeholder: 'id',
+    resolve: null,
+    resolveKind: 'none',
+    resolveWhy:
+      'no doctrine rule maps onto Go yet; golangci-lint config dump is where to start when one does',
+    lintFile: null,
     variants: [],
   },
   {
@@ -150,6 +197,11 @@ export const LINTERS = [
     embedded: [],
     count: `shellcheck --include=<RULE> $(git ls-files '*.sh' '*.bash')`,
     placeholder: 'id',
+    resolve: null,
+    resolveKind: 'none',
+    resolveWhy:
+      'no doctrine rule maps onto Shell yet, and shellcheck reports no resolved configuration',
+    lintFile: null,
     variants: [],
   },
   {
@@ -170,6 +222,11 @@ export const LINTERS = [
     // nothing without the enum in its third element.
     count: `printf 'export default { rules: { <RULE> } }' > /tmp/one-rule.mjs && npx --no-install commitlint --from HEAD~50 --config /tmp/one-rule.mjs`,
     placeholder: 'entry',
+    resolve: null,
+    resolveKind: 'none',
+    resolveWhy:
+      'the doctrine is about code, not commit messages, so nothing here maps onto commitlint',
+    lintFile: null,
     variants: [],
   },
 ];
@@ -266,6 +323,187 @@ export function countRecipe(linter, rule) {
  *
  * @param {string[]} files  tracked paths
  */
+/**
+ * Where a project might actually invoke a linter.
+ *
+ * Detecting a config file says a linter is **set up**. It says nothing about
+ * whether anything runs it, and a rule added to a linter nobody runs will never
+ * fail anything — which is a thing a project should hear before it spends an
+ * afternoon choosing rules.
+ *
+ * A table rather than a search, for the reason `LINTERS` is one: the places a
+ * project can invoke a tool from are finite and known, and asking a model to
+ * remember them is how a `lefthook.yml` goes unread.
+ *
+ * `file` is read directly; `dir` enumerates the tracked paths beneath it, so
+ * `.github/workflows/*.yml` needs no directory listing.
+ */
+export const INVOCATION_SITES = [
+  { id: 'npm-scripts', file: 'package.json', kind: 'scripts' },
+  { id: 'lint-staged', file: 'package.json', kind: 'json', at: 'lint-staged' },
+  { id: 'lint-staged', file: '.lintstagedrc.json', kind: 'text' },
+  { id: 'husky', dir: '.husky', kind: 'text' },
+  { id: 'lefthook', file: 'lefthook.yml', kind: 'text' },
+  { id: 'lefthook', file: 'lefthook.yaml', kind: 'text' },
+  { id: 'pre-commit', file: '.pre-commit-config.yaml', kind: 'text' },
+  { id: 'github-actions', dir: '.github/workflows', kind: 'text' },
+  { id: 'claude-hooks', file: '.claude/settings.json', kind: 'text' },
+];
+
+/** Read a path, answering null for anything unreadable. Never throws. */
+function bodyOf(read, path) {
+  try {
+    const text = read(path);
+    return typeof text === 'string' ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Does `text` name `word` as a word, rather than inside a longer one? */
+function names(text, word) {
+  // `eslint-config-acme` in a dependency list is not something running eslint,
+  // and a bare substring match counts it as one.
+  return new RegExp(`(?<![\\w@/-])${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`).test(text);
+}
+
+/**
+ * What names each configured linter, and how.
+ *
+ * Two passes. The first is direct: the tool's own name appears at a site. The
+ * second is transitive through npm scripts — a CI step reading `run: pnpm lint`
+ * invokes the linter just as surely as one reading `run: eslint .`, and a
+ * direct-only match reports most projects as unenforced.
+ *
+ * **What this proves is that the name appears, not that the command runs**: a
+ * commented-out CI step matches. That is why the caller labels the result
+ * `named in` rather than `runs in` — the weaker claim is the true one, and
+ * naming it honestly is worth more than a stronger claim that is sometimes
+ * wrong.
+ *
+ * @param {{files?: string[], read?: (p: string) => string|null, linters?: object[]}} input
+ * @returns {Record<string, {site: string, where: string, via: string}[]>}
+ */
+export function detectInvocations({ files = [], read = () => null, linters = [] } = {}) {
+  const present = new Set(files);
+  const pkg = (() => {
+    const text = bodyOf(read, 'package.json');
+    if (text === null) return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
+  })();
+  const scripts = pkg?.scripts ?? {};
+
+  /** Every way a site could spell "run this npm script". */
+  const invocationsOf = (script) => [`npm run ${script}`, `pnpm ${script}`, `pnpm run ${script}`,
+    `yarn ${script}`, `yarn run ${script}`, `bun run ${script}`, `make ${script}`];
+
+  const found = {};
+  for (const linter of linters) {
+    const hits = [];
+    const viaScripts = Object.entries(scripts)
+      .filter(([, body]) => typeof body === 'string' && names(body, linter.name))
+      .map(([name]) => name)
+      .sort();
+
+    for (const script of viaScripts) {
+      hits.push({ site: 'npm-scripts', where: `package.json#scripts.${script}`, via: 'direct' });
+    }
+
+    for (const site of INVOCATION_SITES) {
+      const paths = site.dir
+        ? files.filter((f) => f.startsWith(`${site.dir}/`)).sort()
+        : present.has(site.file)
+          ? [site.file]
+          : [];
+
+      for (const path of paths) {
+        // npm scripts are reported above, per script, rather than as one hit
+        // on package.json — which script runs the linter is the useful part.
+        if (site.kind === 'scripts') continue;
+
+        const text = bodyOf(read, path);
+        if (text === null) continue;
+
+        const body = site.at ? JSON.stringify(jsonAt(text, site.at) ?? '') : text;
+        if (names(body, linter.name)) {
+          hits.push({ site: site.id, where: path, via: 'direct' });
+          continue;
+        }
+        const via = viaScripts.flatMap(invocationsOf).find((spelling) => body.includes(spelling));
+        if (via) hits.push({ site: site.id, where: path, via });
+      }
+    }
+
+    // One hit per place. A site that both names the tool and runs a script
+    // that names it is still one place the linter runs.
+    const seen = new Set();
+    found[linter.name] = hits
+      .filter((hit) => !seen.has(hit.where) && seen.add(hit.where))
+      .sort((a, b) => a.where.localeCompare(b.where));
+  }
+  return found;
+}
+
+/** One key out of a JSON file, or undefined when it is not JSON. */
+function jsonAt(text, key) {
+  try {
+    return JSON.parse(text)?.[key];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The invocation that reports a linter's resolved configuration, for a file.
+ *
+ * Detecting a config file says a linter is **set up**; only the resolved
+ * configuration says which rules are **on**, and the difference is whether a
+ * rule can be proposed to a project that already has it. `<FILE>` is a file the
+ * tool decides a configuration for — ESLint resolves per path, so a repository
+ * with per-directory overrides has no single answer and the caller picks one
+ * deterministically.
+ *
+ * Returns `null` for a linter whose coverage is not answered by running it;
+ * `resolveWhy` on the entry says why, and the report prints it.
+ *
+ * @param {object} linter  an entry as `detectLinters` returns it
+ * @param {string} file    the path to resolve a configuration for
+ */
+export function resolveRecipe(linter, file) {
+  const template = resolveTemplate(linter);
+  return template === null ? null : template.replaceAll('<FILE>', file);
+}
+
+/** The recipe the found config takes, before anything is substituted into it. */
+function resolveTemplate(linter) {
+  if (linter.resolveKind !== 'run' || !linter.resolve) return null;
+  const variant = (linter.variants ?? []).find((v) =>
+    (linter.configs ?? []).some((c) => c.startsWith(v.config)),
+  );
+  return variant?.resolve ?? linter.resolve;
+}
+
+/**
+ * The same recipe as an argument array, which is what actually gets run.
+ *
+ * `resolveRecipe` is for the report — a line a reader can paste. This is for
+ * the spawn, and it is a separate function because the two must not be the
+ * same string: a path carrying a space survives an argv element and does not
+ * survive being split back out of a sentence. Nothing here is ever handed to a
+ * shell (lib/sh.mjs).
+ *
+ * @returns {string[]|null}
+ */
+export function resolveArgv(linter, file) {
+  const template = resolveTemplate(linter);
+  if (template === null) return null;
+  return template.split(/\s+/).map((token) => (token === '<FILE>' ? file : token));
+}
+
 export function statedSources(files = []) {
   const present = new Set(files);
   return sortBy(CONVENTION_SOURCES.filter((s) => present.has(s.path)), 'path');
@@ -335,7 +573,7 @@ export function renderRules({ linters = [], checks = [], sources = [], claims = 
  * one exists only to answer "what would you lint this with", so an extension
  * with no standard linter behind it would name nothing and is left out.
  */
-const LANGUAGE_BY_EXTENSION = {
+export const LANGUAGE_BY_EXTENSION = {
   '.js': 'JavaScript', '.mjs': 'JavaScript', '.cjs': 'JavaScript', '.jsx': 'JavaScript',
   '.ts': 'TypeScript', '.tsx': 'TypeScript', '.mts': 'TypeScript', '.cts': 'TypeScript',
   '.py': 'Python', '.rs': 'Rust', '.rb': 'Ruby', '.go': 'Go',

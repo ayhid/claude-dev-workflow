@@ -224,6 +224,7 @@ export const DEFAULTS = {
     sessionStart: true,
     commitTicket: true,
     adrImmutable: true,
+    lintEdit: true,
   },
 
   /**

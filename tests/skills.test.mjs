@@ -52,3 +52,25 @@ test('dev-build is no longer than it was before #121', () => {
   const lines = skill('dev-build').trimEnd().split('\n').length;
   assert.ok(lines <= 301, `dev-build/SKILL.md is ${lines} lines; the ceiling is 301`);
 });
+
+test('dev-lint-rules: the doctrine batch is proposed with a count, and never written unapproved', () => {
+  // The skill is text, so its promises are only testable as text — the same
+  // approach the dev-build assertions above take. These four are the ones a
+  // rewrite would most easily drop, and each one costs a user something real
+  // if it goes: a rule they already have, a guess presented as an answer, a
+  // config format migrated behind their back, or an invented module list.
+  const text = skill('dev-lint-rules');
+
+  assert.match(text, /rules --doctrine/, 'the doctrine coverage is never assembled by hand');
+  assert.match(text, /A `covered` rule is never proposed/);
+  assert.match(text, /An `unknown` verdict is not a missing rule/);
+  assert.match(text, /flags a legacy `\.eslintrc\*`; it does not migrate it/i);
+  assert.match(text, /the placeholder is a\s+question, not a default/);
+  assert.match(text, /run `rules --doctrine` again and report the verdicts read back/);
+
+  // The count is §3's rule and §3.5 reuses it rather than inventing a second
+  // standard for the same decision.
+  const doctrine = text.slice(text.indexOf('## 3.5'), text.indexOf('## 4.'));
+  assert.match(doctrine, /\*\*the count\*\*/);
+  assert.match(doctrine, /never rewriting the file/);
+});

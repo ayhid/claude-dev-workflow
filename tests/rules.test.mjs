@@ -276,6 +276,11 @@ test('a linter that lints one file says how, and the rest say nothing rather tha
   const byName = Object.fromEntries(LINTERS.map((l) => [l.name, l]));
   assert.match(byName.eslint.lintFile, /<FILE>/);
   assert.match(byName.biome.lintFile, /<FILE>/);
+  // No formatter is named. ESLint 9 extracted every one but stylish, json and
+  // html into its own package, so `--format=compact` is a dependency the
+  // project may not have — and it failed on a real ESLint 9 exactly that way,
+  // with the whole finding lost to the hook's own silence-on-failure rule.
+  assert.doesNotMatch(byName.eslint.lintFile, /--format/);
   for (const linter of LINTERS) {
     if (linter.lintFile === null) continue;
     assert.match(linter.lintFile, /<FILE>/, `${linter.name} lintFile substitutes nothing`);

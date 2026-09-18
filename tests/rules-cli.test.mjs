@@ -155,3 +155,39 @@ test('the resolve target is named in the report, so the answer can be reproduced
   }));
   assert.match(out, /--print-config src\/index\.ts/);
 });
+
+test('a config that matches none of a file is tried against the next one', () => {
+  // Found live, against a real ESLint 9: `--print-config` prints the literal
+  // word `undefined` for a file no config object matches, and a flat config
+  // with no `files` key matches .js and not .ts. Asking about the sorted-first
+  // source file therefore reported every rule unknown in a project whose
+  // configuration was sitting right there.
+  assert.ok(true, 'documented by the two cases below');
+});
+
+test('eslint answering undefined for one file is retried against another', async () => {
+  const dir = project(TS_FULL);
+  const runner = runnerFor(TS_FULL, {
+    // src/index.ts is sorted first and matches nothing; src/ui/button.tsx does.
+    'npx --no-install eslint --print-config src/index.ts': { ok: true, code: 0, stdout: 'undefined', stderr: '' },
+    'npx --no-install eslint --print-config': printConfig({ 'max-params': ['warn', { max: 2 }] }),
+  });
+  const { out } = await capture(dir, ['--doctrine'], runner);
+  assert.match(out, /--print-config src\/ui\/button\.tsx/, 'it must move on to a file the config covers');
+  assert.doesNotMatch(out, /is not valid JSON/, 'undefined is a config answer, not a parse failure');
+  assert.match(out, /covered/);
+});
+
+test('a config that matches no source file at all says exactly that', async () => {
+  // The honest finding: an ESLint config that lints nothing in this repo. It
+  // is not a parse error and it is not a missing rule.
+  const dir = project(TS_FULL);
+  const runner = runnerFor(TS_FULL, {
+    'npx --no-install eslint --print-config': { ok: true, code: 0, stdout: 'undefined', stderr: '' },
+  });
+  const { code, out } = await capture(dir, ['--doctrine'], runner);
+  assert.equal(code, 0);
+  assert.match(out, /matches none of/);
+  assert.doesNotMatch(out, /is not valid JSON/);
+  assert.doesNotMatch(out, /suggestions \(/);
+});

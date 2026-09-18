@@ -92,24 +92,28 @@ function ledgerClaims(root) {
 const TARGET_ORDER = ['.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '.cjs', '.jsx'];
 
 /**
- * The file a linter is asked to resolve a configuration for.
+ * The files a linter could be asked to resolve a configuration for, best first.
  *
- * ESLint resolves per path, so a repository with per-directory overrides has no
- * single answer — one has to be picked, and the pick has to be the same on
- * every run or the report stops being diffable (rule 4). Sorted-first of the
- * best available extension does that, and the report prints which file it was
- * so the answer can be reproduced by hand.
+ * ESLint resolves **per path**, so a repository with per-directory overrides has
+ * no single answer — one has to be picked, and the pick has to be the same on
+ * every run or the report stops being diffable (rule 4). Hence a deterministic
+ * order rather than a choice.
+ *
+ * It is a list rather than one file because a flat config with no `files` key
+ * matches `.js` and not `.ts`, and ESLint answers the literal word `undefined`
+ * for a file no config object covers. Asking only about the sorted-first source
+ * file therefore reported every rule unknown in a project whose configuration
+ * was sitting right there. The caller walks this until one answers.
  */
-function resolveTarget(files, language) {
+function resolveTargets(files, language) {
   const covers = new Set(language.split(',').map((s) => s.trim()));
   const candidates = files
     .filter((f) => covers.has(LANGUAGE_BY_EXTENSION[f.slice(f.lastIndexOf('.')).toLowerCase()] ?? ''))
     .sort();
-  for (const ext of TARGET_ORDER) {
-    const hit = candidates.find((f) => f.toLowerCase().endsWith(ext));
-    if (hit) return hit;
-  }
-  return candidates[0] ?? null;
+  const ordered = TARGET_ORDER.flatMap((ext) => candidates.filter((f) => f.toLowerCase().endsWith(ext)));
+  // Capped: each one is a spawn, and a repo whose config matches nothing should
+  // cost a handful of probes rather than one per source file.
+  return [...new Set([...ordered, ...candidates])].slice(0, 6);
 }
 
 /**
@@ -122,6 +126,69 @@ function resolveTarget(files, language) {
 function isTypeAware(config) {
   const options = config?.languageOptions?.parserOptions ?? config?.parserOptions ?? {};
   return Boolean(options.project || options.projectService || options.EXPERIMENTAL_useProjectService);
+}
+
+/**
+ * Ask the tool for its resolved configuration, walking the candidate files
+ * until one of them is covered by it.
+ *
+ * Three distinct outcomes, and a reader needs to be told which: the tool could
+ * not start, the tool ran but its configuration covers none of these files, or
+ * an answer. Only the last is evidence about a rule.
+ */
+async function resolveByRunning({ linter, targets, dir, runner }) {
+  const unmatched = [];
+
+  for (const target of targets) {
+    const argv = resolveArgv(linter, target);
+    const command = resolveRecipe(linter, target);
+    const result = await runner(argv[0], argv.slice(1), { cwd: dir, timeout: 60_000 });
+
+    if (!result.ok) {
+      // Never swallow stderr from a failed probe: its first line is usually the
+      // whole diagnosis, and the one time only the exit code surfaced the error
+      // underneath named the problem exactly.
+      const reason = result.code === 127
+        ? `${linter.name} is configured but not installed — run your package manager's install`
+        : (result.stderr.split('\n')[0] || `exit ${result.code}`);
+      return { answer: { ok: false, reason }, resolveReport: { source: 'run', ok: false, target, command, reason } };
+    }
+
+    // ESLint prints the literal word `undefined` for a file no config object
+    // matches. That is an answer about the file, not a failure of the tool, so
+    // the next candidate is tried rather than the whole thing being given up on.
+    if (result.stdout.trim() === 'undefined' || result.stdout.trim() === '') {
+      unmatched.push(target);
+      continue;
+    }
+
+    let config;
+    try {
+      config = JSON.parse(result.stdout);
+    } catch (err) {
+      const reason = `could not read ${linter.name}'s resolved configuration: ${err.message}`;
+      return { answer: { ok: false, reason }, resolveReport: { source: 'run', ok: false, target, command, reason } };
+    }
+
+    return {
+      answer: { ok: true, source: 'run', rules: config.rules ?? {}, typeAware: isTypeAware(config) },
+      resolveReport: {
+        source: 'run',
+        ok: true,
+        target,
+        command,
+        ruleCount: Object.keys(config.rules ?? {}).length,
+        ...(unmatched.length ? { unmatched } : {}),
+      },
+    };
+  }
+
+  // An ESLint config that matches none of the repo's own source files is a
+  // real finding about the project, and a different one from a missing rule.
+  const reason =
+    `${linter.name}'s configuration matches none of ${unmatched.join(', ')} — ` +
+    'a config object needs a `files` pattern covering this project\'s sources';
+  return { answer: { ok: false, reason }, resolveReport: { source: 'run', ok: false, reason } };
 }
 
 /**
@@ -155,33 +222,12 @@ async function inspectTooling({ dir, files, read, linters, stack, runner }) {
       answer = parseBiomeConfig({ files, read });
       resolveReport = { source: 'config', ok: answer.ok, ...(answer.ok ? {} : { reason: answer.reason }) };
     } else {
-      const target = resolveTarget(files, linter.language);
-      if (target === null) {
+      const targets = resolveTargets(files, linter.language);
+      if (targets.length === 0) {
         answer = { ok: false, reason: `nothing in this repo for ${linter.name} to resolve a configuration against` };
         resolveReport = { source: 'run', ok: false, reason: answer.reason };
       } else {
-        const argv = resolveArgv(linter, target);
-        const command = resolveRecipe(linter, target);
-        const result = await runner(argv[0], argv.slice(1), { cwd: dir, timeout: 60_000 });
-        if (!result.ok) {
-          // Never swallow stderr from a failed probe: the first line of it is
-          // usually the whole diagnosis.
-          const reason = result.code === 127
-            ? `${linter.name} is configured but not installed — run your package manager's install`
-            : (result.stderr.split('\n')[0] || `exit ${result.code}`);
-          answer = { ok: false, reason };
-          resolveReport = { source: 'run', ok: false, target, command, reason };
-        } else {
-          try {
-            const config = JSON.parse(result.stdout);
-            answer = { ok: true, source: 'run', rules: config.rules ?? {}, typeAware: isTypeAware(config) };
-            resolveReport = { source: 'run', ok: true, target, command, ruleCount: Object.keys(answer.rules).length };
-          } catch (err) {
-            const reason = `could not read ${linter.name}'s resolved configuration: ${err.message}`;
-            answer = { ok: false, reason };
-            resolveReport = { source: 'run', ok: false, target, command, reason };
-          }
-        }
+        ({ answer, resolveReport } = await resolveByRunning({ linter, targets, dir, runner }));
       }
     }
 
