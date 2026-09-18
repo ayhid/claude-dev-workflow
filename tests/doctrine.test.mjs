@@ -20,10 +20,13 @@ import {
   DOCTRINE_RULES,
   DOCTRINE_TOOLS,
   parseBiomeConfig,
+  renderDoctrine,
   renderSuggestion,
   stripJsonc,
   summarise,
 } from '../lib/doctrine.mjs';
+import { detectStack } from '../lib/stack.mjs';
+import { TS_FULL } from './fixtures/stacks.mjs';
 
 const LEVELS = new Set(['lint', 'proxy', 'doctrine-only']);
 
@@ -419,4 +422,167 @@ test('no biome config at all is not an error, and is not a coverage answer eithe
   const answer = parseBiomeConfig({ files: ['package.json'], read: reader({}) });
   assert.equal(answer.ok, false);
   assert.match(answer.reason, /no biome config/i);
+});
+
+/** A whole report's input, with the awkward parts already set up. */
+const reportInput = () => {
+  const coverage = coverageOf({
+    tools: ['eslint', 'typescriptEslint'],
+    resolved: {
+      eslint: resolvedWith({ 'max-params': ['warn', { max: 6 }], 'no-empty': ['error'] }),
+      typescriptEslint: resolvedWith({ 'no-empty': ['error'] }, { typeAware: false }),
+    },
+  });
+  return {
+    stack: detectStack({ files: TS_FULL.files, read: reader(TS_FULL.tree) }),
+    tooling: [
+      {
+        name: 'eslint',
+        language: 'JavaScript, TypeScript',
+        configs: ['eslint.config.mjs'],
+        dialect: 'flat',
+        installed: true,
+        namedIn: [{ site: 'npm-scripts', where: 'package.json#scripts.lint', via: 'direct' }],
+        resolve: { source: 'run', ok: true, target: 'src/index.ts', command: 'npx --no-install eslint --print-config src/index.ts' },
+      },
+    ],
+    coverage,
+    summary: summarise(coverage),
+  };
+};
+
+test('the doctrine report is a pure function of its input', () => {
+  // Contract rule 4. Two runs on an unchanged tree must print the same bytes,
+  // or a report is a thing you cannot diff and therefore cannot trust.
+  const input = reportInput();
+  assert.equal(renderDoctrine(input), renderDoctrine(input));
+
+  const shuffled = { ...input, coverage: [...input.coverage].reverse() };
+  assert.equal(renderDoctrine(shuffled), renderDoctrine(input), 'input order must not reach the output');
+});
+
+test('the report carries no absolute path, so two checkouts print the same bytes', () => {
+  assert.doesNotMatch(renderDoctrine(reportInput()), /\/Users\/|\/home\//);
+});
+
+test('the report says a linter is named in something, never that it runs', () => {
+  // A word match proves the name appears. A commented-out CI step matches too,
+  // so the weaker claim is the true one and the heading says the weaker claim.
+  const out = renderDoctrine(reportInput());
+  assert.match(out, /named in/);
+  assert.doesNotMatch(out, /runs in/);
+});
+
+test('a linter nothing names is called out rather than listed blank', () => {
+  const input = reportInput();
+  input.tooling[0].namedIn = [];
+  assert.match(renderDoctrine(input), /never fail anything/);
+});
+
+test('the report says which kind of answer each tool gave', () => {
+  // Running the tool and reading its config are different claims, and a reader
+  // must never have to work out which one they got.
+  const input = reportInput();
+  assert.match(renderDoctrine(input), /resolved by running/);
+
+  input.tooling[0] = {
+    ...input.tooling[0],
+    name: 'biome',
+    dialect: 'biome',
+    configs: ['biome.json'],
+    resolve: { source: 'config', ok: true },
+  };
+  assert.match(renderDoctrine(input), /read from biome\.json/);
+});
+
+test('an unknown verdict prints what would make it knowable, and proposes nothing', () => {
+  const coverage = coverageOf({
+    tools: ['eslint'],
+    resolved: { eslint: { ok: false, reason: 'eslint is configured but not installed' } },
+  });
+  const out = renderDoctrine({
+    stack: detectStack(),
+    tooling: [
+      {
+        name: 'eslint',
+        language: 'JavaScript, TypeScript',
+        configs: ['eslint.config.mjs'],
+        dialect: 'flat',
+        installed: false,
+        namedIn: [],
+        resolve: { source: 'run', ok: false, reason: 'eslint is configured but not installed' },
+      },
+    ],
+    coverage,
+    summary: summarise(coverage),
+  });
+  assert.match(out, /not installed/);
+  assert.doesNotMatch(out, /suggestions \(/, 'nothing may be proposed on an answer we do not have');
+});
+
+test('a legacy eslintrc is flagged once, and the snippets stay in its dialect', () => {
+  const input = reportInput();
+  input.tooling[0] = { ...input.tooling[0], configs: ['.eslintrc.json'], dialect: 'eslintrc' };
+  const out = renderDoctrine(input);
+  assert.match(out, /not migrated/);
+  assert.match(out, /"max-params": \["warn"/, 'the snippet must be pasteable into the config that is there');
+});
+
+test('a doctrine-only rule is named in the report with its reason, and nowhere else', () => {
+  const out = renderDoctrine(reportInput());
+  assert.match(out, /cleanup-symmetry/);
+  assert.match(out, /lifetime of a registration/);
+  const suggestions = out.slice(out.indexOf('suggestions'));
+  assert.doesNotMatch(suggestions, /cleanup-symmetry/);
+});
+
+test('a caveat travels with the suggestion it qualifies', () => {
+  // A rule that flags four hundred existing throws is a decision, not a config
+  // line, and the caveat is what makes it one.
+  assert.match(renderDoctrine(reportInput()), /read the count before switching it on/);
+});
+
+test('two doctrine rules proposing one tool rule are merged, not printed twice', () => {
+  // ESLint's no-restricted-syntax takes every selector in ONE entry. Printing
+  // it twice in the same rules object means the second silently replaces the
+  // first, so a project that pastes both suggestions gets one of them and no
+  // warning — a config line that quietly does half of what it claims.
+  const coverage = coverageOf({
+    tools: ['eslint'],
+    resolved: { eslint: resolvedWith({}) },
+  });
+  const out = renderDoctrine({
+    stack: detectStack(),
+    tooling: [{ name: 'eslint', configs: ['eslint.config.mjs'], dialect: 'flat', installed: true, namedIn: [], resolve: { source: 'run', ok: true } }],
+    coverage,
+    summary: summarise(coverage),
+  });
+
+  const suggestions = out.slice(out.indexOf('suggestions'));
+  const occurrences = suggestions.split(/'no-restricted-syntax':/).length - 1;
+  assert.equal(occurrences, 1, 'no-restricted-syntax must be proposed exactly once');
+  // And the one entry must carry both selectors, or merging lost one of them.
+  assert.match(suggestions, /ThrowStatement/);
+  assert.match(suggestions, /TSBooleanKeyword/);
+  // The reader has to be able to see which doctrine rules the merged entry serves.
+  assert.match(suggestions, /result-types/);
+  assert.match(suggestions, /boolean-behaviour-params/);
+});
+
+test('a rule satisfied by any one of a family says so, rather than reading as a contradiction', () => {
+  // `complexity ✓ · max-statements ✗` under the heading "covered" reads as a
+  // mistake unless the report says one is enough.
+  const coverage = coverageOf({
+    tools: ['eslint'],
+    resolved: { eslint: resolvedWith({ complexity: ['warn', { max: 8 }] }) },
+  });
+  const entry = coverage.find((r) => r.id === 'one-job-per-function');
+  assert.equal(entry.verdict, 'covered');
+  const out = renderDoctrine({
+    stack: detectStack(),
+    tooling: [],
+    coverage,
+    summary: summarise(coverage),
+  });
+  assert.match(out, /any one of these/);
 });
