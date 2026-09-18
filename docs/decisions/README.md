@@ -9,3 +9,5 @@
 | [0003](0003-ship-subagent-definitions-as-a-third.md) | Ship subagent definitions as a third owned root, with a model per task class | accepted | 2026-09-03 |
 | [0004](0004-split-the-task-lifecycle-into-file.md) | Split the task lifecycle into file, plan, split and build, with work units as sub-issues built in parallel | accepted | 2026-09-07 |
 | [0005](0005-a-naming-rule-for-skills-commands.md) | A naming rule for skills, commands and agents | accepted | 2026-09-09 |
+| [0006](0006-done-is-a-proof-the-author.md) | Done is a proof the author checks in a minute | superseded by [0007](0007-done-is-a-proof-the-author.md) | 2026-09-18 |
+| [0007](0007-done-is-a-proof-the-author.md) | Done is a proof the author checks, from the session he works in | accepted | 2026-09-18 |
