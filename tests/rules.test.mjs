@@ -13,7 +13,9 @@ import { test } from 'node:test';
 
 import {
   countRecipe,
+  detectInvocations,
   detectLinters,
+  INVOCATION_SITES,
   LANGUAGE_BY_EXTENSION,
   languagesOf,
   LINTERS,
@@ -288,4 +290,77 @@ test('the extension table is exported, because the edit hook decides from it too
     assert.ok(LANGUAGE_BY_EXTENSION[ext], `${ext} names no language`);
   }
   assert.equal(LANGUAGE_BY_EXTENSION['.md'], undefined, 'markdown has no standard linter here');
+});
+
+test('a linter nothing names is reported as named by nothing', () => {
+  // The finding is the empty case. A rule added to a linter that nothing runs
+  // will never fail anything, and the project should hear that before it
+  // spends an afternoon choosing rules.
+  const files = ['biome.json', 'package.json'];
+  const tree = { 'package.json': JSON.stringify({ scripts: { build: 'tsc' } }) };
+  const linters = detectLinters({ files, read: reader(tree) });
+  const found = detectInvocations({ files, read: reader(tree), linters });
+  assert.deepEqual(found.biome, []);
+});
+
+test('a CI step that runs an npm script that runs the linter counts', () => {
+  // `run: npm run lint` is how most projects actually invoke a linter. A
+  // direct-name match alone reports every one of them as unenforced.
+  const files = ['.github/workflows/ci.yml', 'eslint.config.mjs', 'package.json'];
+  const tree = {
+    'package.json': JSON.stringify({ scripts: { lint: 'eslint .', test: 'vitest run' } }),
+    '.github/workflows/ci.yml': 'jobs:\n  ci:\n    steps:\n      - run: npm run lint\n',
+  };
+  const linters = detectLinters({ files, read: reader(tree) });
+  const where = detectInvocations({ files, read: reader(tree), linters }).eslint;
+
+  const sites = where.map((w) => w.where);
+  assert.ok(sites.includes('package.json#scripts.lint'), `direct: ${sites.join(', ')}`);
+  assert.ok(sites.includes('.github/workflows/ci.yml'), `transitive: ${sites.join(', ')}`);
+  assert.equal(where.find((w) => w.where.startsWith('.github')).via, 'npm run lint');
+});
+
+test('a husky hook and a pre-commit config name a linter as well as CI does', () => {
+  const files = ['.husky/pre-commit', '.pre-commit-config.yaml', 'eslint.config.mjs', 'package.json'];
+  const tree = {
+    '.husky/pre-commit': 'npx eslint .\n',
+    '.pre-commit-config.yaml': 'repos:\n  - hooks:\n      - id: eslint\n',
+  };
+  const linters = detectLinters({ files, read: reader(tree) });
+  const sites = detectInvocations({ files, read: reader(tree), linters }).eslint.map((w) => w.where);
+  assert.ok(sites.includes('.husky/pre-commit'));
+  assert.ok(sites.includes('.pre-commit-config.yaml'));
+});
+
+test('a name inside a longer word is not an invocation', () => {
+  // `eslint-config-acme` in a dependency list is not something running eslint.
+  const files = ['eslint.config.mjs', 'package.json'];
+  const tree = {
+    'package.json': JSON.stringify({
+      scripts: { build: 'tsc' },
+      devDependencies: { 'eslint-config-acme': '^1.0.0' },
+    }),
+  };
+  const linters = detectLinters({ files, read: reader(tree) });
+  assert.deepEqual(detectInvocations({ files, read: reader(tree), linters }).eslint, []);
+});
+
+test('invocations are sorted, so the report they feed is stable', () => {
+  const files = ['.github/workflows/ci.yml', '.husky/pre-commit', 'eslint.config.mjs', 'package.json'];
+  const tree = {
+    'package.json': JSON.stringify({ scripts: { lint: 'eslint .' } }),
+    '.husky/pre-commit': 'npm run lint\n',
+    '.github/workflows/ci.yml': '- run: npm run lint\n',
+  };
+  const linters = detectLinters({ files, read: reader(tree) });
+  const run = () => detectInvocations({ files, read: reader(tree), linters }).eslint.map((w) => w.where);
+  assert.deepEqual(run(), [...run()].sort());
+  assert.deepEqual(run(), run());
+});
+
+test('every invocation site names a file or a directory, so a site is added as data', () => {
+  for (const site of INVOCATION_SITES) {
+    assert.ok(site.id?.length > 0);
+    assert.ok(site.file || site.dir, `${site.id} names neither a file nor a directory`);
+  }
 });
