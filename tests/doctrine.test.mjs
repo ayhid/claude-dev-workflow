@@ -586,3 +586,25 @@ test('a rule satisfied by any one of a family says so, rather than reading as a 
   });
   assert.match(out, /any one of these/);
 });
+
+test('a project with no linter at all is told which tool could decide a rule', () => {
+  // And told it as a sentence. The first draft ended this one with "eslint
+  // can, and " — the branch assumed at least one linter was configured, and a
+  // dangling clause is how a reader learns to stop reading the reasons.
+  const coverage = coverageOf({ tools: [], resolved: {} });
+  for (const entry of coverage) {
+    if (entry.verdict === 'doctrine-only') continue;
+    assert.equal(entry.expressible, false);
+    assert.doesNotMatch(entry.reason, /,\s*$|\sand\s*$/, `${entry.id}: ${entry.reason}`);
+    assert.match(entry.reason, /no linter is configured/);
+  }
+  const options = coverage.find((r) => r.id === 'options-objects');
+  assert.match(options.reason, /eslint could decide it/);
+});
+
+test('a project whose linter cannot express a rule is told what its linter lacks', () => {
+  const coverage = coverageOf({ tools: ['biome'], resolved: { biome: resolvedWith({}) } });
+  const entry = coverage.find((r) => r.id === 'options-objects');
+  assert.match(entry.reason, /biome has no max-params equivalent/);
+  assert.doesNotMatch(entry.reason, /,\s*$|\sand\s*$/);
+});
