@@ -87,6 +87,14 @@ export const ADR_HOOK_COMMAND = `bash "$CLAUDE_PROJECT_DIR/${PAYLOAD_DIR}/hooks/
 export const SESSION_HOOK_COMMAND = `node "$CLAUDE_PROJECT_DIR/${PAYLOAD_DIR}/hooks/session-standup.mjs"`;
 /** The version notice, on the same event: its own entry so its own switch (hooks.updateCheck) can turn it off alone. */
 export const UPDATE_HOOK_COMMAND = SESSION_HOOK_COMMAND.replace('session-standup.mjs', 'session-updatecheck.mjs');
+/**
+ * Lint the one file that was just written, and hand the findings back.
+ *
+ * `PostToolUse`, so the model hears about a violation while it is still on the
+ * code that caused it rather than at commit time. Node for the reasons its own
+ * header argues from scratch.
+ */
+export const LINT_HOOK_COMMAND = SESSION_HOOK_COMMAND.replace('session-standup.mjs', 'lint-edited-file.mjs');
 
 /**
  * Every hook we register: the event it fires on, the tool it matches, and the
@@ -106,6 +114,10 @@ export const UPDATE_HOOK_COMMAND = SESSION_HOOK_COMMAND.replace('session-standup
 export const SHIPPED_HOOKS = [
   { event: 'PreToolUse', matcher: 'Bash', command: HOOK_COMMAND },
   { event: 'PreToolUse', matcher: 'Edit|Write', command: ADR_HOOK_COMMAND },
+  // The same matcher as the guard above, on the other side of the write. Two
+  // entries rather than one, which is exactly what the per-event match below
+  // is for — a search across the whole file would install only the first.
+  { event: 'PostToolUse', matcher: 'Edit|Write', command: LINT_HOOK_COMMAND },
   { event: 'SessionStart', matcher: '', command: SESSION_HOOK_COMMAND },
   { event: 'SessionStart', matcher: '', command: UPDATE_HOOK_COMMAND },
 ];
