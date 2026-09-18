@@ -14,9 +14,11 @@ import { test } from 'node:test';
 import {
   countRecipe,
   detectLinters,
+  LANGUAGE_BY_EXTENSION,
   languagesOf,
   LINTERS,
   renderRules,
+  resolveRecipe,
   STANDARD_LINTERS,
   statedSources,
 } from '../lib/rules.mjs';
@@ -222,4 +224,68 @@ test('no recipe can silently install the tool it is counting with', () => {
     if (!linter.count.includes('npx ')) continue;
     assert.match(linter.count, /npx --no-install /, `${linter.name} must not fetch a linter`);
   }
+});
+
+test('every linter either resolves its configuration or says why it cannot', () => {
+  // Detecting a config file says a linter is set up. It does not say which
+  // rules are on, and proposing a rule the project already has is the one
+  // thing this command exists to prevent. So every linter carries the
+  // invocation that reports its *resolved* configuration — or, where the tool
+  // has none, the reason, as data a reader can check rather than a silence.
+  for (const linter of LINTERS) {
+    assert.ok(
+      ['run', 'config', 'none'].includes(linter.resolveKind),
+      `${linter.name} has resolveKind ${linter.resolveKind}`,
+    );
+    if (linter.resolveKind === 'run') {
+      assert.match(linter.resolve, /<FILE>/, `${linter.name} resolve substitutes nothing`);
+      continue;
+    }
+    assert.equal(linter.resolve, null, `${linter.name} is not run but carries a recipe`);
+    assert.ok(linter.resolveWhy?.length > 0, `${linter.name} does not resolve and says no reason`);
+  }
+});
+
+test('no resolve or per-file recipe can silently install the tool it runs', () => {
+  for (const linter of LINTERS) {
+    for (const recipe of [linter.resolve, linter.lintFile]) {
+      if (!recipe?.includes('npx ')) continue;
+      assert.match(recipe, /npx --no-install /, `${linter.name} must not fetch a linter`);
+    }
+  }
+});
+
+test('the resolve recipe is the one the detected config actually takes', () => {
+  const flat = detectLinters({ files: ['eslint.config.js'], read: reader({}) })[0];
+  assert.equal(resolveRecipe(flat, 'src/index.ts'), 'npx --no-install eslint --print-config src/index.ts');
+
+  // `--print-config` is spelled the same either side of the v9 flat-config
+  // split, so unlike `count` there is no variant to pick — but the seam is
+  // exercised anyway, because a variant added later must not silently apply.
+  const legacy = detectLinters({ files: ['.eslintrc.json'], read: reader({}) })[0];
+  assert.match(resolveRecipe(legacy, 'src/index.ts'), /--print-config src\/index\.ts$/);
+  assert.doesNotMatch(resolveRecipe(legacy, 'src/index.ts'), /<FILE>/);
+});
+
+test('a linter that lints one file says how, and the rest say nothing rather than guessing', () => {
+  // The edit hook runs this against the file that was just written. A linter
+  // with no single-file invocation must produce no command at all: inventing
+  // one is how a hook lints the whole repository on every keystroke.
+  const byName = Object.fromEntries(LINTERS.map((l) => [l.name, l]));
+  assert.match(byName.eslint.lintFile, /<FILE>/);
+  assert.match(byName.biome.lintFile, /<FILE>/);
+  for (const linter of LINTERS) {
+    if (linter.lintFile === null) continue;
+    assert.match(linter.lintFile, /<FILE>/, `${linter.name} lintFile substitutes nothing`);
+  }
+});
+
+test('the extension table is exported, because the edit hook decides from it too', () => {
+  // A hook that keeps its own copy of "which extensions does eslint handle"
+  // drifts from this one silently, and the drift shows up as a linter that
+  // stopped running on a file type nobody noticed.
+  for (const ext of ['.ts', '.tsx', '.mjs', '.py', '.go']) {
+    assert.ok(LANGUAGE_BY_EXTENSION[ext], `${ext} names no language`);
+  }
+  assert.equal(LANGUAGE_BY_EXTENSION['.md'], undefined, 'markdown has no standard linter here');
 });
