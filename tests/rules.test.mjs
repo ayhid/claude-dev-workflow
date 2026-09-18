@@ -13,10 +13,14 @@ import { test } from 'node:test';
 
 import {
   countRecipe,
+  detectInvocations,
   detectLinters,
+  INVOCATION_SITES,
+  LANGUAGE_BY_EXTENSION,
   languagesOf,
   LINTERS,
   renderRules,
+  resolveRecipe,
   STANDARD_LINTERS,
   statedSources,
 } from '../lib/rules.mjs';
@@ -221,5 +225,147 @@ test('no recipe can silently install the tool it is counting with', () => {
   for (const linter of LINTERS) {
     if (!linter.count.includes('npx ')) continue;
     assert.match(linter.count, /npx --no-install /, `${linter.name} must not fetch a linter`);
+  }
+});
+
+test('every linter either resolves its configuration or says why it cannot', () => {
+  // Detecting a config file says a linter is set up. It does not say which
+  // rules are on, and proposing a rule the project already has is the one
+  // thing this command exists to prevent. So every linter carries the
+  // invocation that reports its *resolved* configuration — or, where the tool
+  // has none, the reason, as data a reader can check rather than a silence.
+  for (const linter of LINTERS) {
+    assert.ok(
+      ['run', 'config', 'none'].includes(linter.resolveKind),
+      `${linter.name} has resolveKind ${linter.resolveKind}`,
+    );
+    if (linter.resolveKind === 'run') {
+      assert.match(linter.resolve, /<FILE>/, `${linter.name} resolve substitutes nothing`);
+      continue;
+    }
+    assert.equal(linter.resolve, null, `${linter.name} is not run but carries a recipe`);
+    assert.ok(linter.resolveWhy?.length > 0, `${linter.name} does not resolve and says no reason`);
+  }
+});
+
+test('no resolve or per-file recipe can silently install the tool it runs', () => {
+  for (const linter of LINTERS) {
+    for (const recipe of [linter.resolve, linter.lintFile]) {
+      if (!recipe?.includes('npx ')) continue;
+      assert.match(recipe, /npx --no-install /, `${linter.name} must not fetch a linter`);
+    }
+  }
+});
+
+test('the resolve recipe is the one the detected config actually takes', () => {
+  const flat = detectLinters({ files: ['eslint.config.js'], read: reader({}) })[0];
+  assert.equal(resolveRecipe(flat, 'src/index.ts'), 'npx --no-install eslint --print-config src/index.ts');
+
+  // `--print-config` is spelled the same either side of the v9 flat-config
+  // split, so unlike `count` there is no variant to pick — but the seam is
+  // exercised anyway, because a variant added later must not silently apply.
+  const legacy = detectLinters({ files: ['.eslintrc.json'], read: reader({}) })[0];
+  assert.match(resolveRecipe(legacy, 'src/index.ts'), /--print-config src\/index\.ts$/);
+  assert.doesNotMatch(resolveRecipe(legacy, 'src/index.ts'), /<FILE>/);
+});
+
+test('a linter that lints one file says how, and the rest say nothing rather than guessing', () => {
+  // The edit hook runs this against the file that was just written. A linter
+  // with no single-file invocation must produce no command at all: inventing
+  // one is how a hook lints the whole repository on every keystroke.
+  const byName = Object.fromEntries(LINTERS.map((l) => [l.name, l]));
+  assert.match(byName.eslint.lintFile, /<FILE>/);
+  assert.match(byName.biome.lintFile, /<FILE>/);
+  // No formatter is named. ESLint 9 extracted every one but stylish, json and
+  // html into its own package, so `--format=compact` is a dependency the
+  // project may not have — and it failed on a real ESLint 9 exactly that way,
+  // with the whole finding lost to the hook's own silence-on-failure rule.
+  assert.doesNotMatch(byName.eslint.lintFile, /--format/);
+  for (const linter of LINTERS) {
+    if (linter.lintFile === null) continue;
+    assert.match(linter.lintFile, /<FILE>/, `${linter.name} lintFile substitutes nothing`);
+  }
+});
+
+test('the extension table is exported, because the edit hook decides from it too', () => {
+  // A hook that keeps its own copy of "which extensions does eslint handle"
+  // drifts from this one silently, and the drift shows up as a linter that
+  // stopped running on a file type nobody noticed.
+  for (const ext of ['.ts', '.tsx', '.mjs', '.py', '.go']) {
+    assert.ok(LANGUAGE_BY_EXTENSION[ext], `${ext} names no language`);
+  }
+  assert.equal(LANGUAGE_BY_EXTENSION['.md'], undefined, 'markdown has no standard linter here');
+});
+
+test('a linter nothing names is reported as named by nothing', () => {
+  // The finding is the empty case. A rule added to a linter that nothing runs
+  // will never fail anything, and the project should hear that before it
+  // spends an afternoon choosing rules.
+  const files = ['biome.json', 'package.json'];
+  const tree = { 'package.json': JSON.stringify({ scripts: { build: 'tsc' } }) };
+  const linters = detectLinters({ files, read: reader(tree) });
+  const found = detectInvocations({ files, read: reader(tree), linters });
+  assert.deepEqual(found.biome, []);
+});
+
+test('a CI step that runs an npm script that runs the linter counts', () => {
+  // `run: npm run lint` is how most projects actually invoke a linter. A
+  // direct-name match alone reports every one of them as unenforced.
+  const files = ['.github/workflows/ci.yml', 'eslint.config.mjs', 'package.json'];
+  const tree = {
+    'package.json': JSON.stringify({ scripts: { lint: 'eslint .', test: 'vitest run' } }),
+    '.github/workflows/ci.yml': 'jobs:\n  ci:\n    steps:\n      - run: npm run lint\n',
+  };
+  const linters = detectLinters({ files, read: reader(tree) });
+  const where = detectInvocations({ files, read: reader(tree), linters }).eslint;
+
+  const sites = where.map((w) => w.where);
+  assert.ok(sites.includes('package.json#scripts.lint'), `direct: ${sites.join(', ')}`);
+  assert.ok(sites.includes('.github/workflows/ci.yml'), `transitive: ${sites.join(', ')}`);
+  assert.equal(where.find((w) => w.where.startsWith('.github')).via, 'npm run lint');
+});
+
+test('a husky hook and a pre-commit config name a linter as well as CI does', () => {
+  const files = ['.husky/pre-commit', '.pre-commit-config.yaml', 'eslint.config.mjs', 'package.json'];
+  const tree = {
+    '.husky/pre-commit': 'npx eslint .\n',
+    '.pre-commit-config.yaml': 'repos:\n  - hooks:\n      - id: eslint\n',
+  };
+  const linters = detectLinters({ files, read: reader(tree) });
+  const sites = detectInvocations({ files, read: reader(tree), linters }).eslint.map((w) => w.where);
+  assert.ok(sites.includes('.husky/pre-commit'));
+  assert.ok(sites.includes('.pre-commit-config.yaml'));
+});
+
+test('a name inside a longer word is not an invocation', () => {
+  // `eslint-config-acme` in a dependency list is not something running eslint.
+  const files = ['eslint.config.mjs', 'package.json'];
+  const tree = {
+    'package.json': JSON.stringify({
+      scripts: { build: 'tsc' },
+      devDependencies: { 'eslint-config-acme': '^1.0.0' },
+    }),
+  };
+  const linters = detectLinters({ files, read: reader(tree) });
+  assert.deepEqual(detectInvocations({ files, read: reader(tree), linters }).eslint, []);
+});
+
+test('invocations are sorted, so the report they feed is stable', () => {
+  const files = ['.github/workflows/ci.yml', '.husky/pre-commit', 'eslint.config.mjs', 'package.json'];
+  const tree = {
+    'package.json': JSON.stringify({ scripts: { lint: 'eslint .' } }),
+    '.husky/pre-commit': 'npm run lint\n',
+    '.github/workflows/ci.yml': '- run: npm run lint\n',
+  };
+  const linters = detectLinters({ files, read: reader(tree) });
+  const run = () => detectInvocations({ files, read: reader(tree), linters }).eslint.map((w) => w.where);
+  assert.deepEqual(run(), [...run()].sort());
+  assert.deepEqual(run(), run());
+});
+
+test('every invocation site names a file or a directory, so a site is added as data', () => {
+  for (const site of INVOCATION_SITES) {
+    assert.ok(site.id?.length > 0);
+    assert.ok(site.file || site.dir, `${site.id} names neither a file nor a directory`);
   }
 });

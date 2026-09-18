@@ -1388,6 +1388,13 @@ const nextSteps = [
   `${c.cyan('/dev-bug it broke')}   file one without losing your place`,
   `${c.cyan('/dev-done')}           verify and close out`,
   '',
+  // The verification half. Nothing in the wizard asks about it — a rule-by-rule
+  // diff review is judgement work a prompt renders badly, and putting a
+  // question here would break the no-TTY express path above. So it is a
+  // pointer, and the skill is where the decisions get made.
+  c.dim('See what your linter already decides, and what it could:'),
+  `${c.cyan('/dev-lint-rules')}`,
+  '',
   // Printed even on a fresh install: this line, and the README, are the only
   // channels that reach a project once it is installed. Nothing inside the
   // payload can tell a version that predates the update check that it is stale.

@@ -1,8 +1,8 @@
 {
   "installation": {
-    "version": "1.21.0",
+    "version": "1.22.0",
     "installDate": "2026-09-08T10:07:31.602Z",
-    "lastUpdated": "2026-09-10T13:08:39.542Z"
+    "lastUpdated": "2026-09-18T13:28:37.601Z"
   },
   "payloadDir": "_dev-workflow",
   "skills": [
@@ -32,6 +32,10 @@
       "sha256": "beb28b7b2e1554e219b8df6a70ab0e65aaeabb7d884df5802e7e580880b840b6"
     },
     {
+      "path": "_dev-workflow/hooks/lint-edited-file.mjs",
+      "sha256": "1c97c3d42546f70fcbd947ca568785a75b147caf0294f3db0bc95dca3167295a"
+    },
+    {
       "path": "_dev-workflow/hooks/session-standup.mjs",
       "sha256": "a3be5fa5f449cbc48225f77f241c354e26e167af69011cbf933434f66f402bb3"
     },
@@ -53,7 +57,7 @@
     },
     {
       "path": "_dev-workflow/lib/config.mjs",
-      "sha256": "5c795a8dfbdad58fb43fb519e4fa35596a7b916392b4fccd1dd0afb8c6ff6127"
+      "sha256": "01a40f711cec395badb43be4ba76bbff9c658133b82a84eae88bd0e9c673cfc3"
     },
     {
       "path": "_dev-workflow/lib/doclife.mjs",
@@ -62,6 +66,10 @@
     {
       "path": "_dev-workflow/lib/docset.mjs",
       "sha256": "1ef81a700372e481aab0d4dc705462e655146e11c40aceee3926777bceaafbe9"
+    },
+    {
+      "path": "_dev-workflow/lib/doctrine.mjs",
+      "sha256": "b1994063c1356a3e3a1e150b75f4028958cd1c375e78c426c2a013313732046f"
     },
     {
       "path": "_dev-workflow/lib/fleet.mjs",
@@ -109,11 +117,15 @@
     },
     {
       "path": "_dev-workflow/lib/rules.mjs",
-      "sha256": "85eff39c393a18a3b33dcb1adbd3991912b5589df616abcd26efcef6ac179272"
+      "sha256": "33448b5d9c164ccc04fdad5c19aa9eb73283afb17618da72cc22e2ffc1cea2ac"
     },
     {
       "path": "_dev-workflow/lib/sh.mjs",
       "sha256": "41f9fe345444299c16f9a486f3bc722e288a2e2c7c8ad714f0d3dbc12cfb1050"
+    },
+    {
+      "path": "_dev-workflow/lib/stack.mjs",
+      "sha256": "cfb96074bc4eb47e13cd17531cccbff46385dac948d23c47a9d49503cf4ef1b2"
     },
     {
       "path": "_dev-workflow/lib/stage.mjs",
@@ -213,7 +225,7 @@
     },
     {
       "path": "_dev-workflow/scripts/cmd/rules.mjs",
-      "sha256": "5e686ff4de2267f08c6191c40fcf24ad4f98dfb6bdbfe832dd127265015d58ed"
+      "sha256": "680077e222acc49abbfd039d6390c71313b8af7fb7f9fc858012576dab27a06e"
     },
     {
       "path": "_dev-workflow/scripts/cmd/split.mjs",
@@ -245,7 +257,7 @@
     },
     {
       "path": "_dev-workflow/scripts/dev.mjs",
-      "sha256": "64cc1b5c6dc4ff03b3ca12a2a9da3dd300e505c03f4592b91549d5526dab0ee1"
+      "sha256": "431c71149db5d81ff04a97d86ebc7995984d8cae39de2dab48011d1174cbbe5c"
     },
     {
       "path": ".claude/agents/dev-builder.md",
@@ -301,7 +313,7 @@
     },
     {
       "path": ".claude/skills/dev-lint-rules/SKILL.md",
-      "sha256": "fb1060e53431fc1e021fde8733e4cc8739cf3a79f26a8a2673fd6736bf8121c5"
+      "sha256": "5b2a5f40ea33f19ac65288e8d6bb6018d5f3c14cf2551221b108ad3ad3220842"
     },
     {
       "path": ".claude/skills/dev-plan/SKILL.md",

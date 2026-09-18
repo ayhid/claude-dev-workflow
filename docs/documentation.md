@@ -111,7 +111,7 @@ one of three things: a **hook**, an **`intent` claim** for this set, or **noise*
 convention that is none of the three has been restated in review for years and will be restated
 tomorrow.
 
-`dev.mjs rules` is the inventory it starts from — which linters are configured, which languages
+`dev.mjs rules --doctrine` is the inventory it starts from — which linters are configured, which languages
 nothing lints, and what the project states in writing.
 
 ## The commands

@@ -12,6 +12,7 @@ project** as Claude Code skills. This file is for working **on** it; `README.md`
 | `hooks/check-commit-ticket.sh` | **on every Bash tool call** | Bash + jq only. Latency-critical — keep the fast-bail first. |
 | `hooks/check-adr-immutable.sh` | on every `Edit`/`Write` | Bash + jq only. Off the hot path, so it may read the target. |
 | `hooks/session-standup.mjs` | **once, when a session opens** | Node, zero deps. Bounded at 3s; may never fail or stall a session. |
+| `hooks/lint-edited-file.mjs` | after every `Edit`/`Write` | Node, zero deps. Bounded at 5s; exit 2 only for findings. |
 
 The zero-dependency rule for `lib/` and `scripts/` is load-bearing, not an aesthetic: the payload
 is copied into the user's project as plain source with no `node_modules`, so it has to work in a
@@ -37,7 +38,7 @@ installed all run the same `bin/install.mjs`; `dw` is the short name for the glo
 `init` / `update` / `version` are subcommands the older `--update` flags still spell. In the
 project it copies `lib/`, `scripts/` and `hooks/` into `_dev-workflow/`, the skills into
 `.claude/skills/dev-*`, the subagent definitions into `.claude/agents/dev-*.md`, and merges the
-four hooks into `.claude/settings.json`. That copy is what the project commits and runs from;
+five hooks into `.claude/settings.json`. That copy is what the project commits and runs from;
 there is no plugin manifest. A global binary updates a project to *its own* version, so
 `dev.mjs version --upgrade` uses it only when it already reports the latest release and falls
 back to `npx …@latest` otherwise, and `update` refuses to move a project backwards unless forced.
@@ -432,7 +433,7 @@ Two consequences, both deliberate:
 Work with an issue behind it references it as `(#123)`. Work without one keeps the
 `<type>(no-ticket):` escape hatch; the type in it is incidental, so any configured type carries it.
 
-Four hooks ship, registered by one list — `SHIPPED_HOOKS` in `bin/lib/payload.mjs`. The merge into
+Five hooks ship, registered by one list — `SHIPPED_HOOKS` in `bin/lib/payload.mjs`. The merge into
 `.claude/settings.json` is what makes a hook apply at all, so a fifth is one entry in that list
 rather than a second copy of the merge. Each entry carries its **event** as well as its matcher: the
 merge assumed `PreToolUse` until `session-standup.mjs` needed `SessionStart`, which is precisely the
@@ -452,6 +453,42 @@ but that is a decision with a price, not a free convenience, and `standup`'s own
 to keep short. The 3s ceiling is the other half: past it the hook prints one line and gives up,
 because a greeting that delays a session is worse than no greeting.
 
+`hooks/lint-edited-file.mjs` is the one `PostToolUse` hook, and the third in Node. It lints the file
+that was just written and hands the findings back on stderr with exit 2, which is what puts them in
+front of the model; every other path exits 0 in silence, and it writes nothing at all. Its
+Node-vs-bash argument is made **from scratch in its own header**, as this file demands — and the
+deciding reason is a new one rather than a restatement of the other two: it needs three tables that
+live in `lib/` (which extensions a linter handles, which config filenames mean which linter is set
+up, how that linter lints one file), and in bash all three would be transcriptions that go stale in
+silence.
+
+Two of its rules are worth having here because a rewrite would lose them. **Findings are read from
+stdout only**: both supported tools keep their own failures on stderr, so reading both made a broken
+config look like a violation and fire on every edit for the rest of the day — and silence is the
+honest output for "the linter could not tell us". And **the file has to be a source file before
+anything runs**, even under a `repos[].lintFile` the project configured itself: a wrapper written
+for a source tree was not written for its README. Output is capped at 20 sorted lines for the reason
+the greeting is kept short — a file with three hundred violations must not put three hundred lines
+into a session's context because somebody saved it.
+
+`dev.mjs rules --doctrine` is the other half of the same idea, and the reason the hook is worth
+having. An A/B eval of the clean-code doctrine found that its **mechanically checkable** rules
+scored the same with the doctrine in the prompt as without it — the model already applies them —
+while the semantic ones carried the entire gain. So a mechanical rule is prompt text that buys
+nothing and belongs in the linter, which also protects a project running a cheaper model: a rule the
+prompt failed to land is still caught. `lib/doctrine.mjs` is the table that makes the split
+mechanical, `lib/stack.mjs` reads what a project declares, and `/dev-lint-rules` §3.5 is where the
+batch gets approved. Three properties of that table are load-bearing: it **owns the rule ids**,
+never deriving them from a heading or a bullet's position, because both move when prose is edited;
+for every tool it states either the rule that decides a doctrine rule **or the reason there is
+none**, since a bare `null` reads as nobody having got round to it; and `unknown` is a verdict
+rather than a silence, because a resolve that could not run is not evidence a rule is absent and
+folding it into `missing` would make the command propose a rule the project already has. Coverage is
+decided by **running** `eslint --print-config`; Biome is the stated exception, its JSON config read
+instead, because it exposes no resolved configuration and the only run-based alternative — diffing a
+forced-on run against a default one — proves nothing whenever a rule has no violations, which is
+exactly the healthy project where the answer matters.
+
 `session-updatecheck.mjs` is the second `SessionStart` hook: one line when a newer version is
 published, from the cached daily lookup, and **never an update** — the command is printed, running
 it is the user's decision. It is its own hook rather than a paragraph in the standup so that turning
@@ -462,7 +499,7 @@ ceiling, same exit-0-always rule, same Node-hook argument — made again in its 
 file asks.
 
 **Turning a hook off is one vocabulary.** `hooks.sessionStart`, `hooks.updateCheck`,
-`hooks.commitTicket` and `hooks.adrImmutable` in `.dev-workflow.json`, honoured by the hooks themselves — which is what makes
+`hooks.commitTicket`, `hooks.adrImmutable` and `hooks.lintEdit` in `.dev-workflow.json`, honoured by the hooks themselves — which is what makes
 an opt-out survive `--update`, since the installer would otherwise re-add an entry the user deleted.
 The two older spellings, `commit.enforce` and `docs.enforce`, are still honoured and must stay so:
 they are documented, and an update that switched a guard back on would be exactly the silent

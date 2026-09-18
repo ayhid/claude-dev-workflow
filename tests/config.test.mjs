@@ -414,3 +414,20 @@ test('formatConfig is still callable without roots — it does no IO of its own'
   assert.match(out, /install:\s+local/);
   assert.doesNotMatch(out, /payload:/);
 });
+
+test('hooks.lintEdit is on when absent, and off only when it says false', () => {
+  // The same vocabulary as the other three: absent means on, because a hook
+  // nobody switched on guards nothing, and the switch lives in the config the
+  // hook itself reads so an --update cannot re-enable what a user turned off.
+  const dir = mkdtempSync(join(tmpdir(), 'ytcfg-lint-'));
+  writeFileSync(join(dir, '.dev-workflow.json'), JSON.stringify({ provider: 'github' }));
+  assert.equal(loadConfig({ dir, env: {} }).config.hooks.lintEdit, true);
+
+  writeFileSync(join(dir, '.dev-workflow.json'), JSON.stringify({ hooks: { lintEdit: false } }));
+  assert.equal(loadConfig({ dir, env: {} }).config.hooks.lintEdit, false);
+
+  // And it is independent of the others: switching the greeting off must not
+  // switch the linter off with it.
+  writeFileSync(join(dir, '.dev-workflow.json'), JSON.stringify({ hooks: { sessionStart: false } }));
+  assert.equal(loadConfig({ dir, env: {} }).config.hooks.lintEdit, true);
+});

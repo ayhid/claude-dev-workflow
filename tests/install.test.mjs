@@ -9,21 +9,22 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  ADR_HOOK_COMMAND,
+  HOOK_COMMAND,
+  LINT_HOOK_COMMAND,
   MANIFEST_PATH,
   PAYLOAD_DIR,
   PAYLOAD_SOURCES,
+  SESSION_HOOK_COMMAND,
+  SHIPPED_HOOKS,
+  UPDATE_HOOK_COMMAND,
   detectDrift,
   installPayload,
   isGeneratedPath,
   isOwnedPath,
-  ADR_HOOK_COMMAND,
-  HOOK_COMMAND,
-  SESSION_HOOK_COMMAND,
-  SHIPPED_HOOKS,
   mergeHookIntoSettings,
   planFiles,
   readManifest,
-  UPDATE_HOOK_COMMAND,
 } from '../bin/lib/payload.mjs';
 
 const SOURCE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -228,7 +229,12 @@ test('a project installed before a hook existed gains only the missing ones', ()
   };
   const { settings, added, addedCommands } = mergeHookIntoSettings(existing);
   assert.equal(added, true);
-  assert.deepEqual(addedCommands, [ADR_HOOK_COMMAND, SESSION_HOOK_COMMAND, UPDATE_HOOK_COMMAND]);
+  assert.deepEqual(addedCommands, [
+    ADR_HOOK_COMMAND,
+    LINT_HOOK_COMMAND,
+    SESSION_HOOK_COMMAND,
+    UPDATE_HOOK_COMMAND,
+  ]);
 
   const commands = allCommands(settings);
   assert.equal(commands.filter((c) => c === HOOK_COMMAND).length, 1, 'no duplicate commit hook');
@@ -975,4 +981,33 @@ test('the commit hook keeps its executable bit through the default atomic write 
   const hook = join(dir, PAYLOAD_DIR, 'hooks', 'check-commit-ticket.sh');
   assert.ok(statSync(hook).mode & 0o111);
   assert.ok(!existsSync(`${hook}.tmp`), 'no temporary is left beside a written file');
+});
+
+test('the lint hook is registered on PostToolUse, and a re-merge adds nothing', () => {
+  const first = mergeHookIntoSettings({});
+  const post = first.settings.hooks.PostToolUse ?? [];
+  const entry = post.find((e) => (e.hooks ?? []).some((h) => h.command === LINT_HOOK_COMMAND));
+  assert.ok(entry, 'the lint hook is not registered under PostToolUse');
+  assert.equal(entry.matcher, 'Edit|Write');
+
+  const again = mergeHookIntoSettings(first.settings);
+  assert.equal(again.added, false);
+  assert.deepEqual(allCommands(again.settings), allCommands(first.settings));
+});
+
+test('the same matcher on two events is two entries, not one', () => {
+  // The ADR guard watches Edit|Write before the write and the lint hook after
+  // it. Matching by command string across the whole file rather than within
+  // its own event would install only the first of them — and this pair is the
+  // first to actually exercise that.
+  const { settings } = mergeHookIntoSettings({});
+  const before = (settings.hooks.PreToolUse ?? []).filter((e) => e.matcher === 'Edit|Write');
+  const after = (settings.hooks.PostToolUse ?? []).filter((e) => e.matcher === 'Edit|Write');
+  assert.equal(before.length, 1);
+  assert.equal(after.length, 1);
+  assert.notEqual(
+    before[0].hooks[0].command,
+    after[0].hooks[0].command,
+    'two events, two different commands',
+  );
 });

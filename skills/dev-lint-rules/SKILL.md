@@ -1,6 +1,6 @@
 ---
 name: dev-lint-rules
-description: Turn a project's stated conventions into rules its linter can decide, each with the count of what it would flag today — and name the ones no linter can settle as a hook, a claim, or noise. Use before writing a conventions document, when a review keeps restating the same rule, or when the user types /dev-lint-rules.
+description: Turn a project's stated conventions — and the clean-code doctrine's mechanical half — into rules its linter can decide, each with the count of what it would flag today, and name the ones no linter can settle as a hook, a claim, or noise. Use before writing a conventions document, when a review keeps restating the same rule, when setting up verification in a new project, or when the user types /dev-lint-rules.
 argument-hint: "[optional: a surface to focus on, e.g. naming, imports, commits]"
 ---
 
@@ -28,19 +28,25 @@ convention exists; the enforcer does not.
 One command, and do not assemble any of it by hand:
 
 ```bash
-node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" rules
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" rules --doctrine --json
 ```
 
-It reports four things: the linters configured and the config files that say so, the check commands
-from `.dev-workflow.json`, the documents that state conventions, and the `intent` claims in the
-documentation ledger. Add `--json` when you want the per-linter count recipe as data.
+**One run, for both halves of this skill**, because a second spawn is a whole turn and a turn is
+what a session pays for. It reports the linters configured and the config files that say so, the
+check commands from `.dev-workflow.json`, the documents that state conventions, the `intent` claims
+in the documentation ledger — and, from `--doctrine`, what the project is built with, whether
+anything actually runs its linter, and which doctrine rules that linter already decides. Drop
+`--json` for the rendered version when you want to show the user the report itself.
 
-Two lines change what you do next:
+Three lines change what you do next:
 
 - **`not linted at all`** — a language in this tree that no configured linter covers. Nothing can be
   proposed for it, because there is no config to propose into. Say so and name the standard tool;
   do not write a config file for a linter nobody installed.
 - **`no linter is configured`** — the same, for the whole project.
+- **`named in: nothing`** — a linter is configured and nothing runs it. Say this before proposing a
+  single rule: a rule added to a linter no script, no hook and no CI job invokes will never fail
+  anything, and choosing rules for it is an afternoon spent on a file nobody reads.
 
 **A rule that already exists is never proposed again.** The command is what makes that a fact rather
 than a hope, so read its output before reading anything else. If a convention is already enforced,
@@ -114,6 +120,51 @@ worse than no count, because nobody re-checks a number.
 guideline is worse than no rule: it is wrong in exactly the cases nobody looks at, and every
 false positive spends somebody's attention on the linter rather than the code.
 
+## 3.5 The doctrine's mechanical half
+
+§1 to §3 work from what *this project* wrote down. This step works from what the clean-code doctrine
+asks for, and it exists because an A/B eval settled an argument: the doctrine's mechanically
+checkable rules scored the same with the doctrine in the prompt as without it — the model already
+applies them — while the semantic ones carried the entire gain. A rule a linter can decide is
+therefore prompt text that buys nothing, and it belongs in the linter. This is also the half that
+protects a project running a cheaper model: a rule the prompt failed to land is still caught.
+
+```bash
+node "${CLAUDE_PROJECT_DIR}/_dev-workflow/scripts/dev.mjs" rules --doctrine --json
+```
+
+Read the `doctrine` array and build one table, in §3's shape, adding the verdict:
+
+| | |
+|---|---|
+| the rule | the doctrine rule's id, and its `level` |
+| the verdict | `covered`, `partial`, `missing`, `unknown` |
+| the rule to add | the `suggestion`, already written in this project's config dialect |
+| **the count** | how many existing violations it would flag today — §3's rule, unchanged |
+
+Four things the output decides for you, so do not re-decide them:
+
+- **A `covered` rule is never proposed.** The verdict comes from the tool's own resolved
+  configuration, not from anybody remembering — which is the whole reason the command runs
+  `--print-config` rather than looking for a config file.
+- **An `unknown` verdict is not a missing rule.** It means the answer could not be had: a linter
+  declared but not installed, a Biome config extending an npm package, a typed rule in a project
+  with no parser project. Report the reason and what would make it knowable. **Propose nothing.**
+- **A `doctrine-only` rule stays in the prompt.** Name it with its reason and move on. Nothing
+  mechanical comes close, and that is the finding.
+- **Paste from `suggestions`, not from the per-rule `suggestion`.** The per-rule one is for the
+  table. `suggestions` is merged by linter rule id, because two doctrine rules can want the same
+  one — ESLint gives `no-restricted-syntax` a single entry, so two lines in one `rules` object means
+  the second silently replaces the first.
+
+Then present the whole batch, exactly as §3 does. The user may approve **as a batch or rule by
+rule**; record which, and apply only what was approved — merging into the existing `rules` object
+with `Edit`, never rewriting the file.
+
+**Afterwards, run `rules --doctrine` again and report the verdicts read back.** A rule you approved
+and applied that still reads `missing` means the edit did not take, and reporting the state you
+found rather than the one you intended is the same rule every write in this tool follows.
+
 ## 4. Report what no rule can decide — the valuable half
 
 Everything left over. Each one is one of three things, and say which it looks like:
@@ -139,3 +190,14 @@ be documented better" is how it survives another year.
   a rule that will never run is worse than an absent one, because it looks like coverage.
 - **It does not write the document it exists to replace.** If the leftovers in §4 are large and
   interesting, that is not a `conventions.md` — they are claims, hooks, or deletions.
+- **It flags a legacy `.eslintrc*`; it does not migrate it.** The rule ids and options are identical
+  either side of the flat-config split — only the wrapper differs — so the snippets come written for
+  the config that is actually there. Moving to flat config is a separate decision, and this skill
+  does not make it while the user is looking at something else.
+- **It proposes nothing for a verdict of `unknown`.** A snippet offered on an answer we do not have
+  is a guess, and the times a guess is wrong are the times nobody notices.
+- **It does not fill in a rule that needs the project's own input.** `no-restricted-imports` with a
+  module list invented here is a rule that flags the wrong thing for ever; the placeholder is a
+  question, not a default. Ask, or leave it out of the batch.
+- **It proposes rules only inside the linter already in place.** A Biome project that cannot express
+  a doctrine rule is told which tool could — it is not handed a second linter.

@@ -246,13 +246,21 @@ Omit it entirely for a single-repo project.
     "env": { "ASDF_NODEJS_VERSION": "22.22.0" },
     "remotes": ["origin", "upstream"],
     "scopes": ["feature", "bug", "components"],
-    "github": "acme/frontend"
+    "github": "acme/frontend",
+    "lintFile": ["pnpm", "exec", "eslint", "--format=compact", "<FILE>"]
   }
 ]
 ```
 
 `when` is how `/dev-plan` routes a ticket to a repo, `checks` is what `/dev-done` runs there, `env`
 is prepended to every command in that repo, and `remotes` lists everywhere branches are pushed.
+
+`lintFile` is what the `lintEdit` hook runs against the one file that was just written, with
+`<FILE>` replaced by its path. Omit it and the hook derives the command from whichever linter it
+detects; set it when the project has a wrapper of its own. It is an **argument array**, never a
+shell string, so a path containing a space reaches the linter intact — and in a monorepo the entry
+whose `path` contains the edited file is the one that runs, since the linter usually lives in the
+package rather than at the root.
 
 Commands taking `--repo` infer it from the directory they are run in, so the flag is only needed
 from outside every repo. This is what makes worktree mode usable here: a worktree sits *under* the
@@ -400,7 +408,7 @@ DEV_WORKFLOW_NO_BANNER=1 node _dev-workflow/scripts/dev.mjs config
 
 ## `hooks` — turning a shipped hook off
 
-Four hooks are installed and on by default. One key each turns one off.
+Five hooks are installed and on by default. One key each turns one off.
 
 ```jsonc
 {
@@ -408,7 +416,8 @@ Four hooks are installed and on by default. One key each turns one off.
     "sessionStart": true,   // false: no standup when a session opens
     "updateCheck": true,    // false: no "an update is available" line when a session opens
     "commitTicket": true,   // false: commit messages are not checked
-    "adrImmutable": true    // false: accepted decision records are editable
+    "adrImmutable": true,   // false: accepted decision records are editable
+    "lintEdit": true        // false: an edited file is not linted, and nothing is handed back
   }
 }
 ```
@@ -417,7 +426,8 @@ The hooks read this themselves rather than the installer honouring it, and that 
 opt-out that worked by deleting the entry from `.claude/settings.json` would last until the next
 `npx claude-dev-workflow@latest`, which re-adds anything missing.
 
-`commit.enforce` and `docs.enforce` are the older spellings for the last two, and both still work.
+`commit.enforce` and `docs.enforce` are the older spellings for `commitTicket` and `adrImmutable`,
+and both still work.
 `false` in either place turns the hook off; the older key can only disable, never re-enable, so a
 config carrying both never has to be read for precedence.
 
@@ -429,6 +439,7 @@ config carrying both never has to be read for precedence.
 | `updateCheck` | once, when a session opens | a cache read; a registry lookup only when the cache is older than a day, bounded at 3s (a lookup that fails is retried on the next session, still bounded); one line of output only when a newer version exists |
 | `commitTicket` | every Bash tool call | ~3ms for anything that is not a `git commit -m` |
 | `adrImmutable` | every `Edit`/`Write` | one filename check, and a file read only for ADR-shaped paths |
+| `lintEdit` | every `Edit`/`Write`, after the write | nothing for a file the linter does not handle; otherwise one single-file lint, capped at 5s, and at most 20 lines of findings into the session's context |
 
 `sessionStart` is the one with a real price. Its output goes into the session's context as well as
 the terminal, so it is spending tokens on every session, not just screen space. That buys a board
