@@ -315,10 +315,10 @@ places for the seventh to be forgotten.
   repo-local development only. Never referenced at runtime, never copied into a project. The
   `devDependencies` they pull in are the *only* dependencies this repo may grow; `lib/` and
   `scripts/` stay on `node:` builtins, and `tests/version.test.mjs` fails if they do not.
-- `_dev-workflow/`, `.claude/skills/dev-*`, `.claude/agents/dev-*.md`, `.dev-workflow.json` —
-  **installer output, not source.**
-  See "This repo is one of its own consumers" below. `.claude/` otherwise holds repo-local
-  development config: `settings.json`, its hooks, and the `release` / `workflow-audit` skills.
+- `.claude/` — repo-local development config only: `settings.json`, its two `PostToolUse` hooks,
+  and the `release` / `workflow-audit` skills. **No installer output lives here.** There is no
+  `_dev-workflow/`, no `.claude/skills/dev-*`, no `.dev-workflow.json` — see "This repo is not one
+  of its own consumers" below.
 - Enforcement belongs in `hooks/`; repeatable procedure belongs in a skill; only always-true
   conventions belong in this file.
 
@@ -394,43 +394,40 @@ means staying out of the way, not integrating.
 ## Checks
 
 ```bash
-npm test        # lint + unit tests + hook table test
-npm run lint    # bash -n, node --check, shellcheck when installed
+npm test              # lint + scratch install comparison + unit tests + hook table test
+npm run lint          # bash -n, node --check, shellcheck when installed
+npm run check:payload # install into a temp dir; is the copy byte-identical to its source?
 ```
 
-## This repo is one of its own consumers
+## This repo is not one of its own consumers
 
-The workflow is **installed into this repo**, against GitHub Issues on `ayhid/claude-dev-workflow`.
-`.dev-workflow.json` is the config, `_dev-workflow/` is the installed runtime, and
-`.claude/skills/dev-*` are the installed skills — all committed, and all produced by
-`bin/lib/payload.mjs` exactly as a user's would be.
+It was, for most of its life: the payload was committed here and the copy was what ran. **ADR 0008
+ended that** — the tool is exercised on real projects now, where it is installed the way a user
+installs it. Do not reinstate the self-install without reading that record; the argument for it
+("the path a user gets is the path enforced here") is answered there.
 
-Two consequences, both deliberate:
+What follows from it:
 
-- **`_dev-workflow/` is a copy, not a source.** Edit `lib/`, `scripts/` and `hooks/` at the root,
-  then re-run the installer to refresh it. Editing the copy makes the manifest treat it as a
-  user edit and the next install will skip it — silently preserving a change that is not in the
-  shipped source. `git diff` on `_dev-workflow/` after an install is how drift becomes visible.
-- **The commit hook runs from the installed copy.** `.claude/settings.json` registers
-  `_dev-workflow/hooks/check-commit-ticket.sh`, not the source-tree one, so the path a user
-  actually gets is the path enforced here. That registration is the only thing making the guard
-  apply — removing the entry silently removes the enforcement.
+- **There is nothing generated in this checkout.** `lib/`, `scripts/`, `hooks/`, `skills/` and
+  `agents/` are the only copies that exist. A path under `_dev-workflow/` appearing in a diff here
+  is a mistake — that directory belongs in a *consumer's* project.
+- **The installer is proved against a scratch install, never against this repo.**
+  `npm run check:payload` installs into a temp directory and compares it byte-for-byte with the
+  sources `planFiles` names, sweeping for orphans; the CI `install` job runs the same comparison
+  against the tree it then executes the hook table in. A unit test asserts the installer's *plan*;
+  only a comparison after a real write proves the plan was carried out.
+- **The hooks this tool ships are not registered here**, so its own development is not governed by
+  them. `commitlint` through Husky is the whole of the enforcement in this repo. An accepted ADR is
+  protected by review, not by `check-adr-immutable.sh`; the `(#123)` reference below is a
+  convention, not a guard. That is a deliberate trade, not an oversight — but it does mean a change
+  to a hook is only ever proved by `tests/*hook*` and a scratch install, never by being felt here.
+- **This repo's GitHub issues are not reconciled by the tool.** A ticket closes on a merged PR's
+  `Closes #N`, or by hand.
 
-- **The ladder is reconciled by CI, not by hand.** `.github/workflows/reconcile.yml` runs
-  `dev.mjs sync --apply --deep` on every merged PR, plus weekly. `--deep` is load-bearing: a branch
-  named by hand carries no issue ID, so the commit subjects are the only link. So is
-  `fetch-depth: 0` on the checkout — and it stays load-bearing after the switch to `pr` delivery,
-  which is the reading to resist. `--deep` exists for work the PR record cannot account for: a
-  hand-named branch, a hotfix pushed straight to `main`, and every commit this repo made in the
-  years it delivered `direct`. For all of those the base-branch commit log is the only evidence
-  there is, and at the default depth of 1 that log is one commit long and the run reports a clean
-  board. A delivery mode is a default, not a guarantee about how work arrives. It is **one step**,
-  and must stay one: the second step it used to have was repo-local glue spelling `status: in
-  review` in shell, and #30 moved that repair into the adapter where the label mapping already
-  lives. A workaround added here rather than in `lib/` fixes this repo and no consumer's.
-
-Work with an issue behind it references it as `(#123)`. Work without one keeps the
+Work with an issue behind it still references it as `(#123)`. Work without one keeps the
 `<type>(no-ticket):` escape hatch; the type in it is incidental, so any configured type carries it.
+
+## Hooks that ship
 
 Four hooks ship, registered by one list — `SHIPPED_HOOKS` in `bin/lib/payload.mjs`. The merge into
 `.claude/settings.json` is what makes a hook apply at all, so a fifth is one entry in that list
