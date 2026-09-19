@@ -84,6 +84,14 @@ jobs:
             if (!r.hookAdded || r.written.length === 0) process.exit(1);
           " --input-type=module
 
+      # The plan is asserted by the unit tests; this asserts it was carried out.
+      # Byte-for-byte against the sources `planFiles` names, plus an orphan sweep
+      # — the copy a project runs must be the code that was reviewed (ADR 0008).
+      # Against the install above rather than its own `--scratch`, so the tree
+      # every later step exercises is the tree that was compared.
+      - name: The installed tree is byte-identical to its source
+        run: node tools/check-payload.mjs --dir /tmp/scratch
+
       - name: The expected tree exists
         run: |
           set -e

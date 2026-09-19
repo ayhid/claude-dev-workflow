@@ -1,18 +1,19 @@
 /**
  * The source-vs-copy check (repo-local dev tooling, not shipped).
  *
- * This repo is one of its own consumers: `_dev-workflow/` and
- * `.claude/skills/dev-*` are an installed copy of `lib/`, `scripts/`, `hooks/`
- * and `skills/`, and the copy is what actually runs. Keeping the two in step
- * was manual until this check existed.
+ * An install writes `lib/`, `scripts/`, `hooks/`, `skills/` and `agents/` into a
+ * project as `_dev-workflow/`, `.claude/skills/dev-*` and `.claude/agents/dev-*.md`,
+ * and the copy is what that project then runs. This check is what says the copy
+ * is verbatim and that nothing unplanned was left behind.
  *
- * Everything here runs against a temporary tree built in `mkdtemp`. Asserting
- * against this repo's own installed copy would make the suite depend on
- * whether someone had refreshed it, which is the very thing under test.
+ * Everything here runs against a temporary tree built in `mkdtemp`, and since
+ * ADR 0008 that is the only kind of tree there is: this repo no longer installs
+ * into itself, so `--scratch` makes the subject of the comparison rather than
+ * finding one.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -396,6 +397,66 @@ test('AC8: without the flag nothing is spawned at all', () => {
 
   assert.equal(spawned, 0, 'the default is read-only');
   assert.equal(code, 1);
+});
+
+// --- choosing the tree to check ----------------------------------------------------
+
+test('AC10: --dir checks the named tree, not the working one', () => {
+  const root = fixture();
+  const elsewhere = mkdtempSync(join(tmpdir(), 'payload-elsewhere-'));
+
+  const out = [];
+  const code = main(['--dir', elsewhere], { sourceRoot: root, write: (s) => out.push(s) });
+
+  // The fixture's own copy is in step, so a clean exit here would mean the run
+  // had checked the source root and quietly ignored the directory it was given.
+  assert.equal(code, 1, '--dir was not honoured — a clean report for a tree nobody looked at');
+  assert.match(out.join(''), /missing/);
+  rmSync(elsewhere, { recursive: true, force: true });
+});
+
+test('AC10: --dir with no path refuses rather than falling back', () => {
+  const out = [];
+  const code = main(['--dir'], { sourceRoot: fixture(), write: (s) => out.push(s) });
+
+  assert.equal(code, 2, 'a check that never ran is neither a pass nor drift');
+  assert.match(out.join(''), /--dir needs a path/);
+});
+
+/**
+ * The gate this repo actually runs, since it no longer installs into itself
+ * (ADR 0008). It writes through `installPayload` — the installer's own path —
+ * so a clean report is evidence about the installer, not about whoever last
+ * remembered to refresh a committed copy.
+ */
+test('AC10: --scratch installs, compares, and reports no drift', () => {
+  const root = fixture();
+
+  const out = [];
+  const code = main(['--scratch'], { sourceRoot: root, write: (s) => out.push(s) });
+
+  assert.equal(code, 0, out.join(''));
+  assert.match(out.join(''), /byte-identical/);
+  assert.match(out.join(''), /fresh install/);
+});
+
+test('AC10: --scratch leaves nothing behind', () => {
+  const scratches = () => readdirSync(tmpdir()).filter((n) => n.startsWith('payload-scratch-'));
+  const before = scratches().length;
+
+  main(['--scratch'], { sourceRoot: fixture(), write: () => {} });
+
+  assert.equal(scratches().length, before, 'a temp install was left on disk');
+});
+
+test('AC10: --scratch never reports the version note', () => {
+  const out = [];
+  main(['--scratch'], { sourceRoot: fixture(), write: (s) => out.push(s) });
+
+  // The manifest carries the marker version the check stamped on it a moment
+  // ago. Comparing that with package.json would be the tool solemnly reporting
+  // a mismatch it created itself.
+  assert.doesNotMatch(out.join(''), /0\.0\.0-check/);
 });
 
 // --- packaging and wiring ---------------------------------------------------------

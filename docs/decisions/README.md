@@ -11,3 +11,4 @@
 | [0005](0005-a-naming-rule-for-skills-commands.md) | A naming rule for skills, commands and agents | accepted | 2026-09-09 |
 | [0006](0006-done-is-a-proof-the-author.md) | Done is a proof the author checks in a minute | superseded by [0007](0007-done-is-a-proof-the-author.md) | 2026-09-18 |
 | [0007](0007-done-is-a-proof-the-author.md) | Done is a proof the author checks, from the session he works in | accepted | 2026-09-18 |
+| [0008](0008-stop-installing-the-workflow-into-its.md) | Stop installing the workflow into its own repository | accepted | 2026-09-19 |

@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 /**
- * Is the installed copy still the source it was generated from?
+ * Is an installed copy still the source it was generated from?
  *
- *   node tools/check-payload.mjs             report drift, exit non-zero if any
+ *   node tools/check-payload.mjs --scratch   install into a temp dir, compare, exit non-zero on drift
+ *   node tools/check-payload.mjs --dir PATH   compare a project already installed into PATH
+ *   node tools/check-payload.mjs              compare the project in the working directory
  *
  * **Repo-local development tooling. Not shipped** — `package.json#files` does
  * not list `tools/`, same as `tools/profile.mjs`, and the comparison would be
@@ -11,18 +13,22 @@
  *
  * ## Why this exists
  *
- * This repo is one of its own consumers. `_dev-workflow/` and
- * `.claude/skills/dev-*` are an installed copy produced from `lib/`, `scripts/`,
- * `hooks/` and `skills/` at the root — and **the copy is what runs**:
- * `.claude/settings.json` registers `_dev-workflow/hooks/check-commit-ticket.sh`,
- * not the source-tree one. Keeping the two in step was entirely manual, so a
- * stale copy meant the hook enforced here was not the hook that ships, and the
- * only signal was remembering to look at `git diff _dev-workflow/`.
+ * An install copies `lib/`, `scripts/`, `hooks/`, `skills/` and `agents/` into a
+ * project as `_dev-workflow/`, `.claude/skills/dev-*` and `.claude/agents/dev-*.md`,
+ * and that copy is what the project then runs — `.claude/settings.json` registers
+ * `_dev-workflow/hooks/check-commit-ticket.sh`, not a source-tree path. So the
+ * property worth asserting is that the copy is **verbatim** and that the delete
+ * pass leaves nothing behind: a payload that is not what it was generated from
+ * is a project running code nobody reviewed.
+ *
+ * The unit tests assert the installer's *plan*. Only a comparison made after a
+ * real write proves the plan was carried out, which is why `--scratch` installs
+ * first and compares second (ADR 0008).
  *
  * `dev.mjs version` does not answer this. It compares the installed tree against
  * the manifest's own recorded hashes — which catches a hand-edited copy — and
- * against the published npm version. Neither notices that the source next door
- * has moved on.
+ * against the published npm version. Neither notices that the source it was
+ * generated from has moved on.
  *
  * ## The file set is not ours to decide
  *
@@ -33,11 +39,12 @@
  * silently, reporting a clean tree.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { AGENTS_DIR, MANIFEST_PATH, PAYLOAD_DIR, SKILLS_DIR, isOwnedPath, planFiles, readManifest } from '../bin/lib/payload.mjs';
+import { AGENTS_DIR, MANIFEST_PATH, PAYLOAD_DIR, SKILLS_DIR, installPayload, isOwnedPath, planFiles, readManifest } from '../bin/lib/payload.mjs';
 
 /**
  * Unplanned paths that are nonetheless legitimate.
@@ -155,10 +162,10 @@ function installedRoots(planned, projectDir) {
 /**
  * Compare the installed copy against the source it is generated from.
  *
- * `sourceRoot` and `projectDir` are the same directory for this repo — it
- * installs into itself — but they are separate arguments for the same reason
- * `installPayload` takes both: it is what lets a test drive this over a
- * temporary tree instead of over the checkout it is running in.
+ * They are two arguments for the same reason `installPayload` takes two: the
+ * source being checked and the project holding the copy are rarely the same
+ * directory. `--scratch` makes the second one, a test supplies its own, and the
+ * default — both the same — is left for a project that installed in place.
  *
  * @returns {{stale: string[], missing: string[], orphan: string[]}}
  */
@@ -243,8 +250,16 @@ export function versionNote({ projectDir }) {
   );
 }
 
-/** The report, as lines. Sorted throughout: the same tree prints the same bytes. */
-export function render({ stale, missing, orphan }, note, planned) {
+/**
+ * The report, as lines. Sorted throughout: the same tree prints the same bytes.
+ *
+ * `hint` is what to do about a problem, and it is the caller's to supply because
+ * it depends on which tree was checked. "Refresh the copy" is the answer for a
+ * project that has one; for a scratch install there is nothing to refresh — the
+ * install just happened, so a difference is a bug in `installPayload` and saying
+ * otherwise would send the reader to the one place that cannot be at fault.
+ */
+export function render({ stale, missing, orphan }, note, planned, hint = []) {
   const lines = [];
   const rows = [
     ['stale', stale, 'the source moved on and the copy did not'],
@@ -266,7 +281,7 @@ export function render({ stale, missing, orphan }, note, planned) {
       for (const p of paths) lines.push(`    ${p}`);
       lines.push('');
     }
-    lines.push('Refresh the installed copy with:', '  npm run check:payload -- --refresh', '');
+    if (hint.length > 0) lines.push(...hint, '');
   }
 
   lines.push(note);
@@ -297,6 +312,49 @@ function refresh({ sourceRoot, projectDir, spawn }) {
 }
 
 /**
+ * A throwaway project to install into, so the comparison has a subject.
+ *
+ * The install goes through `installPayload` — the installer's own write path,
+ * the same function `bin/install.mjs` calls — for the reason `refresh` spawns
+ * the installer rather than copying anything: the write plan, `isOwnedPath` and
+ * the delete pass are one implementation of what may be written in a project,
+ * and a second one here would be the drift this file exists to catch.
+ *
+ * The version is a marker, not a claim: nothing reads it back, and stamping the
+ * real one would make the report's version note compare a number against itself.
+ */
+function withScratch(sourceRoot, body) {
+  const dir = mkdtempSync(join(tmpdir(), 'payload-scratch-'));
+  try {
+    installPayload({ sourceRoot, projectDir: dir, version: '0.0.0-check' });
+    return body(dir);
+  } finally {
+    // `force`, because a failed install may have left nothing to remove, and a
+    // cleanup that throws would replace the real error with its own.
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Which tree is being checked, and what to say about a problem found in it.
+ *
+ * `--dir` without a value is a mistake worth refusing rather than silently
+ * reading as the working directory: the one thing this tool must not do is
+ * report a clean tree it never looked at.
+ */
+function parseArgs(argv) {
+  const i = argv.indexOf('--dir');
+  return {
+    refresh: argv.includes('--refresh'),
+    scratch: argv.includes('--scratch'),
+    dir: i === -1 ? null : argv[i + 1],
+    // Reported rather than thrown: a usage mistake deserves its one line, not a
+    // stack trace, and returning it keeps `main` the only thing a test drives.
+    error: i !== -1 && !argv[i + 1] ? '--dir needs a path' : null,
+  };
+}
+
+/**
  * @param {string[]} argv
  * @param {{sourceRoot?: string, projectDir?: string, write?: (s: string) => void,
  *          spawn?: typeof spawnSync}} io
@@ -304,27 +362,48 @@ function refresh({ sourceRoot, projectDir, spawn }) {
  */
 export function main(argv = [], io = {}) {
   const sourceRoot = io.sourceRoot ?? process.cwd();
-  const projectDir = io.projectDir ?? sourceRoot;
   const write = io.write ?? ((s) => process.stdout.write(s));
   const spawn = io.spawn ?? spawnSync;
-
-  const planned = planFiles(sourceRoot).size;
-  const notes = [];
-
-  // Read-only unless asked. And when asked, the state reported is the one read
-  // back *after* the write, never the one the write intended — the same rule the
-  // tracker adapters follow, for the same reason.
-  if (argv.includes('--refresh')) {
-    const failure = refresh({ sourceRoot, projectDir, spawn });
-    if (failure) notes.push(failure);
+  const opts = parseArgs(argv);
+  if (opts.error) {
+    write(`${opts.error}\n`);
+    // 2, not 1: a check that never ran is not a check that passed, and not one
+    // that found drift either.
+    return 2;
   }
 
-  const result = checkPayload({ sourceRoot, projectDir });
-  notes.push(versionNote({ projectDir }));
+  const planned = planFiles(sourceRoot).size;
 
-  write(`${render(result, notes.join('\n'), planned).join('\n')}\n`);
+  const report = (projectDir, hint, note = versionNote) => {
+    const notes = [];
 
-  return drifted(result) === 0 ? 0 : 1;
+    // Read-only unless asked. And when asked, the state reported is the one read
+    // back *after* the write, never the one the write intended — the same rule the
+    // tracker adapters follow, for the same reason.
+    if (opts.refresh) {
+      const failure = refresh({ sourceRoot, projectDir, spawn });
+      if (failure) notes.push(failure);
+    }
+
+    const result = checkPayload({ sourceRoot, projectDir });
+    notes.push(note({ projectDir }));
+
+    write(`${render(result, notes.join('\n'), planned, hint).join('\n')}\n`);
+
+    return drifted(result) === 0 ? 0 : 1;
+  };
+
+  if (opts.scratch) {
+    // Not `versionNote`: a scratch install carries the marker version this file
+    // stamped on it a moment ago, and reporting that it differs from
+    // package.json would be the tool solemnly comparing a number against itself.
+    return withScratch(sourceRoot, (dir) =>
+      report(dir, ['The install did not write what it planned — this is a bug in installPayload.'], () => 'checked: a fresh install, against the sources it was generated from'),
+    );
+  }
+
+  const projectDir = opts.dir ? resolve(opts.dir) : (io.projectDir ?? sourceRoot);
+  return report(projectDir, ['Refresh the installed copy with:', '  npm run check:payload -- --refresh']);
 }
 
 /**
